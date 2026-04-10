@@ -299,6 +299,39 @@ namespace LegendaryExplorer.UserControls.PackageEditorControls
             PackageEditorExperimentsM.SearchObjectDB(GetPEWindow());
         }
 
+        private void LightFinder_Click(object sender, RoutedEventArgs e)
+        {
+            var pew = GetPEWindow();
+            var inputDlg = new LegendaryExplorer.Dialogs.LightFinderDialog();
+            inputDlg.Owner = pew;
+            if (inputDlg.ShowDialog() != true) return;
+            var target = inputDlg.Target ?? new System.Numerics.Vector3(0, 0, 0);
+            int count = inputDlg.Count;
+
+            // Run search
+            var results = PackageEditorExperimentsM.FindNearestLights(pew, target, count);
+            if (results == null || !results.Any())
+            {
+                MessageBox.Show(pew, "No lights found");
+                return;
+            }
+
+            var items = new List<LegendaryExplorerCore.Misc.EntryStringPair>();
+            int idx = 1;
+            foreach (var r in results)
+            {
+                string msg = $"{idx++}. U{r.Export.UIndex} {r.Export.ObjectName} - Distance: {r.Distance:F3}";
+                items.Add(new LegendaryExplorerCore.Misc.EntryStringPair(r.Export, msg));
+            }
+
+            var pewWindow = pew;
+            var listDlg = new ListDialog(items, "Nearest Lights", "Nearest lights (double-click or right-click to go to export)", pewWindow, 640, 300)
+            {
+                DoubleClickEntryHandler = pewWindow?.GetEntryDoubleClickAction()
+            };
+            listDlg.Show();
+        }
+
         private void ObjectInfosSearch_Click(object sender, RoutedEventArgs e)
         {
             PackageEditorExperimentsM.SearchObjectInfos(GetPEWindow());

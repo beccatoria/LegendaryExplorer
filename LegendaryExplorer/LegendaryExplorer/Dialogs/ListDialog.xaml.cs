@@ -25,6 +25,74 @@ namespace LegendaryExplorer.Dialogs
             set => SetProperty(ref topText, value);
         }
 
+        private void ListView_MouseRightClick(object sender, MouseButtonEventArgs e)
+        {
+            var ctx = ((FrameworkElement)e.OriginalSource).DataContext;
+            if (ctx is EntryStringPair esp && (esp.Entry is not null || esp.Openable is not null))
+            {
+                DoubleClickEntryHandler?.Invoke(esp);
+            }
+            else if (ctx != null)
+            {
+                DoubleClickItemHandler?.Invoke(ctx);
+            }
+        }
+
+
+
+        public string SecondaryActionText
+        {
+            get => secondaryActionText;
+            set
+            {
+                if (SetProperty(ref secondaryActionText, value))
+                {
+                    SecondaryActionVisibility = string.IsNullOrWhiteSpace(value) ? Visibility.Collapsed : Visibility.Visible;
+                }
+            }
+        }
+        public Visibility SecondaryActionVisibility
+        {
+            get => secondaryActionVisibility;
+            set => SetProperty(ref secondaryActionVisibility, value);
+        }
+
+        public string TertiaryActionText
+        {
+            get => tertiaryActionText;
+            set
+            {
+                if (SetProperty(ref tertiaryActionText, value))
+                {
+                    TertiaryActionVisibility = string.IsNullOrWhiteSpace(value) ? Visibility.Collapsed : Visibility.Visible;
+                }
+            }
+        }
+
+        public Visibility TertiaryActionVisibility
+        {
+            get => tertiaryActionVisibility;
+            set => SetProperty(ref tertiaryActionVisibility, value);
+        }
+
+        public string QuaternaryActionText
+        {
+            get => quaternaryActionText;
+            set
+            {
+                if (SetProperty(ref quaternaryActionText, value))
+                {
+                    QuaternaryActionVisibility = string.IsNullOrWhiteSpace(value) ? Visibility.Collapsed : Visibility.Visible;
+                }
+            }
+        }
+
+        public Visibility QuaternaryActionVisibility
+        {
+            get => quaternaryActionVisibility;
+            set => SetProperty(ref quaternaryActionVisibility, value);
+        }
+    
         private ListDialog(string title, string message, Window owner, int width = 0, int height = 0) : base("List Dialog", false)
         {
             DataContext = this;

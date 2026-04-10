@@ -1,0 +1,39 @@
+<Window x:Class="LegendaryExplorer.Dialogs.LightFinderDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Light Finder" Height="200" Width="360" WindowStartupLocation="CenterOwner">
+    <Grid Margin="8">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,0">X:</TextBlock>
+        <TextBox Grid.Row="0" Grid.Column="1" Name="TxtX" Margin="0,2" />
+
+        <TextBlock Grid.Row="0" Grid.Column="2" VerticalAlignment="Center" Margin="8,0,8,0">Y:</TextBlock>
+        <TextBox Grid.Row="0" Grid.Column="3" Name="TxtY" Margin="0,2" />
+
+        <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Margin="0,6,8,0">Z:</TextBlock>
+        <TextBox Grid.Row="1" Grid.Column="1" Name="TxtZ" Margin="0,6" />
+
+        <TextBlock Grid.Row="1" Grid.Column="2" VerticalAlignment="Center" Margin="8,6,8,0">Count:</TextBlock>
+        <TextBox Grid.Row="1" Grid.Column="3" Name="TxtCount" Margin="0,6" />
+
+        <TextBlock Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="4" Name="TxtValidation" Foreground="Red" Visibility="Collapsed" Margin="0,8,0,0" TextWrapping="Wrap" />
+
+        <StackPanel Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="4" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+            <Button Name="BtnOk" Width="80" Margin="0,0,8,0" Click="BtnOk_Click">OK</Button>
+            <Button Width="80" Click="BtnCancel_Click">Cancel</Button>
+        </StackPanel>
+    </Grid>
+</Window>

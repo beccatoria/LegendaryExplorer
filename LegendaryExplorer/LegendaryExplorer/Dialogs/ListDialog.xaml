@@ -40,7 +40,7 @@
         </StackPanel>
         <ListView Name="ListDialog_List" HorizontalAlignment="Stretch" AlternationCount="2" 
                   ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                  ItemContainerStyle="{DynamicResource CustomListViewItemStyle}" MouseDoubleClick="ListView_MouseDoubleClick" ItemsSource="{Binding Items}">
+                  ItemContainerStyle="{DynamicResource CustomListViewItemStyle}" MouseDoubleClick="ListView_MouseDoubleClick" MouseRightButtonUp="ListView_MouseRightClick" ItemsSource="{Binding Items}">
             <!-- here set the itemTemplate to a TextBlock that can wraps-->
             <ListView.Resources>
                 <DataTemplate DataType="{x:Type System:String}">
