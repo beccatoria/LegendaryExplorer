@@ -35,4 +35,18 @@
         <MenuItem Header="Batch unlist Track from Group" Click="BatchUnlistTrackFromGroup_Click" ToolTip="Remove the given InterpTrack from all matching InterpGroups in the conversation's InterpDatas."/>
         <MenuItem Header="Unlist Track from Group" Click="UnlistTrackFromGroup_Click" ToolTip="Remove the given InterpTrack from the matching InterpGroup in the selected node's InterpDatas."/>
     </MenuItem>
+    <MenuItem Header="becca can't code">
+        <MenuItem Header="List Input Links" Click="ListInputLinks_Click" ToolTip="List nodes that link into the selected node and double-click to go to them."/>
+        <Separator/>
+        <MenuItem Header="Copy/Paste Output Links">
+            <MenuItem Header="Copy Output Links" Click="CopyOutputLinks_Click" ToolTip="Copy the output links from the selected node."/>
+            <MenuItem Header="Paste Output Links (Replace)" Click="PasteOutputLinksReplace_Click" ToolTip="Replace the output links on the selected node with the copied ones."/>
+            <MenuItem Header="Paste Output Links (Add)" Click="PasteOutputLinksAdd_Click" ToolTip="Append the copied output links to the selected node's links."/>
+        </MenuItem>
+        <MenuItem Header="Copy/Paste Input Links">
+            <MenuItem Header="Copy Input Links" Click="CopyInputLinks_Click" ToolTip="Copy the input links pointing into the selected node."/>
+            <MenuItem Header="Paste Input Links (Replace)" Click="PasteInputLinksReplace_Click" ToolTip="Replace the input links on the selected node with the copied ones."/>
+            <MenuItem Header="Paste Input Links (Add)" Click="PasteInputLinksAdd_Click" ToolTip="Append the copied input links to the selected node's links."/>
+        </MenuItem>
+    </MenuItem>
 </MenuItem>

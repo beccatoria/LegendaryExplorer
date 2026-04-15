@@ -2752,7 +2752,15 @@ namespace LegendaryExplorer.DialogueEditor
         private void graphEditor_PanTo()
         {
             var PanObjects = new ObservableCollectionExtended<DObj>();
-            PanObjects.AddRange(CurrentObjects.Take(5));
+            // If we're panning to selection and there are selected objects, pan to those instead of the first objects
+            if (panToSelection && SelectedObjects != null && SelectedObjects.Any())
+            {
+                PanObjects.AddRange(SelectedObjects.Take(5));
+            }
+            else
+            {
+                PanObjects.AddRange(CurrentObjects.Take(5));
+            }
 
             if (PanObjects.Any())
             {

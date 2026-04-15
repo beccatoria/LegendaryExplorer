@@ -128,6 +128,41 @@ namespace LegendaryExplorer.Tools.Dialogue_Editor.DialogueEditorExperiments
         {
             DialogueEditorExperimentsE.UnlistTrackFromGroupExperiment(GetDEWindow());
         }
+
+        private void ListInputLinks_Click(object sender, RoutedEventArgs e)
+        {
+            DialogueEditorExperimentsE.ListInputLinksExperiment(GetDEWindow());
+        }
+
+        private void CopyOutputLinks_Click(object sender, RoutedEventArgs e)
+        {
+            DialogueEditorExperimentsE.CopyOutputLinksExperiment(GetDEWindow());
+        }
+
+        private void PasteOutputLinksReplace_Click(object sender, RoutedEventArgs e)
+        {
+            DialogueEditorExperimentsE.PasteOutputLinksExperiment(GetDEWindow(), replace: true);
+        }
+
+        private void PasteOutputLinksAdd_Click(object sender, RoutedEventArgs e)
+        {
+            DialogueEditorExperimentsE.PasteOutputLinksExperiment(GetDEWindow(), replace: false);
+        }
+
+        private void CopyInputLinks_Click(object sender, RoutedEventArgs e)
+        {
+            DialogueEditorExperimentsE.CopyInputLinksExperiment(GetDEWindow());
+        }
+
+        private void PasteInputLinksReplace_Click(object sender, RoutedEventArgs e)
+        {
+            DialogueEditorExperimentsE.PasteInputLinksExperiment(GetDEWindow(), replace: true);
+        }
+
+        private void PasteInputLinksAdd_Click(object sender, RoutedEventArgs e)
+        {
+            DialogueEditorExperimentsE.PasteInputLinksExperiment(GetDEWindow(), replace: false);
+        }
         #endregion
     }
 }

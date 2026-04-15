@@ -26,6 +26,16 @@ namespace LegendaryExplorer.DialogueEditor.DialogueEditorExperiments
     /// </summary>
     static class DialogueEditorExperimentsE
     {
+        private enum CopiedLinksType { None, EntryReplies, ReplyEntries }
+        private static CopiedLinksType _copiedType = CopiedLinksType.None;
+        private static ArrayProperty<StructProperty> _copiedEntryReplies = null;
+        private static ArrayProperty<IntProperty> _copiedReplyEntries = null;
+        // Input links clipboard
+        private static Dictionary<int, List<StructProperty>> _copiedInput_FromEntries = null; // key: source entry NodeCount
+        private static Dictionary<int, List<IntProperty>> _copiedInput_FromReplies = null; // key: source reply NodeCount
+        private enum CopiedInputType { None, FromEntries, FromReplies }
+        private static CopiedInputType _copiedInputType = CopiedInputType.None;
+
         #region Update Native Node String Ref
         /// <summary>
         /// Change the node's LineRef and the references to it in the FXA and audio elements.
@@ -109,6 +119,182 @@ namespace LegendaryExplorer.DialogueEditor.DialogueEditorExperiments
         }
 
         /// <summary>
+        /// Copy all links that point INTO the selected node.
+        /// Stores them grouped by source node so they can be pasted onto another node.
+        /// </summary>
+        public static void CopyInputLinksExperiment(DialogueEditorWindow dew)
+        {
+            if (dew == null || dew.SelectedDialogueNode == null) return;
+            var target = dew.SelectedDialogueNode;
+            var conv = dew.SelectedConv;
+            if (conv == null) return;
+
+            _copiedInput_FromEntries = new Dictionary<int, List<StructProperty>>();
+            _copiedInput_FromReplies = new Dictionary<int, List<IntProperty>>();
+
+            int targetId = target.IsReply ? target.NodeCount + 1000 : target.NodeCount;
+
+            // Search entries for outgoing links to target reply
+            foreach (var entry in conv.EntryList)
+            {
+                var prop = entry.NodeProp.GetProp<ArrayProperty<StructProperty>>("ReplyListNew");
+                if (prop == null) continue;
+                foreach (var rp in prop)
+                {
+                    var nIndex = rp.GetProp<IntProperty>("nIndex");
+                    if (nIndex == null) continue;
+                    int linked = nIndex.Value + 1000;
+                    if (linked == targetId)
+                    {
+                        if (!_copiedInput_FromEntries.TryGetValue(entry.NodeCount, out var list))
+                        {
+                            list = new List<StructProperty>();
+                            _copiedInput_FromEntries[entry.NodeCount] = list;
+                        }
+                        list.Add((StructProperty)rp.DeepClone());
+                    }
+                }
+            }
+
+            // Search replies for outgoing links to target entry
+            foreach (var reply in conv.ReplyList)
+            {
+                var listprop = reply.NodeProp.GetProp<ArrayProperty<IntProperty>>("EntryList");
+                if (listprop == null) continue;
+                foreach (var ip in listprop)
+                {
+                    int linked = ip.Value;
+                    if (linked == targetId)
+                    {
+                        if (!_copiedInput_FromReplies.TryGetValue(reply.NodeCount, out var list))
+                        {
+                            list = new List<IntProperty>();
+                            _copiedInput_FromReplies[reply.NodeCount] = list;
+                        }
+                        list.Add(new IntProperty(ip.Value));
+                    }
+                }
+            }
+
+            if ((_copiedInput_FromEntries.Count == 0) && (_copiedInput_FromReplies.Count == 0))
+            {
+                MessageBox.Show("No incoming links found to copy.", "Copy Input Links", MessageBoxButton.OK);
+                _copiedInputType = CopiedInputType.None;
+                return;
+            }
+
+            _copiedInputType = CopiedInputType.None;
+            if (_copiedInput_FromEntries.Count > 0) _copiedInputType = CopiedInputType.FromEntries;
+            if (_copiedInput_FromReplies.Count > 0) _copiedInputType = CopiedInputType.FromReplies;
+
+            MessageBox.Show($"Copied input links from {_copiedInput_FromEntries.Count} entries and {_copiedInput_FromReplies.Count} replies.", "Copy Input Links", MessageBoxButton.OK);
+        }
+
+        /// <summary>
+        /// Paste previously copied input links onto the selected node. Replace or add.
+        /// </summary>
+        public static void PasteInputLinksExperiment(DialogueEditorWindow dew, bool replace)
+        {
+            if (dew == null || dew.SelectedDialogueNode == null) return;
+            if (_copiedInputType == CopiedInputType.None)
+            {
+                MessageBox.Show("No copied input links to paste.", "Paste Input Links", MessageBoxButton.OK);
+                return;
+            }
+
+            var target = dew.SelectedDialogueNode;
+
+            // For pasting, we need to add entries that point TO the target node.
+            // If target is an entry (E#), we need to paste ReplyListNew structs into source entries that will point to this entry.
+            // If target is a reply (R#), we need to paste EntryList ints into source replies that will point to this reply.
+
+            if (target.IsReply && _copiedInput_FromEntries.Count > 0)
+            {
+                // We have saved structs from entries that link to the old target. We'll paste them onto the current target by
+                // adding equivalent structs to the chosen source entries, but adjusted to point to this target's index.
+                // Simpler approach: for each copied source entry (E#), recreate its ReplyListNew entries pointing to this target.
+                foreach (var kv in _copiedInput_FromEntries)
+                {
+                    int srcEntryIndex = kv.Key;
+                    var srcEntry = dew.SelectedConv.EntryList.FirstOrDefault(e => e.NodeCount == srcEntryIndex);
+                    if (srcEntry == null) continue; // skip if source not present
+
+                    var existing = srcEntry.NodeProp.GetProp<ArrayProperty<StructProperty>>("ReplyListNew") ?? new ArrayProperty<StructProperty>(new NameReference("ReplyListNew"));
+                    var clones = kv.Value.Select(s => (StructProperty)s.DeepClone()).ToList();
+
+                    // Update cloned structs' nIndex to point to the new target reply index
+                    foreach (var sp in clones)
+                    {
+                        var nIndex = sp.GetProp<IntProperty>("nIndex");
+                        if (nIndex != null)
+                        {
+                            nIndex.Value = target.NodeCount; // replies are stored as index (no +1000) in struct
+                        }
+                    }
+
+                    ArrayProperty<StructProperty> newArr;
+                    if (replace)
+                    {
+                        newArr = new ArrayProperty<StructProperty>(clones, new NameReference("ReplyListNew"));
+                    }
+                    else
+                    {
+                        var merged = existing.Values.ToList();
+                        merged.AddRange(clones);
+                        newArr = new ArrayProperty<StructProperty>(merged, new NameReference("ReplyListNew"));
+                    }
+
+                    srcEntry.NodeProp.Properties.AddOrReplaceProp(newArr);
+                    // update UI for source entry node
+                    var diag = dew.CurrentObjects.OfType<LegendaryExplorer.DialogueEditor.DiagNode>().FirstOrDefault(d => d.Node.NodeCount == srcEntry.NodeCount && d.Node.IsReply == srcEntry.IsReply);
+                    if (diag != null) dew.PushLocalGraphChanges(diag);
+                }
+
+                dew.RecreateNodesToProperties(dew.SelectedConv);
+                dew.ForceRefreshCommand.Execute(null);
+                MessageBox.Show($"Pasted input reply structs to { _copiedInput_FromEntries.Count } source entries.", "Paste Input Links", MessageBoxButton.OK);
+                return;
+            }
+
+            if (!target.IsReply && _copiedInput_FromReplies.Count > 0)
+            {
+                // For each source reply that previously linked to the copied target, add the entry index linking to the new target entry.
+                foreach (var kv in _copiedInput_FromReplies)
+                {
+                    int srcReplyIndex = kv.Key;
+                    var srcReply = dew.SelectedConv.ReplyList.FirstOrDefault(r => r.NodeCount == srcReplyIndex);
+                    if (srcReply == null) continue;
+
+                    var existing = srcReply.NodeProp.GetProp<ArrayProperty<IntProperty>>("EntryList") ?? new ArrayProperty<IntProperty>(new NameReference("EntryList"));
+                    var clones = kv.Value.Select(i => new IntProperty(target.NodeCount)).ToList();
+
+                    ArrayProperty<IntProperty> newArr;
+                    if (replace)
+                    {
+                        newArr = new ArrayProperty<IntProperty>(clones, new NameReference("EntryList"));
+                    }
+                    else
+                    {
+                        var merged = existing.Values.ToList();
+                        merged.AddRange(clones);
+                        newArr = new ArrayProperty<IntProperty>(merged, new NameReference("EntryList"));
+                    }
+
+                    srcReply.NodeProp.Properties.AddOrReplaceProp(newArr);
+                    var diag = dew.CurrentObjects.OfType<LegendaryExplorer.DialogueEditor.DiagNode>().FirstOrDefault(d => d.Node.NodeCount == srcReply.NodeCount && d.Node.IsReply == srcReply.IsReply);
+                    if (diag != null) dew.PushLocalGraphChanges(diag);
+                }
+
+                dew.RecreateNodesToProperties(dew.SelectedConv);
+                dew.ForceRefreshCommand.Execute(null);
+                MessageBox.Show($"Pasted input entry indexes to { _copiedInput_FromReplies.Count } source replies.", "Paste Input Links", MessageBoxButton.OK);
+                return;
+            }
+
+            MessageBox.Show("Copied input links type doesn't match operations or no compatible links.", "Paste Input Links", MessageBoxButton.OK);
+        }
+
+        /// <summary>
         /// Update the name of the WwiseEvents referencing an input WwiseStream.
         /// </summary>
         /// <param name="pcc">Pcc to operate on.</param>
@@ -158,6 +344,244 @@ namespace LegendaryExplorer.DialogueEditor.DialogueEditorExperiments
             {
                 soundExp.ObjectName = new NameReference(soundExp.ObjectName.Name, int.Parse(newRef) + 1);
             }
+        }
+
+        /// <summary>
+        /// List all nodes that link INTO the selected node and allow double-click to navigate to them.
+        /// </summary>
+        /// <param name="dew">Current Dialogue Editor instance.</param>
+        public static void ListInputLinksExperiment(DialogueEditorWindow dew)
+        {
+            if (dew == null || dew.Pcc == null || dew.SelectedDialogueNode == null) { return; }
+
+            // Build list of nodes that link into the selected node
+            var target = dew.SelectedDialogueNode;
+            var conv = dew.SelectedConv;
+            if (conv == null) { return; }
+
+            var incoming = new List<EntryStringPair>();
+
+            // Entries link to replies via ReplyListNew (entries contain reply indices), replies link to entries via EntryList
+            // We will search all nodes and find those that have links pointing to target.ExportID (or target.NodeCount + 1000 for replies)
+
+            int targetId = target.IsReply ? target.NodeCount + 1000 : target.NodeCount;
+
+            // Search entries
+            foreach (var node in conv.EntryList)
+            {
+                // For entries, look at ReplyListNew which contains StructProperty with nIndex referring to reply index
+                var prop = node.NodeProp.GetProp<ArrayProperty<StructProperty>>("ReplyListNew");
+                if (prop == null) { continue; }
+                foreach (var rp in prop)
+                {
+                    var nIndex = rp.GetProp<IntProperty>("nIndex");
+                    if (nIndex == null) { continue; }
+                    int linked = nIndex.Value + 1000; // reply nodes are +1000
+                    if (linked == targetId)
+                    {
+                    incoming.Add(new EntryStringPair($"E{node.NodeCount} -> R{nIndex.Value}: {node.Line}"));
+                    }
+                }
+            }
+
+            // Search replies
+            foreach (var node in conv.ReplyList)
+            {
+                var list = node.NodeProp.GetProp<ArrayProperty<IntProperty>>("EntryList");
+                if (list == null) { continue; }
+                foreach (var ip in list)
+                {
+                    int linked = ip.Value; // entries use raw index
+                    if (linked == targetId)
+                    {
+                    incoming.Add(new EntryStringPair($"R{node.NodeCount} -> E{ip.Value}: {node.Line}"));
+                    }
+                }
+            }
+
+            if (!incoming.Any())
+            {
+                MessageBox.Show("No incoming links to the selected node.", "List Input Links", MessageBoxButton.OK);
+                return;
+            }
+
+            // Show in a ListDialog and allow double-click to navigate
+            var dlg = new ListDialog(incoming, "List Input Links", $"Incoming links to {(target.IsReply ? "R" : "E")}{target.NodeCount}", dew, 600, 300);
+            Action<EntryStringPair> handleSelect = esp =>
+            {
+                if (esp == null) return;
+                try
+                {
+                    string msg = esp.Message ?? "";
+                    if (msg.StartsWith("E"))
+                    {
+                        int idxEnd = msg.IndexOf(' ');
+                        string token = idxEnd > 0 ? msg[1..idxEnd] : msg[1..];
+                        if (int.TryParse(token, out int nodeIndex))
+                        {
+                                dew.Dispatcher.Invoke(() =>
+                                {
+                                    var mi = dew.GetType().GetMethod("DialogueNode_SelectByIndex", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                                    mi?.Invoke(dew, new object[] { nodeIndex, false });
+                                    // Force pan to selection
+                                    var fi = dew.GetType().GetField("panToSelection", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                                    fi?.SetValue(dew, true);
+                                    var panMi = dew.GetType().GetMethod("graphEditor_PanTo", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                                    panMi?.Invoke(dew, null);
+                                });
+                        }
+                    }
+                    else if (msg.StartsWith("R"))
+                    {
+                        int idxEnd = msg.IndexOf(' ');
+                        string token = idxEnd > 0 ? msg[1..idxEnd] : msg[1..];
+                        if (int.TryParse(token, out int nodeIndex))
+                        {
+                            dew.Dispatcher.Invoke(() =>
+                            {
+                                var mi = dew.GetType().GetMethod("DialogueNode_SelectByIndex", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                                mi?.Invoke(dew, new object[] { nodeIndex, true });
+                                var fi = dew.GetType().GetField("panToSelection", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                                fi?.SetValue(dew, true);
+                                var panMi = dew.GetType().GetMethod("graphEditor_PanTo", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                                panMi?.Invoke(dew, null);
+                            });
+                        }
+                    }
+                }
+                catch { }
+            };
+
+            dlg.DoubleClickEntryHandler = handleSelect;
+            dlg.DoubleClickItemHandler = obj =>
+            {
+                if (obj is EntryStringPair esp) handleSelect(esp);
+            };
+
+            dlg.ShowDialog();
+        }
+
+        /// <summary>
+        /// Copy the output links from the selected node into a temporary clipboard.
+        /// Supports both Entry (ReplyListNew) and Reply (EntryList) nodes.
+        /// </summary>
+        public static void CopyOutputLinksExperiment(DialogueEditorWindow dew)
+        {
+            if (dew == null || dew.SelectedDialogueNode == null) return;
+
+            var node = dew.SelectedDialogueNode;
+            if (!node.IsReply)
+            {
+                var prop = node.NodeProp.GetProp<ArrayProperty<StructProperty>>("ReplyListNew");
+                if (prop == null)
+                {
+                    MessageBox.Show("Selected entry node has no ReplyListNew to copy.", "Copy Output Links", MessageBoxButton.OK);
+                    return;
+                }
+                // Deep clone to avoid referencing original properties
+                _copiedEntryReplies = new ArrayProperty<StructProperty>(prop.Select(p => (StructProperty)p.DeepClone()).ToList(), new NameReference("ReplyListNew"));
+                _copiedType = CopiedLinksType.EntryReplies;
+                MessageBox.Show($"Copied {prop.Count} reply choices from entry E{node.NodeCount}.", "Copy Output Links", MessageBoxButton.OK);
+            }
+            else
+            {
+                var prop = node.NodeProp.GetProp<ArrayProperty<IntProperty>>("EntryList");
+                if (prop == null)
+                {
+                    MessageBox.Show("Selected reply node has no EntryList to copy.", "Copy Output Links", MessageBoxButton.OK);
+                    return;
+                }
+                _copiedReplyEntries = new ArrayProperty<IntProperty>(prop.Select(p => new IntProperty(p.Value)).ToList(), new NameReference("EntryList"));
+                _copiedType = CopiedLinksType.ReplyEntries;
+                MessageBox.Show($"Copied {prop.Count} entry links from reply R{node.NodeCount}.", "Copy Output Links", MessageBoxButton.OK);
+            }
+        }
+
+        /// <summary>
+        /// Paste previously copied output links onto the selected node. If replace is true, replaces existing links; otherwise appends.
+        /// </summary>
+        public static void PasteOutputLinksExperiment(DialogueEditorWindow dew, bool replace)
+        {
+            if (dew == null || dew.SelectedDialogueNode == null)
+            {
+                return;
+            }
+
+            var node = dew.SelectedDialogueNode;
+
+            if (_copiedType == CopiedLinksType.None)
+            {
+                MessageBox.Show("No copied links in clipboard.", "Paste Output Links", MessageBoxButton.OK);
+                return;
+            }
+
+            if (!node.IsReply && _copiedType == CopiedLinksType.EntryReplies)
+            {
+                // Paste reply choices to an entry node
+                var existing = node.NodeProp.GetProp<ArrayProperty<StructProperty>>("ReplyListNew") ?? new ArrayProperty<StructProperty>(new NameReference("ReplyListNew"));
+                var toPaste = _copiedEntryReplies.Select(s => (StructProperty)s.DeepClone()).ToList();
+
+                ArrayProperty<StructProperty> newArr;
+                if (replace)
+                {
+                    newArr = new ArrayProperty<StructProperty>(toPaste, new NameReference("ReplyListNew"));
+                }
+                else
+                {
+                    var merged = existing.Values.ToList();
+                    merged.AddRange(toPaste);
+                    newArr = new ArrayProperty<StructProperty>(merged, new NameReference("ReplyListNew"));
+                }
+
+                node.NodeProp.Properties.AddOrReplaceProp(newArr);
+                var diag = dew.CurrentObjects.OfType<LegendaryExplorer.DialogueEditor.DiagNode>().FirstOrDefault(d => d.Node.NodeCount == node.NodeCount && d.Node.IsReply == node.IsReply);
+                if (diag != null)
+                {
+                    dew.PushLocalGraphChanges(diag);
+                }
+                else
+                {
+                    dew.RecreateNodesToProperties(dew.SelectedConv);
+                    dew.ForceRefreshCommand.Execute(null);
+                }
+                MessageBox.Show($"Pasted {toPaste.Count} reply choices to E{node.NodeCount}.", "Paste Output Links", MessageBoxButton.OK);
+                return;
+            }
+
+            if (node.IsReply && _copiedType == CopiedLinksType.ReplyEntries)
+            {
+                // Paste entry indexes to a reply node
+                var existing = node.NodeProp.GetProp<ArrayProperty<IntProperty>>("EntryList") ?? new ArrayProperty<IntProperty>(new NameReference("EntryList"));
+                var toPaste = _copiedReplyEntries.Select(i => new IntProperty(i.Value)).ToList();
+
+                ArrayProperty<IntProperty> newArr;
+                if (replace)
+                {
+                    newArr = new ArrayProperty<IntProperty>(toPaste, new NameReference("EntryList"));
+                }
+                else
+                {
+                    var merged = existing.Values.ToList();
+                    merged.AddRange(toPaste);
+                    newArr = new ArrayProperty<IntProperty>(merged, new NameReference("EntryList"));
+                }
+
+                node.NodeProp.Properties.AddOrReplaceProp(newArr);
+                var diag2 = dew.CurrentObjects.OfType<LegendaryExplorer.DialogueEditor.DiagNode>().FirstOrDefault(d => d.Node.NodeCount == node.NodeCount && d.Node.IsReply == node.IsReply);
+                if (diag2 != null)
+                {
+                    dew.PushLocalGraphChanges(diag2);
+                }
+                else
+                {
+                    dew.RecreateNodesToProperties(dew.SelectedConv);
+                    dew.ForceRefreshCommand.Execute(null);
+                }
+                MessageBox.Show($"Pasted {toPaste.Count} entry links to R{node.NodeCount}.", "Paste Output Links", MessageBoxButton.OK);
+                return;
+            }
+
+            MessageBox.Show("Copied links type doesn't match the selected node type.", "Paste Output Links", MessageBoxButton.OK);
         }
 
         /// <summary>
