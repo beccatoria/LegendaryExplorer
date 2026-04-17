@@ -119,6 +119,11 @@
                     <ToggleButton Content="Local Coords" ToolTip="Use local coordinates for the transform widget" IsChecked="{Binding UseLocalCoordsForWidget}"/>
                     <Separator Style="{StaticResource {x:Static ToolBar.SeparatorStyleKey}}" />
                     <ToggleButton Content="Show Collision" ToolTip="Show collision meshes" IsChecked="{Binding ShowCollision}"/>
+                    <ToggleButton Content="Show Lights" ToolTip="Show light actors and static light collection components" IsChecked="{Binding ShowLights}"/>
+                    <TextBlock Text="Light Dist" VerticalAlignment="Center" Margin="8,0,4,0"/>
+                    <xctk:IntegerUpDown Value="{Binding LightRenderDistance}" Minimum="0" Maximum="1000000" Width="70"
+                                        VerticalContentAlignment="Center" FormatString="N0"
+                                        ToolTip="Only render lights within this many world units of the camera"/>
                     <ToggleButton Content="Show Volumes" ToolTip="Show volume wireframes" IsChecked="{Binding ShowVolumes}"/>
                     <ToggleButton Content="Show Volumetric Meshes" IsChecked="{Binding ShowVolumetrics}"
                                   ToolTip="Volumetrics are large spheroids used for fog, dust, etc. Since LEX can't display those effects, they just get in the way."/>

@@ -101,6 +101,10 @@ public class PrimitiveComponentProxy : NotifyPropertyChangedBase, IDisposable
             case "BrushComponent":
                 return new BrushComponentProxy(context, componentExport, parent);
         }
+        if (componentExport.IsA("LightComponent"))
+        {
+            return new LightComponentProxy(context, componentExport, parent);
+        }
         if (GlobalUnrealObjectInfo.IsA(className, "StaticMeshComponent", componentExport.Game))
         {
             return new StaticMeshComponentProxy(context, componentExport, parent);
@@ -431,5 +435,180 @@ public class BrushComponentProxy : PrimitiveComponentProxy
     {
         Brush?.Dispose();
         base.Dispose(disposing);
+    }
+}
+
+public class LightComponentProxy : PrimitiveComponentProxy
+{
+    private enum LightRenderShape
+    {
+        Point,
+        Spot,
+        Directional
+    }
+
+    private readonly LightRenderShape renderShape;
+    private readonly float radius;
+    private readonly float innerConeAngle;
+    private readonly float outerConeAngle;
+    private readonly float sourceRadius;
+    private readonly float brightness;
+    private readonly Vector4 color;
+
+    public LightComponentProxy(MeshRenderContext context, ExportEntry componentExport, ActorProxy parent) : base(context, componentExport, parent)
+    {
+        string className = componentExport.ClassName;
+        renderShape = GlobalUnrealObjectInfo.IsA(className, "SpotLightComponent", componentExport.Game)
+            ? LightRenderShape.Spot
+            : GlobalUnrealObjectInfo.IsA(className, "DirectionalLightComponent", componentExport.Game)
+                ? LightRenderShape.Directional
+                : LightRenderShape.Point;
+
+        radius = Properties.GetProp<FloatProperty>("Radius")?.Value ?? 1024f;
+        innerConeAngle = Properties.GetProp<FloatProperty>("InnerConeAngle")?.Value ?? 0f;
+        outerConeAngle = Properties.GetProp<FloatProperty>("OuterConeAngle")?.Value ?? 44f;
+        sourceRadius = Properties.GetProp<FloatProperty>("SourceRadius")?.Value ?? 32f;
+        brightness = Properties.GetProp<FloatProperty>("Brightness")?.Value ?? 1f;
+        color = GetDisplayColor();
+    }
+
+    public override void Render(MeshRenderContext context, RenderPass pass)
+    {
+        if (!IsVisible || pass is not RenderPass.Base)
+        {
+            return;
+        }
+
+        LevelEditorRenderContext levelContext = (LevelEditorRenderContext)context;
+        switch (renderShape)
+        {
+            case LightRenderShape.Directional:
+                RenderDirectionalLight(levelContext);
+                break;
+            case LightRenderShape.Spot:
+                RenderSpotLight(levelContext);
+                break;
+            default:
+                RenderPointLight(levelContext);
+                break;
+        }
+    }
+
+    public override BoxSphereBounds GetBounds()
+    {
+        float extent = renderShape is LightRenderShape.Directional ? 56f : 40f;
+        return new BoxSphereBounds
+        {
+            Origin = LocalToWorld.Translation,
+            BoxExtent = new Vector3(extent),
+            SphereRadius = extent
+        };
+    }
+
+    private Vector4 GetDisplayColor()
+    {
+        if (Properties.GetProp<StructProperty>("LightColor") is { } lightColorProp)
+        {
+            var lightColor = CommonStructs.GetColor(lightColorProp);
+            return new Vector4(lightColor.R / 255f, lightColor.G / 255f, lightColor.B / 255f, 1f);
+        }
+
+        return renderShape is LightRenderShape.Directional
+            ? new Vector4(0.55f, 0.8f, 1f, 1f)
+            : new Vector4(1f, 0.95f, 0.55f, 1f);
+    }
+
+    private void RenderPointLight(LevelEditorRenderContext context)
+    {
+        RenderOrb(context);
+    }
+
+    private void RenderSpotLight(LevelEditorRenderContext context)
+    {
+        RenderOrb(context);
+    }
+
+    private void RenderDirectionalLight(LevelEditorRenderContext context)
+    {
+        RenderOrb(context);
+    }
+
+    private float RenderOrb(LevelEditorRenderContext context)
+    {
+        Vector3 origin = LocalToWorld.Translation;
+        float iconRadius = GetIconRadius(context, origin);
+        AddOrb(context, iconRadius, color);
+        return iconRadius;
+    }
+
+    private void AddOrb(LevelEditorRenderContext context, float orbRadius, Vector4 orbColor)
+    {
+        var mesh = context.Primitives.BuildMesh(orbColor, Actor.HitID, Matrix4x4.CreateTranslation(LocalToWorld.Translation));
+        const int stacks = 5;
+        const int slices = 8;
+
+        mesh.AddVertex(0, 0, orbRadius);
+        for (int stack = 1; stack < stacks; stack++)
+        {
+            float phi = MathF.PI * stack / stacks;
+            float sinPhi = MathF.Sin(phi);
+            float cosPhi = MathF.Cos(phi);
+            for (int slice = 0; slice < slices; slice++)
+            {
+                float theta = MathF.PI * 2f * slice / slices;
+                mesh.AddVertex(
+                    orbRadius * sinPhi * MathF.Cos(theta),
+                    orbRadius * sinPhi * MathF.Sin(theta),
+                    orbRadius * cosPhi);
+            }
+        }
+        int bottomIndex = 1 + ((stacks - 1) * slices - slices);
+        mesh.AddVertex(0, 0, -orbRadius);
+        int southPoleIndex = 1 + ((stacks - 1) * slices);
+
+        for (int slice = 0; slice < slices; slice++)
+        {
+            int nextSlice = (slice + 1) % slices;
+            mesh.AddTriangle(0, 1 + nextSlice, 1 + slice);
+        }
+
+        for (int stack = 0; stack < stacks - 2; stack++)
+        {
+            int rowStart = 1 + (stack * slices);
+            int nextRowStart = rowStart + slices;
+            for (int slice = 0; slice < slices; slice++)
+            {
+                int nextSlice = (slice + 1) % slices;
+                int current = rowStart + slice;
+                int currentNext = rowStart + nextSlice;
+                int below = nextRowStart + slice;
+                int belowNext = nextRowStart + nextSlice;
+                mesh.AddTriangle(current, currentNext, below);
+                mesh.AddTriangle(currentNext, belowNext, below);
+            }
+        }
+
+        for (int slice = 0; slice < slices; slice++)
+        {
+            int nextSlice = (slice + 1) % slices;
+            mesh.AddTriangle(southPoleIndex, bottomIndex + slice, bottomIndex + nextSlice);
+        }
+    }
+
+    private float GetIconRadius(LevelEditorRenderContext context, Vector3 origin)
+    {
+        float brightnessScale = Math.Clamp(0.9f + (MathF.Sqrt(MathF.Max(brightness, 0.05f)) * 0.18f), 0.85f, 1.35f);
+        float proximityScale = 1f;
+        if (!context.Camera.IsOrthographic)
+        {
+            float distance = Vector3.Distance(context.Camera.Position, origin);
+            proximityScale += 0.4f * Math.Clamp(1f - (distance / 3000f), 0f, 1f);
+        }
+
+        float pixelRadius = 8f * brightnessScale * proximityScale;
+        float worldUnitsPerPixel = context.Camera.IsOrthographic
+            ? context.Camera.OrthoWidth / context.Width
+            : context.WorldToScreen(origin).W / (context.Width * context.Camera.ProjectionMatrix[0, 0]);
+        return MathF.Max(worldUnitsPerPixel * pixelRadius, 7f);
     }
 }

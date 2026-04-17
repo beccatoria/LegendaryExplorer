@@ -96,6 +96,20 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         set => SetProperty(ref _showCollision, value);
     }
 
+    private bool _showLights = true;
+    public bool ShowLights
+    {
+        get => _showLights;
+        set => SetProperty(ref _showLights, value);
+    }
+
+    private int _lightRenderDistance = 1000;
+    public int LightRenderDistance
+    {
+        get => _lightRenderDistance;
+        set => SetProperty(ref _lightRenderDistance, Math.Max(0, value));
+    }
+
     private bool _showVolumes = false;
     public bool ShowVolumes
     {
@@ -185,6 +199,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
 
     private void RenderScene(object sender, EventArgs e)
     {
+        RenderContext.ShowLights = ShowLights;
         RenderContext.ShowVolumes = ShowVolumes;
         RenderContext.ShowVolumetrics = ShowVolumetrics;
         Span<RenderPass> passes = ShowCollision
@@ -200,9 +215,13 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
     }
     void DoRenderPass(RenderPass pass)
     {
+        float lightRenderDistanceSq = LightRenderDistance * LightRenderDistance;
+        Vector3 cameraPosition = RenderContext.Camera.Position;
         for (int i = 0; i < RenderContext.DrawList_3D.Count; i++)
         {
             ActorProxy actor = RenderContext.DrawList_3D[i];
+            if (actor.IsLight && !ShowLights) continue;
+            if (actor.IsLight && Vector3.DistanceSquared(actor.Location, cameraPosition) > lightRenderDistanceSq) continue;
             if (actor.IsVolume && !ShowVolumes) continue;
             if (actor.IsVolumetricMesh && !ShowVolumetrics) continue;
             int hitID = actor.HitID;
@@ -493,6 +512,19 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
                         var smcActor = new StaticMeshComponentActorProxy(this, smcExport, smca, i);
                         smcActor.OwningFile = owningFile;
                         actors.Add(smcActor);
+                    }
+                }
+            }
+            else if (className is "StaticLightCollectionActor")
+            {
+                var slca = actorExport.GetBinaryData<StaticLightCollectionActor>();
+                for (int i = 0; i < slca.Components.Count; i++)
+                {
+                    if (level.Export.FileRef.TryGetUExport(slca.Components[i], out ExportEntry lightComponentExport))
+                    {
+                        var lightActor = new StaticLightComponentActorProxy(this, lightComponentExport, slca, i);
+                        lightActor.OwningFile = owningFile;
+                        actors.Add(lightActor);
                     }
                 }
             }

@@ -201,6 +201,7 @@ public class ActorProxy : NotifyPropertyChangedBase, IDisposable, IHitProxy
     public bool IsReadOnly => (OwningFile is null || OwningFile.IsReadOnly)
                            && !(Editor?.IsApplyingUndoRedo ?? false);
 
+    public bool IsLight { get; protected set; }
     public virtual bool IsVolume => false;
     public bool IsVolumetricMesh { get; protected set; }
 
@@ -311,7 +312,7 @@ public class ActorProxy : NotifyPropertyChangedBase, IDisposable, IHitProxy
 
     public static bool CanCreate(ExportEntry actorExport)
     {
-        return actorExport.IsA(SupportedClasses);
+        return actorExport.IsA(SupportedClasses) || actorExport.IsA("Light");
     }
 
     //KEEP IN SYNC WITH CanCreate!
@@ -369,6 +370,10 @@ public class ActorProxy : NotifyPropertyChangedBase, IDisposable, IHitProxy
         if (GlobalUnrealObjectInfo.IsA(className, "SFXDroppedPickup", actorExport.Game))
         {
             return new SFXDroppedPickupProxy(context, actorExport);
+        }
+        if (GlobalUnrealObjectInfo.IsA(className, "Light", actorExport.Game))
+        {
+            return new LightActorProxy(context, actorExport);
         }
         return null;
         //return new ActorProxy(context, actorExport);
@@ -737,6 +742,21 @@ public class StaticMeshComponentActorProxy : CollectionActorComponentProxy
     }
 }
 
+public class StaticLightComponentActorProxy : CollectionActorComponentProxy
+{
+    public LightComponentProxy LightComponent;
+
+    public StaticLightComponentActorProxy(IActorEditorContext context, ExportEntry lightComponentExport, StaticLightCollectionActor slca, int slcaIndex) : base(context, slca, lightComponentExport, slcaIndex)
+    {
+        IsLight = true;
+        if (PrimitiveComponentProxy.Create(context.RenderContext, lightComponentExport, this) is LightComponentProxy lightComponentProxy)
+        {
+            LightComponent = lightComponentProxy;
+            Components.Add(lightComponentProxy);
+        }
+    }
+}
+
 public class PrefabInstanceProxy : ActorProxy
 {
     private readonly List<ActorProxy> Actors = [];
@@ -865,6 +885,17 @@ public class SFXDroppedPickupProxy : ActorProxy
     public SFXDroppedPickupProxy(IActorEditorContext context, ExportEntry actorExport) : base(context, actorExport)
     {
         AddComponent(context.RenderContext, ref PickupMesh);
+    }
+}
+
+public class LightActorProxy : ActorProxy
+{
+    public LightComponentProxy LightComponent;
+
+    public LightActorProxy(IActorEditorContext context, ExportEntry actorExport) : base(context, actorExport)
+    {
+        IsLight = true;
+        AddComponent(context.RenderContext, ref LightComponent);
     }
 }
 

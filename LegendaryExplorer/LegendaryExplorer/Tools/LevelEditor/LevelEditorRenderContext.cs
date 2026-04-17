@@ -30,6 +30,7 @@ public class LevelEditorRenderContext : MeshRenderContext
 
     public readonly BatchedPrimitives Primitives = new();
 
+    public bool ShowLights;
     public bool ShowVolumes;
     public bool ShowVolumetrics;
 
