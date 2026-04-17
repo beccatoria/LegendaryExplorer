@@ -68,6 +68,7 @@
                                     <MenuItem Header="Export Section of line" Click="ExpLineSec_Click"/>
                                     <MenuItem Header="Offset keys after time" Click="OffsetKeysAfterTime_Click" />
                                     <MenuItem Header="Clear all 'm__' lip sync keys" Click="ClearLipSyncKeys_Click"/>
+                                    <MenuItem Header="Clear ME1/2 lip sync keys" Click="ClearMe1AndMe2LipSyncKeys_Click"/>
                                     <MenuItem Header="Clear all Animations" Click="ClearAnimations_Click"/>
                                     <MenuItem Header="Import tracks from XML" Click="ImportTracksFromXML_Click"/>
                                     <MenuItem Header="Clone" Click="CloneLine_Click"/>

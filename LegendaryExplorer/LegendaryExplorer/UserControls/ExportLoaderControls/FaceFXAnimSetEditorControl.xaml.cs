@@ -34,6 +34,43 @@ namespace LegendaryExplorer.UserControls.ExportLoaderControls
     /// </summary>
     public partial class FaceFXAnimSetEditorControl : ExportLoaderControl
     {
+        private static readonly HashSet<string> Me1AndMe2LipSyncTrackNames = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "smileRight",
+            "smileLeft",
+            "sneerRight",
+            "sneerLeft",
+            "frownRight",
+            "frownLeft",
+            "jawOpen",
+            "jawRotate",
+            "lowerLipCurlOut",
+            "O_mouth",
+            "pucker",
+            "upperLipCurlOut",
+            "UpperLipCurlIn",
+            "jawClench",
+            "lowerLipCurlIn",
+            "jawForward",
+            "mouthDownLeft",
+            "mouthDownRight",
+            "jawRotateUp",
+            "tongueUP",
+            "cheekLeft",
+            "cheekRight",
+            "lowerLipDownLeft",
+            "lowerLipDownRight",
+            "jawSideRight",
+            "noseUp",
+            "noseDown",
+            "upperLipDownLeft",
+            "upperLipDownRight",
+            "jawSideLeft",
+            "lowerLipUpLeft",
+            "lowerLipUpRight",
+            "jawBack"
+        };
+
         public class FaceFXEditorTreeNode
         {
             /// <summary>
@@ -707,6 +744,19 @@ namespace LegendaryExplorer.UserControls.ExportLoaderControls
                     anim.Points = new LinkedList<CurvePoint>();
                 }
             }
+            SaveChanges();
+        }
+
+        private void ClearMe1AndMe2LipSyncKeys_Click(object sender, RoutedEventArgs e)
+        {
+            foreach (var anim in Animations)
+            {
+                if (Me1AndMe2LipSyncTrackNames.Contains(anim.Name))
+                {
+                    anim.Points = new LinkedList<CurvePoint>();
+                }
+            }
+
             SaveChanges();
         }
 
