@@ -13,6 +13,8 @@ using System.Diagnostics;
 using System.Linq;
 using System.Numerics;
 using System.Runtime.CompilerServices;
+using MediaColor = System.Windows.Media.Color;
+using MediaColors = System.Windows.Media.Colors;
 
 namespace LegendaryExplorer.Tools.LevelEditor;
 
@@ -202,8 +204,87 @@ public class ActorProxy : NotifyPropertyChangedBase, IDisposable, IHitProxy
                            && !(Editor?.IsApplyingUndoRedo ?? false);
 
     public bool IsLight { get; protected set; }
+    protected LightComponentProxy LightEditorComponent { get; set; }
+    public bool SupportsLightProperties => LightEditorComponent is not null;
     public virtual bool IsVolume => false;
     public bool IsVolumetricMesh { get; protected set; }
+
+    public float LightBrightness
+    {
+        get => LightEditorComponent?.Brightness ?? 0f;
+        set
+        {
+            if (LightEditorComponent is null || IsReadOnly || LightEditorComponent.Brightness == value) return;
+            LightEditorComponent.Brightness = value;
+            OnPropertyChanged(nameof(LightBrightness));
+        }
+    }
+
+    public float LightRadius
+    {
+        get => LightEditorComponent?.Radius ?? 0f;
+        set
+        {
+            if (LightEditorComponent is null || IsReadOnly || LightEditorComponent.Radius == value) return;
+            LightEditorComponent.Radius = value;
+            OnPropertyChanged(nameof(LightRadius));
+        }
+    }
+
+    public float LightSourceRadius
+    {
+        get => LightEditorComponent?.SourceRadius ?? 0f;
+        set
+        {
+            if (LightEditorComponent is null || IsReadOnly || LightEditorComponent.SourceRadius == value) return;
+            LightEditorComponent.SourceRadius = value;
+            OnPropertyChanged(nameof(LightSourceRadius));
+        }
+    }
+
+    public MediaColor? LightColor
+    {
+        get => LightEditorComponent?.LightColor ?? MediaColors.White;
+        set
+        {
+            if (LightEditorComponent is null || IsReadOnly || value is null || LightEditorComponent.LightColor == value.Value) return;
+            LightEditorComponent.LightColor = value.Value;
+            OnPropertyChanged(nameof(LightColor));
+        }
+    }
+
+    public bool LightChannelStatic
+    {
+        get => LightEditorComponent?.LightingChannelStatic ?? false;
+        set
+        {
+            if (LightEditorComponent is null || IsReadOnly || LightEditorComponent.LightingChannelStatic == value) return;
+            LightEditorComponent.LightingChannelStatic = value;
+            OnPropertyChanged(nameof(LightChannelStatic));
+        }
+    }
+
+    public bool LightChannelDynamic
+    {
+        get => LightEditorComponent?.LightingChannelDynamic ?? false;
+        set
+        {
+            if (LightEditorComponent is null || IsReadOnly || LightEditorComponent.LightingChannelDynamic == value) return;
+            LightEditorComponent.LightingChannelDynamic = value;
+            OnPropertyChanged(nameof(LightChannelDynamic));
+        }
+    }
+
+    public bool LightChannelCompositeDynamic
+    {
+        get => LightEditorComponent?.LightingChannelCompositeDynamic ?? false;
+        set
+        {
+            if (LightEditorComponent is null || IsReadOnly || LightEditorComponent.LightingChannelCompositeDynamic == value) return;
+            LightEditorComponent.LightingChannelCompositeDynamic = value;
+            OnPropertyChanged(nameof(LightChannelCompositeDynamic));
+        }
+    }
 
     public TransformSnapshot SnapshotTransform() => new(location, rotation, drawScale, drawScale3D);
 
@@ -213,6 +294,14 @@ public class ActorProxy : NotifyPropertyChangedBase, IDisposable, IHitProxy
         Rotation = snapshot.Rotation;
         DrawScale = snapshot.DrawScale;
         DrawScale3D = snapshot.DrawScale3D;
+    }
+
+    internal void MarkDirty()
+    {
+        if (!IsBeingAnimated)
+        {
+            IsDirty = true;
+        }
     }
 
     protected ActorProxy(IActorEditorContext context, ExportEntry actorExport)
@@ -469,6 +558,10 @@ public class ActorProxy : NotifyPropertyChangedBase, IDisposable, IHitProxy
             props.AddOrReplaceProp(CommonStructs.Vector3Prop(PrePivot, "PrePivot"));
         }
         Export.WriteProperties(props);
+        foreach (var component in Components)
+        {
+            component.CommitChanges();
+        }
     }
 
     public virtual bool TestUIndexes(HashSet<int> uIndexes)
@@ -724,6 +817,10 @@ public abstract class CollectionActorComponentProxy : ActorProxy
         }
         Matrix4x4 m = ActorUtils.ComposeLocalToWorld(Location, Rotation, DrawScale * DrawScale3D, PrePivot);
         collectionActor.LocalToWorldTransforms[idx] = m;
+        foreach (var component in Components)
+        {
+            component.CommitChanges();
+        }
     }
 
     public override bool TestUIndexes(HashSet<int> uIndexes)
@@ -752,6 +849,7 @@ public class StaticLightComponentActorProxy : CollectionActorComponentProxy
         if (PrimitiveComponentProxy.Create(context.RenderContext, lightComponentExport, this) is LightComponentProxy lightComponentProxy)
         {
             LightComponent = lightComponentProxy;
+            LightEditorComponent = lightComponentProxy;
             Components.Add(lightComponentProxy);
         }
     }
@@ -896,6 +994,7 @@ public class LightActorProxy : ActorProxy
     {
         IsLight = true;
         AddComponent(context.RenderContext, ref LightComponent);
+        LightEditorComponent = LightComponent;
     }
 }
 

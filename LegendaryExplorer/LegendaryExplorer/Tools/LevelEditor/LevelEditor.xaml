@@ -338,6 +338,32 @@
                             </StackPanel>
                         </StackPanel>
                     </GroupBox>
+                    <GroupBox Header="Light" Margin="5,0,5,5" BorderThickness="2"
+                              Visibility="{Binding SupportsLightProperties, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <StackPanel Orientation="Vertical">
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                                <TextBlock Text=" Brightness:  " VerticalAlignment="Center" />
+                                <xctk:SingleUpDown Value="{Binding LightBrightness}" Minimum="0" ButtonSpinnerLocation="Left" FormatString="F3" Width="90"/>
+                                <TextBlock Text=" Radius:  " VerticalAlignment="Center" Margin="8,0,0,0" />
+                                <xctk:SingleUpDown Value="{Binding LightRadius}" Minimum="0" ButtonSpinnerLocation="Left" FormatString="F1" Width="90"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                                <TextBlock Text=" Source Radius:  " VerticalAlignment="Center" />
+                                <xctk:SingleUpDown Value="{Binding LightSourceRadius}" Minimum="0" ButtonSpinnerLocation="Left" FormatString="F1" Width="90"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                                <TextBlock Text=" Colour:  " VerticalAlignment="Center" />
+                                <xctk:ColorPicker SelectedColor="{Binding LightColor}" Width="160" Height="24"
+                                                  DisplayColorAndName="True"/>
+                            </StackPanel>
+                            <TextBlock Text=" Lighting Channels:" Margin="0,2,0,2"/>
+                            <StackPanel Orientation="Horizontal">
+                                <CheckBox Content="Static" IsChecked="{Binding LightChannelStatic}" Margin="0,0,8,0"/>
+                                <CheckBox Content="Dynamic" IsChecked="{Binding LightChannelDynamic}" Margin="0,0,8,0"/>
+                                <CheckBox Content="CompositeDynamic" IsChecked="{Binding LightChannelCompositeDynamic}"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </GroupBox>
                     </WrapPanel>
                 </DockPanel>
 

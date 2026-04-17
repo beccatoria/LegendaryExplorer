@@ -121,6 +121,10 @@ public class PrimitiveComponentProxy : NotifyPropertyChangedBase, IDisposable
 
     public virtual void UpdateScene(MeshRenderContext context, float deltaTime) { }
 
+    public virtual void CommitChanges() { }
+
+    public virtual void MarkClean() { }
+
     private void UpdateSelfLocalToWorld()
     {
         var parentMatrix = Actor.LocalToWorld;
@@ -448,12 +452,106 @@ public class LightComponentProxy : PrimitiveComponentProxy
     }
 
     private readonly LightRenderShape renderShape;
-    private readonly float radius;
     private readonly float innerConeAngle;
     private readonly float outerConeAngle;
-    private readonly float sourceRadius;
-    private readonly float brightness;
-    private readonly Vector4 color;
+    private float radius;
+    private float sourceRadius;
+    private float brightness;
+    private System.Windows.Media.Color lightColor;
+    private bool lightingChannelStatic;
+    private bool lightingChannelDynamic;
+    private bool lightingChannelCompositeDynamic;
+
+    public float Radius
+    {
+        get => radius;
+        set
+        {
+            if (Actor?.IsReadOnly ?? false) return;
+            if (SetProperty(ref radius, Math.Max(0, value)))
+            {
+                Actor?.MarkDirty();
+            }
+        }
+    }
+
+    public float SourceRadius
+    {
+        get => sourceRadius;
+        set
+        {
+            if (Actor?.IsReadOnly ?? false) return;
+            if (SetProperty(ref sourceRadius, Math.Max(0, value)))
+            {
+                Actor?.MarkDirty();
+            }
+        }
+    }
+
+    public float Brightness
+    {
+        get => brightness;
+        set
+        {
+            if (Actor?.IsReadOnly ?? false) return;
+            if (SetProperty(ref brightness, Math.Max(0, value)))
+            {
+                Actor?.MarkDirty();
+            }
+        }
+    }
+
+    public System.Windows.Media.Color LightColor
+    {
+        get => lightColor;
+        set
+        {
+            if (Actor?.IsReadOnly ?? false) return;
+            if (SetProperty(ref lightColor, value))
+            {
+                Actor?.MarkDirty();
+            }
+        }
+    }
+
+    public bool LightingChannelStatic
+    {
+        get => lightingChannelStatic;
+        set
+        {
+            if (Actor?.IsReadOnly ?? false) return;
+            if (SetProperty(ref lightingChannelStatic, value))
+            {
+                Actor?.MarkDirty();
+            }
+        }
+    }
+
+    public bool LightingChannelDynamic
+    {
+        get => lightingChannelDynamic;
+        set
+        {
+            if (Actor?.IsReadOnly ?? false) return;
+            if (SetProperty(ref lightingChannelDynamic, value))
+            {
+                Actor?.MarkDirty();
+            }
+        }
+    }
+
+    public bool LightingChannelCompositeDynamic
+    {
+        get => lightingChannelCompositeDynamic;
+        set
+        {
+            if (Actor?.IsReadOnly ?? false) return;
+            if (SetProperty(ref lightingChannelCompositeDynamic, value))
+            {
+                Actor?.MarkDirty();
+            }
+        }
+    }
 
     public LightComponentProxy(MeshRenderContext context, ExportEntry componentExport, ActorProxy parent) : base(context, componentExport, parent)
     {
@@ -469,7 +567,13 @@ public class LightComponentProxy : PrimitiveComponentProxy
         outerConeAngle = Properties.GetProp<FloatProperty>("OuterConeAngle")?.Value ?? 44f;
         sourceRadius = Properties.GetProp<FloatProperty>("SourceRadius")?.Value ?? 32f;
         brightness = Properties.GetProp<FloatProperty>("Brightness")?.Value ?? 1f;
-        color = GetDisplayColor();
+        lightColor = GetInitialLightColor();
+        if (Properties.GetProp<StructProperty>("LightingChannels") is { } lightingChannels)
+        {
+            lightingChannelStatic = lightingChannels.GetProp<BoolProperty>("Static")?.Value ?? false;
+            lightingChannelDynamic = lightingChannels.GetProp<BoolProperty>("Dynamic")?.Value ?? false;
+            lightingChannelCompositeDynamic = lightingChannels.GetProp<BoolProperty>("CompositeDynamic")?.Value ?? false;
+        }
     }
 
     public override void Render(MeshRenderContext context, RenderPass pass)
@@ -505,18 +609,52 @@ public class LightComponentProxy : PrimitiveComponentProxy
         };
     }
 
-    private Vector4 GetDisplayColor()
+    public override void CommitChanges()
+    {
+        var props = Properties;
+        if (props.ContainsNamedProp("Brightness") || Brightness != 1f)
+        {
+            props.AddOrReplaceProp(new FloatProperty(Brightness, "Brightness"));
+        }
+        if (props.ContainsNamedProp("Radius") || Radius != 1024f)
+        {
+            props.AddOrReplaceProp(new FloatProperty(Radius, "Radius"));
+        }
+        if (props.ContainsNamedProp("SourceRadius") || SourceRadius != 32f)
+        {
+            props.AddOrReplaceProp(new FloatProperty(SourceRadius, "SourceRadius"));
+        }
+
+        props.AddOrReplaceProp(CommonStructs.ColorProp(System.Drawing.Color.FromArgb(LightColor.A, LightColor.R, LightColor.G, LightColor.B), "LightColor"));
+
+        var lightingChannels = props.GetProp<StructProperty>("LightingChannels") ?? new StructProperty("LightingChannelContainer", false,
+            new BoolProperty(true, "bIsInitialized"))
+        {
+            Name = "LightingChannels"
+        };
+        lightingChannels.Properties.AddOrReplaceProp(new BoolProperty(true, "bIsInitialized"));
+        lightingChannels.Properties.AddOrReplaceProp(new BoolProperty(LightingChannelStatic, "Static"));
+        lightingChannels.Properties.AddOrReplaceProp(new BoolProperty(LightingChannelDynamic, "Dynamic"));
+        lightingChannels.Properties.AddOrReplaceProp(new BoolProperty(LightingChannelCompositeDynamic, "CompositeDynamic"));
+        props.AddOrReplaceProp(lightingChannels);
+
+        Export.WriteProperties(props);
+    }
+
+    private System.Windows.Media.Color GetInitialLightColor()
     {
         if (Properties.GetProp<StructProperty>("LightColor") is { } lightColorProp)
         {
             var lightColor = CommonStructs.GetColor(lightColorProp);
-            return new Vector4(lightColor.R / 255f, lightColor.G / 255f, lightColor.B / 255f, 1f);
+            return System.Windows.Media.Color.FromArgb(lightColor.A, lightColor.R, lightColor.G, lightColor.B);
         }
 
         return renderShape is LightRenderShape.Directional
-            ? new Vector4(0.55f, 0.8f, 1f, 1f)
-            : new Vector4(1f, 0.95f, 0.55f, 1f);
+            ? System.Windows.Media.Color.FromRgb(140, 204, 255)
+            : System.Windows.Media.Color.FromRgb(255, 242, 140);
     }
+
+    private Vector4 GetDisplayColorVector() => new(LightColor.R / 255f, LightColor.G / 255f, LightColor.B / 255f, 1f);
 
     private void RenderPointLight(LevelEditorRenderContext context)
     {
@@ -537,7 +675,7 @@ public class LightComponentProxy : PrimitiveComponentProxy
     {
         Vector3 origin = LocalToWorld.Translation;
         float iconRadius = GetIconRadius(context, origin);
-        AddOrb(context, iconRadius, color);
+        AddOrb(context, iconRadius, GetDisplayColorVector());
         return iconRadius;
     }
 
