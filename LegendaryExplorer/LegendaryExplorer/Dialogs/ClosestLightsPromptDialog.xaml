@@ -1,0 +1,44 @@
+<bases:TrackingNotifyPropertyChangedWindowBase xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    x:Class="LegendaryExplorer.Dialogs.ClosestLightsPromptDialog"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:xctk="http://schemas.xceed.com/wpf/xaml/toolkit"
+    xmlns:bases="clr-namespace:LegendaryExplorer.SharedUI.Bases"
+    WindowStartupLocation="CenterOwner"
+    SizeToContent="WidthAndHeight"
+    MinWidth="280"
+    WindowStyle="SingleBorderWindow"
+    ResizeMode="NoResize">
+    <Grid Margin="10">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="92"/>
+        </Grid.ColumnDefinitions>
+
+        <TextBlock Grid.Row="0" Grid.ColumnSpan="2" Margin="0,0,0,10" Text="Enter the world position and number of nearby lights to list." TextWrapping="Wrap"/>
+
+        <TextBlock Grid.Row="1" Margin="0,0,8,8" VerticalAlignment="Center" Text="X:"/>
+        <xctk:SingleUpDown Grid.Row="1" Grid.Column="1" Margin="0,0,0,8" Width="92" Value="{Binding X}" ButtonSpinnerLocation="Left" FormatString="F3" TextAlignment="Left" HorizontalContentAlignment="Left"/>
+
+        <TextBlock Grid.Row="2" Margin="0,0,8,8" VerticalAlignment="Center" Text="Y:"/>
+        <xctk:SingleUpDown Grid.Row="2" Grid.Column="1" Margin="0,0,0,8" Width="92" Value="{Binding Y}" ButtonSpinnerLocation="Left" FormatString="F3" TextAlignment="Left" HorizontalContentAlignment="Left"/>
+
+        <TextBlock Grid.Row="3" Margin="0,0,8,8" VerticalAlignment="Center" Text="Z:"/>
+        <xctk:SingleUpDown Grid.Row="3" Grid.Column="1" Margin="0,0,0,8" Width="92" Value="{Binding Z}" ButtonSpinnerLocation="Left" FormatString="F3" TextAlignment="Left" HorizontalContentAlignment="Left"/>
+
+        <TextBlock Grid.Row="4" Margin="0,0,8,0" VerticalAlignment="Center" Text="Lights:"/>
+        <StackPanel Grid.Row="4" Grid.Column="1">
+            <xctk:IntegerUpDown Width="92" Value="{Binding LightCount}" Minimum="1" ButtonSpinnerLocation="Left" TextAlignment="Left" HorizontalContentAlignment="Left"/>
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+                <Button Content="_OK" IsDefault="True" Margin="5,0,0,0" Width="60" Click="btnOk_Click"/>
+                <Button Content="_Cancel" IsCancel="True" Margin="5,0,0,0" Width="70" Click="btnCancel_Click"/>
+            </StackPanel>
+        </StackPanel>
+    </Grid>
+</bases:TrackingNotifyPropertyChangedWindowBase>

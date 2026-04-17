@@ -224,6 +224,9 @@
 		<Compile Update="Dialogs\ClassPickerDlg.xaml.cs">
 			<DependentUpon>ClassPickerDlg.xaml</DependentUpon>
 		</Compile>
+     <Compile Update="Dialogs\ClosestLightsPromptDialog.xaml.cs">
+			<DependentUpon>ClosestLightsPromptDialog.xaml</DependentUpon>
+		</Compile>
 		<Compile Update="Dialogs\SoundReplaceOptionsDialog - Copy.xaml.cs">
 			<DependentUpon>SoundReplaceOptionsDialog.xaml</DependentUpon>
 		</Compile>
@@ -250,6 +253,9 @@
 		<Compile Update="Tools\AssetDatabase\AssetDatabaseWindow.xaml.cs">
 			<DependentUpon>AssetDatabaseWindow.xaml</DependentUpon>
 		</Compile>
+       <Page Update="Dialogs\ClosestLightsPromptDialog.xaml">
+			<SubType>Designer</SubType>
+		</Page>
 		<Compile Update="Tools\Dialogue Editor\ConvGraphEditor.cs" />
 		<Compile Update="Tools\Dialogue Editor\LinkEditor.xaml.cs">
 			<DependentUpon>LinkEditor.xaml</DependentUpon>

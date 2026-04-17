@@ -1494,6 +1494,11 @@ namespace LegendaryExplorer.UserControls.PackageEditorControls
 
         // EXPERIMENTS: OTHER PEOPLE ------------------------------------------------------------
         #region Other people's experiments
+        private void FindClosestLights_Click(object sender, RoutedEventArgs e)
+        {
+            PackageEditorExperimentsO.FindClosestLights(GetPEWindow());
+        }
+
         private void ExportLevelToT3D_Click(object sender, RoutedEventArgs e)
         {
             PackageEditorExperimentsO.DumpPackageToT3D(GetPEWindow().Pcc);

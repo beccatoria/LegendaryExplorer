@@ -5,6 +5,7 @@ using LegendaryExplorerCore.GameFilesystem;
 using LegendaryExplorerCore.Gammtek.Extensions.Collections.Generic;
 using LegendaryExplorerCore.Helpers;
 using LegendaryExplorerCore.Kismet;
+using LegendaryExplorerCore.Misc;
 using LegendaryExplorerCore.Matinee;
 using LegendaryExplorerCore.Packages;
 using LegendaryExplorerCore.Packages.CloningImportingAndRelinking;
@@ -31,6 +32,57 @@ namespace LegendaryExplorer.Tools.PackageEditor.Experiments
     /// </summary>
     static class PackageEditorExperimentsO
     {
+        public static void FindClosestLights(PackageEditorWindow pew)
+        {
+            if (pew?.Pcc is null)
+            {
+                return;
+            }
+
+            Vector3 defaultPosition = Vector3.Zero;
+            if (pew.TryGetSelectedExport(out ExportEntry selectedExport)
+                && TryGetReferencePosition(selectedExport, out Vector3 selectedPosition))
+            {
+                defaultPosition = selectedPosition;
+            }
+
+            if (!ClosestLightsPromptDialog.Prompt(pew, defaultPosition, 10, out Vector3 target, out int lightCount))
+            {
+                return;
+            }
+            HashSet<int> persistentActorIds = GetPersistentLevelActorIds(pew.Pcc);
+
+            List<EntryStringPair> closestLights = pew.Pcc.Exports
+                .Where(exp => exp.IsA("LightComponent"))
+                .Select(exp => TryCreateClosestLightResult(exp, target, persistentActorIds))
+                .Where(result => result is not null)
+                .OrderBy(result => result.DistanceSquared)
+                .Take(lightCount)
+                .Select(result => result.ToEntryStringPair())
+                .ToList();
+
+            if (closestLights.Count == 0)
+            {
+                MessageBox.Show(pew, "No placed lights were found in this package.", "Find Closest Lights", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            var dlg = new ListDialog(closestLights, "Closest Lights",
+                $"Closest lights to ({target.X:F2}, {target.Y:F2}, {target.Z:F2})",
+                pew, 900, 500)
+            {
+                DoubleClickEntryHandler = entryItem =>
+                {
+                    if (entryItem?.Entry is IEntry entryToSelect)
+                    {
+                        pew.GoToNumber(entryToSelect.UIndex);
+                        pew.Activate();
+                    }
+                }
+            };
+            dlg.Show();
+        }
+
         public static void DumpPackageToT3D(IMEPackage package)
         {
             var levelExport = package.Exports.FirstOrDefault(x => x.ObjectName == "Level" && x.ClassName == "PersistentLevel");
@@ -70,6 +122,188 @@ namespace LegendaryExplorer.Tools.PackageEditor.Experiments
         private static float RadianToDegrees(float Angle)
         {
             return Angle * (180 / 3.1415f);
+        }
+
+        private sealed class ClosestLightResult
+        {
+            public IEntry Entry { get; init; }
+            public Vector3 Location { get; init; }
+            public float DistanceSquared { get; init; }
+            public string Description { get; init; }
+
+            public EntryStringPair ToEntryStringPair()
+            {
+                float distance = MathF.Sqrt(DistanceSquared);
+                return new EntryStringPair(Entry,
+                    $"{distance,9:F2} uu  ({Location.X,9:F2}, {Location.Y,9:F2}, {Location.Z,9:F2})  {Description}");
+            }
+        }
+
+        private static ClosestLightResult TryCreateClosestLightResult(ExportEntry lightComponent, Vector3 target, HashSet<int> persistentActorIds)
+        {
+            if (!TryGetPlacedLightEntry(lightComponent, persistentActorIds, out IEntry displayEntry))
+            {
+                return null;
+            }
+
+            if (!TryGetLightWorldPosition(lightComponent, out Vector3 worldPosition))
+            {
+                return null;
+            }
+
+            return new ClosestLightResult
+            {
+                Entry = displayEntry,
+                Location = worldPosition,
+                DistanceSquared = Vector3.DistanceSquared(worldPosition, target),
+                Description = FormatLightDescription(displayEntry, lightComponent, worldPosition)
+            };
+        }
+
+        private static string FormatLightDescription(IEntry displayEntry, ExportEntry lightComponent, Vector3 worldPosition)
+        {
+            string entryPath = displayEntry.InstancedFullPath;
+            if (!ReferenceEquals(displayEntry, lightComponent))
+            {
+                entryPath += $"  [{lightComponent.ObjectName.Instanced}]";
+            }
+
+            return $"{displayEntry.UIndex,7}  {displayEntry.ClassName,-28}  {entryPath}";
+        }
+
+        private static bool TryGetPlacedLightEntry(ExportEntry lightComponent, HashSet<int> persistentActorIds, out IEntry displayEntry)
+        {
+            if (lightComponent.Parent is ExportEntry parent)
+            {
+                if (parent.ClassName == "StaticLightCollectionActor")
+                {
+                    displayEntry = persistentActorIds is null || persistentActorIds.Contains(parent.UIndex)
+                        ? lightComponent
+                        : null;
+                    return displayEntry is not null;
+                }
+
+                if (parent.IsA("Light") && (persistentActorIds is null || persistentActorIds.Contains(parent.UIndex)))
+                {
+                    displayEntry = parent;
+                    return true;
+                }
+            }
+
+            displayEntry = null;
+            return false;
+        }
+
+        private static bool TryGetLightWorldPosition(ExportEntry lightComponent, out Vector3 worldPosition)
+        {
+            if (StaticCollectionActor.TryGetStaticCollectionActorAndIndex(lightComponent, out StaticCollectionActor sca, out int index))
+            {
+                worldPosition = GetComponentWorldPosition(lightComponent, sca.LocalToWorldTransforms[index]);
+                return true;
+            }
+
+            if (lightComponent.Parent is ExportEntry parentActor)
+            {
+                worldPosition = GetComponentWorldPosition(lightComponent, GetActorLocalToWorld(parentActor));
+                return true;
+            }
+
+            worldPosition = Vector3.Zero;
+            return false;
+        }
+
+        private static Vector3 GetComponentWorldPosition(ExportEntry componentExport, Matrix4x4 parentMatrix)
+        {
+            PropertyCollection props = componentExport.GetCondensedProperties();
+            StructProperty translationProp = props.GetProp<StructProperty>("Translation");
+            StructProperty rotationProp = props.GetProp<StructProperty>("Rotation");
+            StructProperty scale3DProp = props.GetProp<StructProperty>("Scale3D");
+
+            Vector3 translation = translationProp is not null ? CommonStructs.GetVector3(translationProp) : Vector3.Zero;
+            Vector3 scale3D = scale3DProp is not null ? CommonStructs.GetVector3(scale3DProp) : Vector3.One;
+            Rotator rotation = rotationProp is not null ? CommonStructs.GetRotator(rotationProp) : new Rotator(0, 0, 0);
+            float scale = props.GetProp<FloatProperty>("Scale")?.Value ?? 1f;
+            bool absoluteTranslation = props.GetProp<BoolProperty>("AbsoluteTranslation")?.Value ?? false;
+            bool absoluteRotation = props.GetProp<BoolProperty>("AbsoluteRotation")?.Value ?? false;
+            bool absoluteScale = props.GetProp<BoolProperty>("AbsoluteScale")?.Value ?? false;
+
+            if (absoluteTranslation)
+            {
+                parentMatrix.Translation = Vector3.Zero;
+            }
+            if (absoluteRotation || absoluteScale)
+            {
+                Vector3 x = parentMatrix.GetAxis(0);
+                Vector3 y = parentMatrix.GetAxis(1);
+                Vector3 z = parentMatrix.GetAxis(2);
+
+                if (absoluteScale)
+                {
+                    x = x.Normal();
+                    y = y.Normal();
+                    z = z.Normal();
+                }
+                if (absoluteRotation)
+                {
+                    x = new Vector3(x.Length(), 0, 0);
+                    y = new Vector3(0, y.Length(), 0);
+                    z = new Vector3(0, 0, z.Length());
+                }
+
+                parentMatrix[0, 0] = x.X; parentMatrix[0, 1] = x.Y; parentMatrix[0, 2] = x.Z;
+                parentMatrix[1, 0] = y.X; parentMatrix[1, 1] = y.Y; parentMatrix[1, 2] = y.Z;
+                parentMatrix[2, 0] = z.X; parentMatrix[2, 1] = z.Y; parentMatrix[2, 2] = z.Z;
+            }
+
+            Matrix4x4 localToWorld = ActorUtils.ComposeLocalToWorld(translation, rotation, scale * scale3D) * parentMatrix;
+            return localToWorld.Translation;
+        }
+
+        private static Matrix4x4 GetActorLocalToWorld(ExportEntry actorExport)
+        {
+            PropertyCollection props = actorExport.GetCondensedProperties();
+            string locationPropName = actorExport.Game.IsGame3() ? "location" : "Location";
+            StructProperty locationProp = props.GetProp<StructProperty>(locationPropName) ?? props.GetProp<StructProperty>("Location");
+            StructProperty rotationProp = props.GetProp<StructProperty>("Rotation");
+            StructProperty drawScale3DProp = props.GetProp<StructProperty>("DrawScale3D");
+            StructProperty prePivotProp = props.GetProp<StructProperty>("PrePivot");
+
+            Vector3 location = locationProp is not null ? CommonStructs.GetVector3(locationProp) : Vector3.Zero;
+            Vector3 drawScale3D = drawScale3DProp is not null ? CommonStructs.GetVector3(drawScale3DProp) : Vector3.One;
+            Vector3 prePivot = prePivotProp is not null ? CommonStructs.GetVector3(prePivotProp) : Vector3.Zero;
+            Rotator rotation = rotationProp is not null ? CommonStructs.GetRotator(rotationProp) : new Rotator(0, 0, 0);
+            float drawScale = props.GetProp<FloatProperty>("DrawScale")?.Value ?? 1f;
+            return ActorUtils.ComposeLocalToWorld(location, rotation, drawScale * drawScale3D, prePivot);
+        }
+
+        private static HashSet<int> GetPersistentLevelActorIds(IMEPackage pcc)
+        {
+            ExportEntry persistentLevel = pcc.FindExport("TheWorld.PersistentLevel")
+                                         ?? pcc.Exports.FirstOrDefault(x => x.ClassName == "Level" && x.ObjectName == "PersistentLevel");
+            if (persistentLevel is null)
+            {
+                return null;
+            }
+
+            Level level = ObjectBinary.From<Level>(persistentLevel);
+            return level.Actors.Where(uIndex => uIndex > 0).ToHashSet();
+        }
+
+        private static bool TryGetReferencePosition(ExportEntry export, out Vector3 position)
+        {
+            if (export.IsA("LightComponent"))
+            {
+                return TryGetLightWorldPosition(export, out position);
+            }
+
+            if (export.IsA("Actor"))
+            {
+                position = GetActorLocalToWorld(export).Translation;
+                return true;
+            }
+
+            position = Vector3.Zero;
+            return false;
         }
 
         public static void ExportT3D(StaticMesh staticMesh, string Filename, Matrix4x4 m, Vector3 IncScale3D)
