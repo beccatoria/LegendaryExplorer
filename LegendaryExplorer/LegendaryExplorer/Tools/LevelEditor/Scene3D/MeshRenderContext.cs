@@ -129,6 +129,11 @@ public class MeshRenderContext : RenderContext
     private KeyStates PressedKeys;
     private MouseButtons PressedMouseButton;
     public float CameraSpeed { get; set; } = 500.0f; // Units per second
+    private const float KeyTapMoveSeconds = 0.045f;
+    private const float FirstPersonRotationSensitivity = 0.014f;
+    private const float OrbitRotationSensitivity = 0.014f;
+    private const float MouseZoomSensitivity = 0.015f;
+    private const float ScrollZoomExponent = 0.16f;
     public float Time { get; private set; }
     public uint NumFrames { get; private set; }
 
@@ -225,6 +230,66 @@ public class MeshRenderContext : RenderContext
         }
 
         UpdateScene?.Invoke(null, timestep);
+    }
+
+    private float GetPerFrameMoveAmount() => CameraSpeed / MathF.Max(FPS, 60f);
+
+    private void ApplyImmediateKeyMovement(KeyStates keyState)
+    {
+        if (Camera.IsOrthographic)
+        {
+            float panAmount = MathF.Max(Camera.OrthoWidth * 0.035f, 10f);
+            switch (keyState)
+            {
+                case KeyStates.W:
+                    Camera.Position += Vector3.UnitY * panAmount;
+                    break;
+                case KeyStates.S:
+                    Camera.Position -= Vector3.UnitY * panAmount;
+                    break;
+                case KeyStates.A:
+                    Camera.Position -= Vector3.UnitX * panAmount;
+                    break;
+                case KeyStates.D:
+                    Camera.Position += Vector3.UnitX * panAmount;
+                    break;
+                case KeyStates.Q:
+                    Camera.OrthoWidth *= 1.06f;
+                    break;
+                case KeyStates.E:
+                    Camera.OrthoWidth = MathF.Max(Camera.OrthoWidth / 1.06f, 1f);
+                    break;
+            }
+            return;
+        }
+
+        if (!Camera.FirstPerson)
+        {
+            return;
+        }
+
+        float moveAmount = MathF.Max(CameraSpeed * KeyTapMoveSeconds, 24f);
+        switch (keyState)
+        {
+            case KeyStates.W:
+                Camera.Position += Camera.CameraForward * moveAmount;
+                break;
+            case KeyStates.S:
+                Camera.Position -= Camera.CameraForward * moveAmount;
+                break;
+            case KeyStates.A:
+                Camera.Position -= Camera.CameraRight * moveAmount;
+                break;
+            case KeyStates.D:
+                Camera.Position += Camera.CameraRight * moveAmount;
+                break;
+            case KeyStates.Q:
+                Camera.Position -= Vector3.UnitZ * moveAmount;
+                break;
+            case KeyStates.E:
+                Camera.Position += Vector3.UnitZ * moveAmount;
+                break;
+        }
     }
 
     public override void Render()
@@ -601,18 +666,18 @@ public class MeshRenderContext : RenderContext
             {
                 case MouseButtons.Left:
                     var camFwd = (Camera.CameraForward with { Z = 0 }).Normal();
-                    Camera.Position += camFwd * -yDiff * (CameraSpeed / FPS);
-                    Camera.Yaw += xDiff * 0.01f;
+                    Camera.Position += camFwd * -yDiff * GetPerFrameMoveAmount();
+                    Camera.Yaw += xDiff * FirstPersonRotationSensitivity;
                     handled = true;
                     break;
                 case MouseButtons.Middle:
-                    Camera.Position += Camera.CameraRight * -xDiff * (CameraSpeed / FPS);
-                    Camera.Position += Camera.CameraUp * yDiff * (CameraSpeed / FPS);
+                    Camera.Position += Camera.CameraRight * -xDiff * GetPerFrameMoveAmount();
+                    Camera.Position += Camera.CameraUp * yDiff * GetPerFrameMoveAmount();
                     handled = true;
                     break;
                 case MouseButtons.Right:
-                    Camera.Yaw += xDiff * 0.01f;
-                    Camera.Pitch = (Camera.Pitch - yDiff * 0.01f).Clamp(-MathF.PI / 2 + 0.01f, MathF.PI / 2 - 0.01f);
+                    Camera.Yaw += xDiff * FirstPersonRotationSensitivity;
+                    Camera.Pitch = (Camera.Pitch - yDiff * FirstPersonRotationSensitivity).Clamp(-MathF.PI / 2 + 0.01f, MathF.PI / 2 - 0.01f);
                     handled = true;
                     break;
             }
@@ -623,8 +688,8 @@ public class MeshRenderContext : RenderContext
             {
                 //orbiting
                 case MouseButtons.Left:
-                    Camera.Yaw += xDiff * 0.01f;
-                    Camera.Pitch = (Camera.Pitch - yDiff * 0.01f).Clamp(-MathF.PI / 2 + 0.01f, MathF.PI / 2 - 0.01f);
+                    Camera.Yaw += xDiff * OrbitRotationSensitivity;
+                    Camera.Pitch = (Camera.Pitch - yDiff * OrbitRotationSensitivity).Clamp(-MathF.PI / 2 + 0.01f, MathF.PI / 2 - 0.01f);
                     handled = true;
                     break;
                 //panning
@@ -635,7 +700,7 @@ public class MeshRenderContext : RenderContext
                     break;
                 //zooming
                 case MouseButtons.Right:
-                    Camera.FocusDepth += yDiff * Camera.FocusDepth * 0.1f * 0.1f;
+                    Camera.FocusDepth += yDiff * Camera.FocusDepth * MouseZoomSensitivity;
                     if (Camera.FocusDepth < 0.1) Camera.FocusDepth = 0.1f;
                     handled = true;
                     break;
@@ -647,18 +712,19 @@ public class MeshRenderContext : RenderContext
 
     public override bool MouseScroll(int delta)
     {
+        float scrollSteps = delta / 120f;
         if (Camera.IsOrthographic)
         {
-            Camera.OrthoWidth *= MathF.Pow(1.2f, -Math.Sign(delta));
+            Camera.OrthoWidth *= MathF.Pow(1.2f, -scrollSteps * ScrollZoomExponent * 6f);
             Camera.OrthoWidth = MathF.Max(Camera.OrthoWidth, 1f);
         }
         else if (Camera.FirstPerson)
         {
-            Camera.Position += Camera.CameraForward * (CameraSpeed / FPS ) * (delta / 10f);
+            Camera.Position += Camera.CameraForward * GetPerFrameMoveAmount() * (scrollSteps * 28f);
         }
         else
         {
-            Camera.FocusDepth *= MathF.Pow(1.2f, -Math.Sign(delta)); // kinda hacky because this moves in constant increments regardless of how far the user scrolls.
+            Camera.FocusDepth *= MathF.Pow(1.2f, -scrollSteps * ScrollZoomExponent * 6f);
         }
         return true;
     }
@@ -673,21 +739,27 @@ public class MeshRenderContext : RenderContext
         switch (key)
         {
             case Key.W:
+                if (!PressedKeys.HasFlag(KeyStates.W)) ApplyImmediateKeyMovement(KeyStates.W);
                 PressedKeys |= KeyStates.W;
                 return true;
             case Key.S:
+                if (!PressedKeys.HasFlag(KeyStates.S)) ApplyImmediateKeyMovement(KeyStates.S);
                 PressedKeys |= KeyStates.S;
                 return true;
             case Key.A:
+                if (!PressedKeys.HasFlag(KeyStates.A)) ApplyImmediateKeyMovement(KeyStates.A);
                 PressedKeys |= KeyStates.A;
                 return true;
             case Key.D:
+                if (!PressedKeys.HasFlag(KeyStates.D)) ApplyImmediateKeyMovement(KeyStates.D);
                 PressedKeys |= KeyStates.D;
                 return true;
             case Key.Q:
+                if (!PressedKeys.HasFlag(KeyStates.Q)) ApplyImmediateKeyMovement(KeyStates.Q);
                 PressedKeys |= KeyStates.Q;
                 return true;
             case Key.E:
+                if (!PressedKeys.HasFlag(KeyStates.E)) ApplyImmediateKeyMovement(KeyStates.E);
                 PressedKeys |= KeyStates.E;
                 return true;
             default:
