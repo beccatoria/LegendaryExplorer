@@ -113,7 +113,7 @@ namespace LegendaryExplorerCore.Unreal.BinaryConverters
 
         public void DecompressAnimationData()
         {
-            if (CompressedAnimationData == null)
+            if (CompressedAnimationData == null || CompressedAnimationData.Length is 0)
             {
                 // 12/24/2024 - Nothing to decompress - Mgamerz
                 return;
@@ -321,8 +321,16 @@ namespace LegendaryExplorerCore.Unreal.BinaryConverters
             {
                 AnimTrack track = RawAnimationData[i];
 
+
                 TrackOffsets[i * 4] = (int)ms.Position;
                 int numPosKeys = track.Positions.Count;
+
+                //all the same
+                if (numPosKeys > 1 && !track.Positions.Distinct().Skip(1).Any())
+                {
+                    numPosKeys = 1;
+                }
+
                 TrackOffsets[i * 4 + 1] = numPosKeys;
 
                 if (numPosKeys > 0)
@@ -353,6 +361,11 @@ namespace LegendaryExplorerCore.Unreal.BinaryConverters
 
                 TrackOffsets[i * 4 + 2] = (int)ms.Position;
                 int numRotKeys = track.Rotations.Count;
+                //all the same
+                if (numRotKeys > 1 && !track.Rotations.Distinct().Skip(1).Any())
+                {
+                    numRotKeys = 1;
+                }
                 TrackOffsets[i * 4 + 3] = numRotKeys;
 
                 if (numRotKeys > 0)
