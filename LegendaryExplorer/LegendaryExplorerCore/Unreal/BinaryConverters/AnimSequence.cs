@@ -8,6 +8,7 @@ using LegendaryExplorerCore.Gammtek.Extensions;
 using LegendaryExplorerCore.Helpers;
 using LegendaryExplorerCore.Memory;
 using LegendaryExplorerCore.Packages;
+using LegendaryExplorerCore.Packages.CloningImportingAndRelinking;
 
 namespace LegendaryExplorerCore.Unreal.BinaryConverters
 {
@@ -578,6 +579,47 @@ namespace LegendaryExplorerCore.Unreal.BinaryConverters
         {
             float wSquared = 1.0f - (x * x + y * y + z * z);
             return (float)(wSquared > 0f ? Math.Sqrt(wSquared) : 0f);
+        }
+
+        /// <summary>
+        /// Returns a predicate that matches AnimSequencePlayer's ShouldBoneUsePositionTrack logic:
+        /// resolves m_pBioAnimSetData from the export and reads bAnimRotationOnly,
+        /// UseTranslationBoneNames, and ForceMeshTranslationBoneNames.
+        /// Falls back to animRotationOnly=true (all bones ignore position tracks) if the data
+        /// cannot be resolved.
+        /// </summary>
+        public Func<string, bool> GetPositionTrackFilter()
+        {
+            bool animRotationOnly = true;
+            HashSet<string> useTranslationBones = [];
+            HashSet<string> forceMeshTranslationBones = [];
+            try
+            {
+                var animDataEntry = Export?.GetProperty<ObjectProperty>("m_pBioAnimSetData")?.ResolveToEntry(Export.FileRef);
+                ExportEntry animSetData = animDataEntry switch
+                {
+                    ExportEntry exp => exp,
+                    ImportEntry imp => EntryImporter.ResolveImport(imp, new PackageCache()),
+                    _ => null,
+                };
+                if (animSetData != null)
+                {
+                    animRotationOnly = animSetData.GetProperty<BoolProperty>("bAnimRotationOnly")?.Value ?? true;
+                    useTranslationBones = [.. animSetData.GetProperty<ArrayProperty<NameProperty>>("UseTranslationBoneNames")?.Select(np => np.Value.Instanced) ?? []];
+                    forceMeshTranslationBones = [.. animSetData.GetProperty<ArrayProperty<NameProperty>>("ForceMeshTranslationBoneNames")?.Select(np => np.Value.Instanced) ?? []];
+                }
+            }
+            catch
+            {
+                // fall back to defaults if the lookup fails
+            }
+
+            return boneName =>
+            {
+                if (forceMeshTranslationBones.Contains(boneName)) return false;
+                if (animRotationOnly) return useTranslationBones.Contains(boneName);
+                return true;
+            };
         }
     }
 

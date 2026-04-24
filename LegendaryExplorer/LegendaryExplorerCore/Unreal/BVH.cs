@@ -40,6 +40,8 @@ namespace LegendaryExplorerCore.Unreal
             // Always decompress fresh (matches PSA pattern)
             animSeq.DecompressAnimationData();
 
+            var shouldBoneUsePositionTrack = animSeq.GetPositionTrackFilter();
+
             // Map bone name → animTrack index for fast lookup
             var boneNameToTrackIdx = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             for (int i = 0; i < animSeq.Bones.Count; i++)
@@ -98,7 +100,9 @@ namespace LegendaryExplorerCore.Unreal
                     {
                         AnimTrack track = animSeq.RawAnimationData[trackIdx];
                         rot = SampleRotation(track, frameIdx);
-                        pos = SamplePosition(track, frameIdx, refSkeleton[boneIdx].Position);
+                        pos = shouldBoneUsePositionTrack(boneName)
+                            ? SamplePosition(track, frameIdx, refSkeleton[boneIdx].Position)
+                            : refSkeleton[boneIdx].Position;
                     }
                     else
                     {

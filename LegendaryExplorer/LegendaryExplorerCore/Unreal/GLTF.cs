@@ -88,6 +88,70 @@ namespace LegendaryExplorerCore.Unreal
             gltf?.Save(filePath);
         }
 
+        // export an AnimSequence as a skeleton-only glTF animation (no mesh geometry or textures),
+        // compatible with any identically-rigged mesh
+        public static void ExportAnimSequenceToGltf(AnimSequence animSeq, MeshBone[] refSkeleton, string filePath, string versionInfo = null)
+        {
+            ArgumentNullException.ThrowIfNull(animSeq);
+            ArgumentNullException.ThrowIfNull(refSkeleton);
+
+            // Convert MeshBone[] → List<IntermediateBone> (same mapping used by ToIntermediateMesh)
+            var bones = new List<IntermediateBone>(refSkeleton.Length);
+            for (int i = 0; i < refSkeleton.Length; i++)
+            {
+                var b = refSkeleton[i];
+                bones.Add(new IntermediateBone
+                {
+                    Index = i,
+                    Name = b.Name.Instanced,
+                    ParentIndex = b.ParentIndex,
+                    NumChildren = b.NumChildren,
+                    Position = b.Position,
+                    Rotation = b.Orientation,
+                });
+            }
+
+            // Build the skeleton NodeBuilders (same transforms as the mesh export path)
+            var skeletonNodes = new NodeBuilder[bones.Count];
+            for (int i = 0; i < bones.Count; i++)
+            {
+                var bone = bones[i];
+                var nb = new NodeBuilder(bone.Name);
+                if (bone.ParentIndex == -1 || bone.ParentIndex == i)
+                {
+                    nb.WithLocalTranslation(TransformRootBonePositionToGltf(bone.Position))
+                      .WithLocalRotation(TransformRootBoneRotationToGltf(bone.Rotation));
+                }
+                else
+                {
+                    nb.WithLocalTranslation(TransformBonePositionToGltf(bone.Position))
+                      .WithLocalRotation(TransformBoneRotationToGltf(bone.Rotation));
+                }
+                skeletonNodes[i] = nb;
+            }
+            // Wire the hierarchy
+            for (int i = 0; i < bones.Count; i++)
+            {
+                int parentIdx = bones[i].ParentIndex;
+                if (parentIdx >= 0 && parentIdx != i)
+                    skeletonNodes[parentIdx].AddNode(skeletonNodes[i]);
+            }
+
+            ApplyAnimationToSkeleton(skeletonNodes, bones, animSeq, animSeq.Name.Instanced);
+
+            var scene = new SceneBuilder();
+            // Add only the root bone(s) — children come along via the hierarchy
+            for (int i = 0; i < bones.Count; i++)
+            {
+                if (bones[i].ParentIndex == -1 || bones[i].ParentIndex == i)
+                    scene.AddNode(skeletonNodes[i]);
+            }
+
+            var gltf = scene.ToGltf2();
+            gltf.Asset.Generator = versionInfo ?? "Legendary Explorer Core";
+            gltf.Save(filePath);
+        }
+
         private static IEnumerable<IntermediateMesh> BioPawnToIntermediateMeshes(ExportEntry export, MaterialExportLevel materialSetting, PackageCache cache = null)
         {
             cache ??= new PackageCache();
@@ -798,6 +862,63 @@ namespace LegendaryExplorerCore.Unreal
             // finally, we rotate the child in its local axes
             temp = temp * new Quaternion(Root2Over2, 0, 0, -Root2Over2);
             return Quaternion.Normalize(temp);
+        }
+
+        private static void ApplyAnimationToSkeleton(NodeBuilder[] skeletonNodes, List<IntermediateBone> bones, AnimSequence animSeq, string animName)
+        {
+            animSeq.DecompressAnimationData();
+
+            // same formula BVH export uses, with the same fallback
+            float frameTime = animSeq.NumFrames > 1 && animSeq.SequenceLength > 0f
+                ? animSeq.SequenceLength / (animSeq.NumFrames * animSeq.RateScale)
+                : 1f / 30f;
+
+            var shouldBoneUsePositionTrack = animSeq.GetPositionTrackFilter();
+
+            var boneToTrack = new Dictionary<string, AnimTrack>(StringComparer.OrdinalIgnoreCase);
+            for (int i = 0; i < animSeq.Bones.Count && i < animSeq.RawAnimationData.Count; i++)
+            {
+                boneToTrack[animSeq.Bones[i]] = animSeq.RawAnimationData[i];
+            }
+
+            for (int i = 0; i < bones.Count; i++)
+            {
+                var bone = bones[i];
+                if (!boneToTrack.TryGetValue(bone.Name, out AnimTrack track))
+                {
+                    continue;
+                }
+                bool isRoot = bone.ParentIndex == -1 || bone.ParentIndex == i;
+                var nb = skeletonNodes[i];
+
+                if (track.Positions is { Count: > 1 } && shouldBoneUsePositionTrack(bone.Name))
+                {
+                    var ch = nb.UseTranslation(animName);
+                    for (int f = 0; f < track.Positions.Count; f++)
+                    {
+                        var p = isRoot
+                            ? TransformRootBonePositionToGltf(track.Positions[f])
+                            : TransformBonePositionToGltf(track.Positions[f]);
+                        ch.WithPoint(f * frameTime, p);
+                    }
+                }
+
+                if (track.Rotations is { Count: > 1 })
+                {
+                    var ch = nb.UseRotation(animName);
+                    for (int f = 0; f < track.Rotations.Count; f++)
+                    {
+                        // UE3 stores animation rotations conjugated relative to RefSkeleton bone orientations
+                        // (see AnimSequencePlayer.ComputeSkinningMatrices). Undo that before applying the
+                        // same transform the bind pose uses so the rest-pose keyframe matches bone.Orientation.
+                        var raw = -Quaternion.Conjugate(track.Rotations[f]);
+                        var q = isRoot
+                            ? TransformRootBoneRotationToGltf(raw)
+                            : TransformBoneRotationToGltf(raw);
+                        ch.WithPoint(f * frameTime, q);
+                    }
+                }
+            }
         }
 
         static Quaternion FromYawPitchRoll(float yaw, float pitch, float roll)

@@ -25,6 +25,7 @@ using LegendaryExplorerCore.Unreal.BinaryConverters;
 using Microsoft.AppCenter.Analytics;
 using Microsoft.Win32;
 using Path = System.IO.Path;
+using LegendaryExplorerCore.Unreal.ObjectInfo;
 
 namespace LegendaryExplorer.Tools.AnimationImporterExporter
 {
@@ -35,6 +36,7 @@ namespace LegendaryExplorer.Tools.AnimationImporterExporter
     {
         public const string PSAFilter = "*.psa|*.psa";
         public const string BVHFilter = "*.bvh|*.bvh";
+        public const string GLTFFilter = "glTF binary|*.glb|glTF|*.gltf";
 
         public AnimationImporterExporterWindow() : base("Animation Importer/Exporter")
         {
@@ -122,6 +124,7 @@ namespace LegendaryExplorer.Tools.AnimationImporterExporter
         public ICommand ExportAnimSeqToBVHCommand { get; set; }
         public ICommand ImportFromBVHCommand { get; set; }
         public ICommand ReplaceFromBVHCommand { get; set; }
+        public ICommand ExportAnimSeqToGLTFCommand { get; set; }
 
         private void LoadCommands()
         {
@@ -138,6 +141,7 @@ namespace LegendaryExplorer.Tools.AnimationImporterExporter
             ExportAnimSeqToBVHCommand = new GenericCommand(ExportAnimSeqToBVH, IsAnimSequenceSelected);
             ImportFromBVHCommand = new GenericCommand(ImportFromBVH, IsPackageLoaded);
             ReplaceFromBVHCommand = new GenericCommand(ReplaceFromBVH, IsAnimSequenceSelected);
+            ExportAnimSeqToGLTFCommand = new GenericCommand(ExportAnimSeqToGLTF, IsAnimSequenceSelected);
         }
 
         #endregion
@@ -314,7 +318,58 @@ namespace LegendaryExplorer.Tools.AnimationImporterExporter
             }
         }
 
+        private async void ExportAnimSeqToGLTF()
+        {
+            if (ObjectBinary.From(CurrentExport) is not AnimSequence animSequence)
+                return;
+
+            MeshBone[] refSkeleton = await TryGetRefSkeletonFromDB(Pcc.Game);
+            if (refSkeleton is null)
+                return;
+
+            string sequenceName = CurrentExport.GetProperty<NameProperty>("SequenceName")?.Value.Instanced ?? CurrentExport.ObjectName.Instanced;
+            var dlg = new SaveFileDialog
+            {
+                Filter = GLTFFilter,
+                FileName = $"{sequenceName}.glb",
+                AddExtension = true,
+            };
+            if (dlg.ShowDialog(this) != true)
+                return;
+
+            IsBusy = true;
+            BusyText = "Exporting to glTF…";
+            string filePath = dlg.FileName;
+            string version = $"Legendary Explorer {AppVersion.DisplayedVersion}";
+
+            try
+            {
+                await Task.Run(() => GLTF.ExportAnimSequenceToGltf(animSequence, refSkeleton, filePath, version));
+            }
+            finally
+            {
+                IsBusy = false;
+            }
+
+            MessageBox.Show("Done!", "glTF Export", MessageBoxButton.OK);
+        }
+
         private async Task<MeshBone[]> TryGetRefSkeletonFromDB(MEGame game)
+        {
+            var (pkg, export) = await TryGetSkeletalMeshExportFromDB(game);
+            using (pkg)
+            {
+                if (export is not null && ObjectBinary.From(export) is SkeletalMesh skMesh)
+                    return skMesh.RefSkeleton;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Asks the user to pick a SkeletalMesh from the asset database and returns the owning package + export.
+        /// Caller is responsible for disposing the returned IMEPackage.
+        /// </summary>
+        private async Task<(IMEPackage pkg, ExportEntry export)> TryGetSkeletalMeshExportFromDB(MEGame game)
         {
             string dbPath = AssetDatabaseWindow.GetDBPath(game);
             if (!File.Exists(dbPath))
@@ -322,7 +377,7 @@ namespace LegendaryExplorer.Tools.AnimationImporterExporter
                 MessageBox.Show(
                     "No asset database found for this game.\n\nSelect a SkeletalMesh from the current package, or generate the asset database using the Asset Database tool.",
                     "No Asset Database", MessageBoxButton.OK, MessageBoxImage.Information);
-                return null;
+                return (null, null);
             }
 
             IsBusy = true;
@@ -340,24 +395,24 @@ namespace LegendaryExplorer.Tools.AnimationImporterExporter
             var skeletalMeshes = db.Meshes.Where(m => m.IsSkeleton).OrderBy(m => m.MeshName).ToList();
             if (skeletalMeshes.Count == 0)
             {
-                MessageBox.Show("No SkeletalMeshes found in the asset database.", "BVH Export", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return null;
+                MessageBox.Show("No SkeletalMeshes found in the asset database.", "Select SkeletalMesh", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return (null, null);
             }
 
             string chosen = InputComboBoxDialog.GetValue(this,
-                "Select a SkeletalMesh to use as the skeleton for BVH export.\nThe animation must be compatible with the chosen mesh.",
+                "Select a SkeletalMesh to use as the skeleton.\nThe animation must be compatible with the chosen mesh.",
                 "Select SkeletalMesh",
                 skeletalMeshes.Select(m => m.DisplayString));
             if (chosen.IsEmpty())
-                return null;
+                return (null, null);
 
             MeshRecord selectedRecord = skeletalMeshes.First(m => m.DisplayString == chosen);
 
             string gamePath = MEDirectories.GetDefaultGamePath(game);
             if (gamePath is null || !Directory.Exists(gamePath))
             {
-                MessageBox.Show($"Game path for {game} is not configured. Check your settings.", "BVH Export", MessageBoxButton.OK, MessageBoxImage.Error);
-                return null;
+                MessageBox.Show($"Game path for {game} is not configured. Check your settings.", "Select SkeletalMesh", MessageBoxButton.OK, MessageBoxImage.Error);
+                return (null, null);
             }
 
             foreach (var (fileKey, uIndex, _) in selectedRecord.Usages)
@@ -382,13 +437,16 @@ namespace LegendaryExplorer.Tools.AnimationImporterExporter
                 if (filePath is null)
                     continue;
 
-                using IMEPackage pkg = MEPackageHandler.OpenMEPackage(filePath);
-                if (pkg.IsUExport(uIndex) && ObjectBinary.From(pkg.GetUExport(uIndex)) is SkeletalMesh skMesh)
-                    return skMesh.RefSkeleton;
+                IMEPackage pkg = MEPackageHandler.OpenMEPackage(filePath);
+                if (pkg.IsUExport(uIndex) && pkg.GetUExport(uIndex) is ExportEntry export && export.IsA("SkeletalMesh"))
+                {
+                    return (pkg, export);
+                }
+                pkg.Dispose();
             }
 
-            MessageBox.Show($"Could not locate any package file for '{selectedRecord.MeshName}'.", "BVH Export", MessageBoxButton.OK, MessageBoxImage.Error);
-            return null;
+            MessageBox.Show($"Could not locate any package file for '{selectedRecord.MeshName}'.", "Select SkeletalMesh", MessageBoxButton.OK, MessageBoxImage.Error);
+            return (null, null);
         }
 
         private void ReplaceFromPSA()
