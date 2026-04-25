@@ -916,7 +916,6 @@ namespace LegendaryExplorer.DialogueEditor.DialogueEditorExperiments
                 var nExportID = new IntProperty(newID, "nExportID");
                 prop.Properties.AddOrReplaceProp(nExportID);
                 dew.RecreateNodesToProperties(dew.SelectedConv);
-                dew.ForceRefreshCommand.Execute(null);
 
                 MessageBox.Show($"Node cloned and given the ExportID: {newID}.", "Success", MessageBoxButton.OK);
             }
