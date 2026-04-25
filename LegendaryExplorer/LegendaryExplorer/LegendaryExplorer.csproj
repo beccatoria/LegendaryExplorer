@@ -183,6 +183,8 @@
 		<!-- Is there a fontawesome excel icon?-->
 		<Resource Include="Resources\Images\*.png" />
 		<Resource Include="Tools\PackageEditor\ExportIcons\*" />
+        <EmbeddedResource Include="Resources\FaceFXTrackPresets.json" />
+		<None Include="Resources\FaceFXTrackPresets.Readme.txt" />
 	</ItemGroup>
 
 	<!--The following reduces executable size by not including the other build's images.-->

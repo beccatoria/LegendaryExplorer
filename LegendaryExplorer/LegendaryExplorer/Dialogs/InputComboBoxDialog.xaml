@@ -20,7 +20,12 @@
         <TextBlock Text="{Binding DirectionsText}" FontSize="14" FontWeight="Bold" TextWrapping="Wrap"/>
         <ComboBox Name="EntrySelector_ComboBox" VerticalAlignment="Center"
                   ItemsPanel="{StaticResource VSP}"
-                  IsTextSearchEnabled="True"
+                  IsEditable="True"
+                  IsTextSearchEnabled="False"
+                  StaysOpenOnEdit="True"
+                  Text="{Binding CurrentSearchText, UpdateSourceTrigger=PropertyChanged}"
+                  SelectionChanged="EntrySelector_ComboBox_SelectionChanged"
+                  KeyUp="EntrySelector_ComboBox_KeyUp"
                   KeyDown="EntrySelector_ComboBox_KeyDown"/>
 
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">

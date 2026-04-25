@@ -1,6 +1,7 @@
 ﻿using ClosedXML.Excel;
 using LegendaryExplorer.Dialogs;
 using LegendaryExplorer.Misc;
+using LegendaryExplorer.Resources;
 using LegendaryExplorer.SharedUI;
 using LegendaryExplorer.Tools.TlkManagerNS;
 using LegendaryExplorer.UserControls.SharedToolControls;
@@ -34,6 +35,9 @@ namespace LegendaryExplorer.UserControls.ExportLoaderControls
     /// </summary>
     public partial class FaceFXAnimSetEditorControl : ExportLoaderControl
     {
+        private const string FaceFXTrackPresetResourceName = "LegendaryExplorer.Resources.FaceFXTrackPresets.json";
+        private static readonly Lazy<Dictionary<string, List<string>>> FaceFXTrackPresetLists = new(LoadFaceFXTrackPresetLists);
+
         private static readonly HashSet<string> Me1AndMe2LipSyncTrackNames = new(StringComparer.OrdinalIgnoreCase)
         {
             "smileRight",
@@ -703,7 +707,7 @@ namespace LegendaryExplorer.UserControls.ExportLoaderControls
         {
             if (SelectedLine == null) { return; }
 
-            string name = PromptDialog.Prompt(null, "New animation name");
+            string name = InputComboBoxDialog.GetValue(this, "New animation name", "Add Animation", GetTrackNamePresetListForCurrentGame());
 
             if (string.IsNullOrEmpty(name))
             {
@@ -723,6 +727,37 @@ namespace LegendaryExplorer.UserControls.ExportLoaderControls
             // This writes the animations back to the export, which basically clones the data properly
             SaveChanges();
             UpdateAnimListBox();
+        }
+
+        private IReadOnlyList<string> GetTrackNamePresetListForCurrentGame()
+        {
+            string presetGroupKey = CurrentLoadedExport.Game switch
+            {
+                MEGame.ME1 or MEGame.LE1 => "Me1Le1",
+                MEGame.ME2 or MEGame.LE2 => "Me2Le2",
+                _ => "Me3Le3"
+            };
+
+            if (FaceFXTrackPresetLists.Value.TryGetValue(presetGroupKey, out var presetNames))
+            {
+                return presetNames;
+            }
+
+            return [];
+        }
+
+        private static Dictionary<string, List<string>> LoadFaceFXTrackPresetLists()
+        {
+            using Stream resourceStream = typeof(EmbeddedResources).Assembly.GetManifestResourceStream(FaceFXTrackPresetResourceName);
+            if (resourceStream == null)
+            {
+                return new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+            }
+
+            using var streamReader = new StreamReader(resourceStream);
+            string json = streamReader.ReadToEnd();
+            return JsonConvert.DeserializeObject<Dictionary<string, List<string>>>(json)
+                   ?? new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
         }
 
         private void CloneAnimation_Click(object sender, RoutedEventArgs e)
@@ -1619,7 +1654,8 @@ namespace LegendaryExplorer.UserControls.ExportLoaderControls
 
         private void ChangeAnimName_Click(object sender, RoutedEventArgs e)
         {
-            if (PromptDialog.Prompt(this, "Enter new name", "Animation Name Change", SelectedAnimation.Name, true) is string newName && newName != "")
+            string newName = InputComboBoxDialog.GetValue(this, "Enter new name", "Animation Name Change", GetTrackNamePresetListForCurrentGame(), SelectedAnimation.Name);
+            if (!string.IsNullOrEmpty(newName))
             {
                 SelectedAnimation.Name = newName;
                 SaveChanges();

@@ -1,0 +1,20 @@
+FaceFX Track Presets Source
+===========================
+
+This file documents the source for FaceFXTrackPresets.json.
+
+The preset lists were generated from canonical BioWare FaceFX assets by reading:
+- FaceFXAsset: SFX_HumanMale_FaceFX
+- Data source: CompiledFaceGraph node names (resolved via FaceFXAsset.Names)
+
+Source package paths used for generation:
+- Me1Le1: D:\Origin Games\Mass Effect Legendary Edition\Game\ME1\BioGame\CookedPCConsole\BIOG_Male_Player_C.pcc
+  Export path: BIOG_FaceFX_Assets.SFX_HumanMale_FaceFX
+
+- Me2Le2: D:\Origin Games\Mass Effect Legendary Edition\Game\ME2\BioGame\CookedPCConsole\BIOG_Male_Player_C.pcc
+  Export path: BIOG_FaceFX_Assets.SFX_HumanMale_FaceFX
+
+- Me3Le3: D:\Origin Games\Mass Effect Legendary Edition\Game\ME3\BioGame\CookedPCConsole\BIOG_FaceFX_Assets.pcc
+  Export path: SFX_HumanMale_FaceFX
+
+The JSON list is intended to be static and version-controlled in LEX.
