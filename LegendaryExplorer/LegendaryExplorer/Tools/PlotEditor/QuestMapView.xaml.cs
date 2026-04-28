@@ -150,6 +150,7 @@ namespace LegendaryExplorer.Tools.PlotEditor
             tasks[taskIndexToSwap] = SelectedQuestTask;
             tasks[currentTaskIndex] = taskToSwap;
             SelectedQuestTask = tasks[taskIndexToSwap];
+            RefreshAssociatedStates();
             OnPropertyChanged(nameof(SelectedQuest.Value.Tasks));
             OnPropertyChanged(nameof(SelectedQuestTask));
         }
@@ -164,6 +165,7 @@ namespace LegendaryExplorer.Tools.PlotEditor
             tasks[taskIndexToSwap] = SelectedQuestTask;
             tasks[currentTaskIndex] = taskToSwap;
             SelectedQuestTask = tasks[taskIndexToSwap];
+            RefreshAssociatedStates();
             OnPropertyChanged(nameof(SelectedQuest.Value.Tasks));
             OnPropertyChanged(nameof(SelectedQuestTask));
         }
@@ -422,6 +424,7 @@ namespace LegendaryExplorer.Tools.PlotEditor
             SelectedQuest.Value.Tasks.Add(questTask);
 
             SelectedQuestTask = questTask;
+            RefreshAssociatedStates();
         }
 
         public void AddQuestTaskPlotItemIndex()
@@ -669,6 +672,8 @@ namespace LegendaryExplorer.Tools.PlotEditor
                     ? SelectedQuest.Value.Tasks[index - 1]
                     : SelectedQuest.Value.Tasks.First();
             }
+
+            RefreshAssociatedStates();
         }
 
         public void RemoveQuestTaskPlotItemIndex(int index)
@@ -717,6 +722,51 @@ namespace LegendaryExplorer.Tools.PlotEditor
                 foreach (var questTask in quest.Value.Tasks)
                 {
                     questTask.PlotItemIndices = InitCollection(questTask.PlotItemIndices);
+                }
+            }
+
+            RefreshAssociatedStates();
+        }
+
+        private void RefreshAssociatedStates()
+        {
+            if (Quests == null)
+            {
+                return;
+            }
+
+            var stateLookup = BoolStateTaskListsControl?.StateTaskLists?
+                .Where(pair => pair.Value?.TaskEvals != null)
+                .SelectMany(pair => pair.Value.TaskEvals
+                    .Where(taskEval => taskEval != null)
+                    .Select(taskEval => new { StateTaskListId = pair.Key, TaskEval = taskEval }))
+                .GroupBy(entry => $"{entry.TaskEval.Quest}:{entry.TaskEval.Task}")
+                .ToDictionary(
+                    group => group.Key,
+                    group => group
+                        .Select(entry => entry.StateTaskListId)
+                        .Distinct()
+                        .OrderBy(state => state)
+                        .ToList())
+                ?? new Dictionary<string, List<int>>();
+
+            foreach (var quest in Quests)
+            {
+                for (int taskIndex = 0; taskIndex < quest.Value.Tasks.Count; taskIndex++)
+                {
+                    var task = quest.Value.Tasks[taskIndex];
+                    var lookupKey = $"{quest.Key}:{taskIndex}";
+
+                    if (stateLookup.TryGetValue(lookupKey, out var states) && states.Any())
+                    {
+                        task.AssociatedState = states[0];
+                        task.AssociatedStateDisplay = string.Join(", ", states);
+                    }
+                    else
+                    {
+                        task.AssociatedState = BioQuestTask.DefaultAssociatedState;
+                        task.AssociatedStateDisplay = BioQuestTask.DefaultAssociatedStateDisplay;
+                    }
                 }
             }
         }

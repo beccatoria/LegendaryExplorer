@@ -31,11 +31,17 @@ namespace Gammtek.Conduit.MassEffect3.SFXGame.QuestMap
 		/// </summary>
 		public const bool DefaultQuestCompleteTask = false;
 
+		public const int DefaultAssociatedState = -1;
+
+		public const string DefaultAssociatedStateDisplay = "None";
+
 		/// <summary>
 		/// </summary>
 		public const string DefaultWaypointTag = "";
 
 		private int _description;
+      private int _associatedState;
+		private string _associatedStateDisplay;
 		private int _name;
 		private int _planetName;
 		private int _planetNameFlags;
@@ -59,6 +65,8 @@ namespace Gammtek.Conduit.MassEffect3.SFXGame.QuestMap
 			: base(instanceVersion)
 		{
 			Description = description;
+            AssociatedState = DefaultAssociatedState;
+			AssociatedStateDisplay = DefaultAssociatedStateDisplay;
 			Name = name;
 			PlanetName = planetName;
 			PlanetNameFlags = planetNameFlags;
@@ -74,6 +82,8 @@ namespace Gammtek.Conduit.MassEffect3.SFXGame.QuestMap
 			: base(other)
 		{
 			Description = other.Description;
+          AssociatedState = other.AssociatedState;
+			AssociatedStateDisplay = other.AssociatedStateDisplay;
 			Name = other.Name;
 			PlanetName = other.PlanetName;
 			PlanetNameFlags = other.PlanetNameFlags;
@@ -88,6 +98,18 @@ namespace Gammtek.Conduit.MassEffect3.SFXGame.QuestMap
 		{
 			get { return _description; }
 			set { SetProperty(ref _description, value); }
+		}
+
+		public int AssociatedState
+		{
+			get { return _associatedState; }
+			set { SetProperty(ref _associatedState, value); }
+		}
+
+		public string AssociatedStateDisplay
+		{
+			get { return _associatedStateDisplay; }
+			set { SetProperty(ref _associatedStateDisplay, value); }
 		}
 
 		/// <summary>

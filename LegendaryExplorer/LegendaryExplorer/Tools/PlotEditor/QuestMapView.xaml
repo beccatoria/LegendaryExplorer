@@ -355,14 +355,16 @@
 										ItemsSource="{Binding SelectedQuest.Value.Tasks, NotifyOnTargetUpdated=True}" SelectedItem="{Binding SelectedQuestTask, Mode=TwoWay}">
                                         <ListBox.ItemTemplate>
                                             <DataTemplate DataType="{x:Type questMap:BioQuestTask}">
-                                                <TextBlock Text="Task" Width="125">
-                                                    <TextBlock.ContextMenu>
-                                                        <ContextMenu>
-                                                            <MenuItem Header="Copy" Click="CopyQuestTask_Click"/>
-                                                            <MenuItem Header="Remove" Click="RemoveQuestTask_Click"/>
-                                                        </ContextMenu>
-                                                    </TextBlock.ContextMenu>
-                                                </TextBlock>
+                                                <StackPanel Width="125">
+													<TextBlock Text="Task"/>
+													<TextBlock Text="{Binding AssociatedStateDisplay, StringFormat='State: {0}'}" TextWrapping="Wrap" FontSize="10"/>
+													<StackPanel.ContextMenu>
+														<ContextMenu>
+															<MenuItem Header="Copy" Click="CopyQuestTask_Click"/>
+															<MenuItem Header="Remove" Click="RemoveQuestTask_Click"/>
+														</ContextMenu>
+													</StackPanel.ContextMenu>
+												</StackPanel>
                                             </DataTemplate>
                                         </ListBox.ItemTemplate>
                                     </ListBox>
@@ -396,49 +398,57 @@
                                             <ColumnDefinition MaxWidth="350" Width="*" />
 										</Grid.ColumnDefinitions>
 										<Grid.RowDefinitions>
-											<RowDefinition Height="Auto" />
-											<RowDefinition Height="Auto" />
-											<RowDefinition Height="Auto" />
-											<RowDefinition Height="Auto" />
-											<RowDefinition Height="Auto" />
-											<RowDefinition Height="Auto" />
-											<RowDefinition Height="Auto" />
+                                     <RowDefinition Height="Auto" />
+										<RowDefinition Height="Auto" />
+										<RowDefinition Height="Auto" />
+										<RowDefinition Height="Auto" />
+										<RowDefinition Height="Auto" />
+										<RowDefinition Height="Auto" />
+										<RowDefinition Height="Auto" />
+										<RowDefinition Height="Auto" />
 										</Grid.RowDefinitions>
 
+										<Label Grid.Column="0" Grid.Row="0" Content="State"
+										Margin="0,5" HorizontalAlignment="Left" VerticalAlignment="Center" />
+
+										<TextBox Grid.Column="1" Grid.Row="0"
+										Text="{Binding Path=SelectedQuestTask.AssociatedStateDisplay}" IsReadOnly="True"
+										Width="150" Margin="5,5" HorizontalAlignment="Left" VerticalAlignment="Center"/>
+
                                         <!-- Task Name -->
-                                        <Label Grid.Column="0" Grid.Row="0" Content="Name"
+                                  <Label Grid.Column="0" Grid.Row="1" Content="Name"
 											Margin="0,5" HorizontalAlignment="Left" VerticalAlignment="Center" />
 
-                                        <xctk:IntegerUpDown Grid.Column="1" Grid.Row="0"
+                                    <xctk:IntegerUpDown Grid.Column="1" Grid.Row="1"
 											Text="{Binding Path=SelectedQuestTask.Name, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
 											Width="150" Margin="5,5" HorizontalAlignment="Left" VerticalAlignment="Center" ValueChanged="txt_ValueChanged"/>
-                                        <TextBox Name="txt_taskName" Grid.Column="2" Grid.Row="0" Text="Name String" IsReadOnly="True"
+                                  <TextBox Name="txt_taskName" Grid.Column="2" Grid.Row="1" Text="Name String" IsReadOnly="True"
                                                  TextAlignment="Left" VerticalAlignment="Center" Padding="3,3" Margin="10,5"/>
 
                                         <!-- Task Description -->
-                                        <Label Grid.Column="0" Grid.Row="1" Content="Description"
+                                   <Label Grid.Column="0" Grid.Row="2" Content="Description"
 											Margin="0,5" HorizontalAlignment="Left" VerticalAlignment="Center" />
 
-                                        <xctk:IntegerUpDown Grid.Column="1" Grid.Row="1"
+                                    <xctk:IntegerUpDown Grid.Column="1" Grid.Row="2"
 											Text="{Binding Path=SelectedQuestTask.Description, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
 											Width="150" Margin="5,5" HorizontalAlignment="Left" VerticalAlignment="Center" ValueChanged="txt_ValueChanged"/>
 
-                                        <TextBox Name="txt_taskDesc" Grid.Column="2" Grid.Row="1" Grid.RowSpan="3" Text="Description String" IsReadOnly="True"
+                                  <TextBox Name="txt_taskDesc" Grid.Column="2" Grid.Row="2" Grid.RowSpan="3" Text="Description String" IsReadOnly="True"
                                                  TextAlignment="Left" TextWrapping="Wrap" VerticalAlignment="Top" Padding="3,3" Margin="10,5"/>
 
                                         <!-- Task Planet Name -->
-										<Label Grid.Column="0" Grid.Row="2" Content="Planet Name"
+                                   <Label Grid.Column="0" Grid.Row="3" Content="Planet Name"
 											Margin="0,5" HorizontalAlignment="Left" VerticalAlignment="Center" />
 
-										<xctk:IntegerUpDown Grid.Column="1" Grid.Row="2"
+                                    <xctk:IntegerUpDown Grid.Column="1" Grid.Row="3"
 											Text="{Binding Path=SelectedQuestTask.PlanetName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
 											Width="150" Margin="5,5" HorizontalAlignment="Left" VerticalAlignment="Center" />
 
 										<!-- Task Plot Item Indices -->
-										<Label Grid.Column="0" Grid.Row="3" Content="Plot Item Indices"
+                                 <Label Grid.Column="0" Grid.Row="4" Content="Plot Item Indices"
 											Margin="0,5" HorizontalAlignment="Left" VerticalAlignment="Center" />
 
-										<Grid Grid.Column="1" Grid.Row="3" Margin="0,5,0,0">
+                                    <Grid Grid.Column="1" Grid.Row="4" Margin="0,5,0,0">
 											<Grid.ColumnDefinitions>
 												<ColumnDefinition Width="Auto" />
 											</Grid.ColumnDefinitions>
@@ -482,26 +492,26 @@
 										</Grid>
 
 										<!-- Task Completes Quest -->
-										<Label Grid.Column="0" Grid.Row="4" Content="Task Completes Quest"
+                                      <Label Grid.Column="0" Grid.Row="5" Content="Task Completes Quest"
 											Margin="0,5" HorizontalAlignment="Left" VerticalAlignment="Center" />
 
-										<CheckBox Grid.Column="1" Grid.Row="4"
+                                      <CheckBox Grid.Column="1" Grid.Row="5"
 											IsChecked="{Binding Path=SelectedQuestTask.QuestCompleteTask, Mode=TwoWay}"
 											Margin="5,5" HorizontalAlignment="Left" VerticalAlignment="Center" />
 
 										<!-- Task Waypoint Tag -->
-										<Label Grid.Column="0" Grid.Row="5" Content="Waypoint Tag"
+                                      <Label Grid.Column="0" Grid.Row="6" Content="Waypoint Tag"
 											Margin="0,5" HorizontalAlignment="Left" VerticalAlignment="Center" />
 
-										<TextBox Grid.Column="1" Grid.Row="5" Grid.ColumnSpan="2"
+                                       <TextBox Grid.Column="1" Grid.Row="6" Grid.ColumnSpan="2"
 											Text="{Binding Path=SelectedQuestTask.WaypointTag, Mode=TwoWay}"
 											Width="250" Margin="5,5" HorizontalAlignment="Left" VerticalAlignment="Center" />
 
 										<!-- Task Instance Version -->
-										<Label Grid.Column="0" Grid.Row="6" Content="Instance Version"
+                                      <Label Grid.Column="0" Grid.Row="7" Content="Instance Version"
 											Margin="0,5" HorizontalAlignment="Left" VerticalAlignment="Center" />
 
-										<xctk:IntegerUpDown Grid.Column="1" Grid.Row="6"
+                                        <xctk:IntegerUpDown Grid.Column="1" Grid.Row="7"
 											Text="{Binding Path=SelectedQuestTask.InstanceVersion, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
 											Width="150" Margin="5,5" HorizontalAlignment="Left" VerticalAlignment="Center" />
 									</Grid>
