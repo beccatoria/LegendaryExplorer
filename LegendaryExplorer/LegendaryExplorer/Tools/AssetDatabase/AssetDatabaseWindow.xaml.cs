@@ -975,7 +975,70 @@ namespace LegendaryExplorer.Tools.AssetDatabase
                 return;
             }
 
+            if (tool == "SoundExplorer" && currentView == 8)
+            {
+                TryOpenSelectedLineAudioInSoundExplorer();
+                return;
+            }
+
             OpenInToolkit(tool, GetFilePath(usagepkg, contentdir), usageUID, strRef, realFileName: usagepkg);
+        }
+
+        private bool TryOpenSelectedLineAudioInSoundExplorer()
+        {
+            if (lstbx_Lines.SelectedItem is not ConvoLine selecteditem || CurrentConvo.Item1 == null)
+            {
+                MessageBox.Show("No conversation line is selected.");
+                return false;
+            }
+
+            var filename = $"{CurrentConvo.Item2}.*";
+            var cdir = CurrentConvo.Item4;
+            string rootPath = MEDirectories.GetDefaultGamePath(CurrentGame);
+            if (rootPath == null)
+            {
+                MessageBox.Show($"{CurrentGame} has not been found. Please check your Legendary Explorer settings");
+                return false;
+            }
+
+            var files = Directory.GetFiles(rootPath, filename, SearchOption.AllDirectories).ToList();
+            if (files.IsEmpty())
+            {
+                MessageBox.Show($"File {filename} not found.");
+                return false;
+            }
+
+            string searchWav = (genderTabs.SelectedIndex == 1 ? $"{selecteditem.StrRef}_f" : $"{selecteditem.StrRef}_m").ToLower();
+
+            foreach (var filePath in files)
+            {
+                bool isBaseFile = cdir.ToLower() == "biogame";
+                bool isDLCFile = filePath.ToLower().Contains("dlc");
+                if (isBaseFile == isDLCFile)
+                {
+                    continue;
+                }
+
+                using var package = MEPackageHandler.OpenMEPackage(filePath);
+                ExportEntry stream;
+                if (currentGame.IsGame1())
+                {
+                    stream = package.Exports.FirstOrDefault(x => x.ClassName == "SoundNodeWave" && x.InstancedFullPath.ToLower().EndsWith(searchWav));
+                }
+                else
+                {
+                    stream = package.Exports.FirstOrDefault(x => x.ClassName == "WwiseStream" && x.ObjectNameString.ToLower().Contains(searchWav));
+                }
+
+                if (stream != null)
+                {
+                    OpenInToolkit("SoundExplorer", filePath, stream.UIndex);
+                    return true;
+                }
+            }
+
+            MessageBox.Show($"Line audio {searchWav} was not found in this conversation package.");
+            return false;
         }
 
         private void OpenSourcePkg(object obj)
@@ -1133,9 +1196,12 @@ namespace LegendaryExplorer.Tools.AssetDatabase
                     }
                     break;
                 case "SoundExplorer":
-                    var soundplorer = new Soundplorer.SoundplorerWPF();
+                    var soundplorer = exportEntry is not null ? new Soundplorer.SoundplorerWPF(exportEntry) : new Soundplorer.SoundplorerWPF();
                     soundplorer.Show();
-                    soundplorer.LoadFile(filePath);
+                    if (exportEntry is null)
+                    {
+                        soundplorer.LoadFile(filePath);
+                    }
                     break;
                 case "CndEd":
                     var cndEd = new ConditionalsEditor.ConditionalsEditorWindow();

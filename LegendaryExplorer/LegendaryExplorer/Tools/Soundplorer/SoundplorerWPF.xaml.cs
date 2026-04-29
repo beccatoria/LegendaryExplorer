@@ -9,6 +9,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Threading;
 using FontAwesome5;
@@ -47,6 +48,19 @@ namespace LegendaryExplorer.Tools.Soundplorer
         BackgroundWorker backgroundScanner;
         public ObservableCollectionExtended<object> BindedItemsList { get; set; } = new();
 
+        private string _searchText;
+        public string SearchText
+        {
+            get => _searchText;
+            set
+            {
+                if (SetProperty(ref _searchText, value))
+                {
+                    CollectionViewSource.GetDefaultView(BindedItemsList)?.Refresh();
+                }
+            }
+        }
+
         public bool AudioFileLoaded => Pcc != null || LoadedISBFile != null || LoadedAFCFile != null;
 
         private string _statusBarIDText;
@@ -70,7 +84,29 @@ namespace LegendaryExplorer.Tools.Soundplorer
         {
             LoadCommands();
             InitializeComponent();
+            var itemsView = CollectionViewSource.GetDefaultView(BindedItemsList);
+            if (itemsView != null)
+            {
+                itemsView.Filter = FilterBySearchText;
+            }
             RecentsController.InitRecentControl(Toolname, Recents_MenuItem, LoadFile);
+        }
+
+        private bool FilterBySearchText(object obj)
+        {
+            if (string.IsNullOrWhiteSpace(SearchText))
+            {
+                return true;
+            }
+
+            var search = SearchText.Trim();
+            return obj switch
+            {
+                SoundplorerExport exp => exp.DisplayString?.Contains(search, StringComparison.OrdinalIgnoreCase) == true,
+                AFCFileEntry afc => afc.DisplayString?.Contains(search, StringComparison.OrdinalIgnoreCase) == true,
+                ISACTFileEntry isact => isact.DisplayString?.Contains(search, StringComparison.OrdinalIgnoreCase) == true,
+                _ => true
+            };
         }
 
         public SoundplorerWPF(ExportEntry export) : this()

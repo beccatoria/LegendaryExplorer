@@ -809,6 +809,11 @@
                                                 <Image Source="{StaticResource iconDialogueEditor16}" Width="64"/>
                                             </MenuItem.Icon>
                                         </MenuItem>
+                                        <MenuItem Header="Open Audio Bank in Sound Explorer" Command="{Binding OpenUsagePkgCommand}" CommandParameter="SoundExplorer" ToolTip="Opens the conversation audio bank in Sound Explorer.">
+                                            <MenuItem.Icon>
+                                                <Image Source="{StaticResource iconSoundplorer16}" Width="64"/>
+                                            </MenuItem.Icon>
+                                        </MenuItem>
                                         <MenuItem Header="Open in Windows Explorer" Command="{Binding OpenInWindowsExplorerCommand}" ToolTip="Opens this file in Windows Explorer."/>
                                         <Separator/>
                                         <MenuItem Header="Copy Line to Clipboard" Command="{Binding CopyToClipboardCommand}" CommandParameter="Line" ToolTip="Copy this line's text to the clipboard."/>

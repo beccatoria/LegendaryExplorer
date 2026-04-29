@@ -162,11 +162,16 @@
                     <ColumnDefinition Width="5"/>
                     <ColumnDefinition Width="1*" MinWidth="200"/>
                 </Grid.ColumnDefinitions>
-                <ListBox Name="SoundExports_ListBox" Margin="0" Padding="0" Grid.Column="0" SelectionChanged="SoundExports_ListBox_SelectionChanged" ItemsSource="{Binding BindedItemsList}" 
-                         ItemContainerStyle="{StaticResource SoundExports_ListboxItemStyle}" PreviewKeyDown="SoundExportItem_KeyDown" MouseDoubleClick="SoundExports_ListBox_MouseDoubleClick" HorizontalContentAlignment="Stretch">
-                    <ListBox.Resources>
-                        <DataTemplate DataType="{x:Type soundplorer:SoundplorerExport}">
-                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Stretch" Margin="0" x:Name="ExportContainer">
+                <DockPanel Grid.Column="0">
+                    <xctk:WatermarkTextBox DockPanel.Dock="Top"
+                                           Margin="0,0,0,5"
+                                           Watermark="Search stream/export name"
+                                           Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"/>
+                    <ListBox Name="SoundExports_ListBox" Margin="0" Padding="0" SelectionChanged="SoundExports_ListBox_SelectionChanged" ItemsSource="{Binding BindedItemsList}" 
+                             ItemContainerStyle="{StaticResource SoundExports_ListboxItemStyle}" PreviewKeyDown="SoundExportItem_KeyDown" MouseDoubleClick="SoundExports_ListBox_MouseDoubleClick" HorizontalContentAlignment="Stretch">
+                        <ListBox.Resources>
+                            <DataTemplate DataType="{x:Type soundplorer:SoundplorerExport}">
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Stretch" Margin="0" x:Name="ExportContainer">
 
                                 <fa:ImageAwesome Icon="{Binding Icon}" VerticalAlignment="Center" Spin="{Binding NeedsLoading}" SpinDuration="1.2" Width="18" Height="18" Margin="2,0,4,0"/>
                                 <StackPanel>
@@ -174,34 +179,35 @@
                                     <TextBlock Text="{Binding TLKString}" TextWrapping="Wrap" FontSize="10" FontStyle="Italic"  Visibility="{Binding TLKString, Converter={StaticResource NullVisibilityConverter}}"/>
                                     <TextBlock Text="{Binding SubText}" VerticalAlignment="Center" Foreground="Gray"/>
                                 </StackPanel>
-                            </StackPanel>
-                            <DataTemplate.Triggers>
-                                <DataTrigger Binding="{Binding Path=Export.EntryHasPendingChanges}" Value="true">
-                                    <Setter Property="Background" Value="Yellow" TargetName="ExportContainer"/>
-                                </DataTrigger>
-                            </DataTemplate.Triggers>
-                        </DataTemplate>
-                        <DataTemplate DataType="{x:Type soundplorer:AFCFileEntry}">
-                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Stretch" Margin="0" x:Name="ExportContainer">
-                                <fa:ImageAwesome  Grid.Column="7" Icon="{Binding Icon}" Spin="{Binding NeedsLoading}" SpinDuration="1.2" Width="18" Height="18" Margin="2,0,4,0"/>
-                                <StackPanel>
-                                    <TextBlock Text="{Binding DisplayString}" VerticalAlignment="Center"/>
-                                    <TextBlock Text="{Binding SubText}" VerticalAlignment="Center" Foreground="Gray"/>
                                 </StackPanel>
-                            </StackPanel>
-                        </DataTemplate>
-                        <DataTemplate DataType="{x:Type soundplorer:ISACTFileEntry}">
-                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Stretch" Margin="0">
-                                <fa:ImageAwesome  Grid.Column="7" Icon="{Binding Icon}" Spin="{Binding NeedsLoading}" SpinDuration="1.2" Width="18" Height="18" Margin="2,0,4,0"/>
-                                <StackPanel>
-                                    <TextBlock Text="{Binding DisplayString}" VerticalAlignment="Center"/>
-                                    <TextBlock Text="{Binding TLKString}" TextWrapping="Wrap" FontSize="10" FontStyle="Italic"  Visibility="{Binding TLKString, Converter={StaticResource NullVisibilityConverter}}"/>
-                                    <TextBlock Text="{Binding SubText}" VerticalAlignment="Center" Foreground="Gray"/>
+                                <DataTemplate.Triggers>
+                                    <DataTrigger Binding="{Binding Path=Export.EntryHasPendingChanges}" Value="true">
+                                        <Setter Property="Background" Value="Yellow" TargetName="ExportContainer"/>
+                                    </DataTrigger>
+                                </DataTemplate.Triggers>
+                            </DataTemplate>
+                            <DataTemplate DataType="{x:Type soundplorer:AFCFileEntry}">
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Stretch" Margin="0" x:Name="ExportContainer">
+                                    <fa:ImageAwesome  Grid.Column="7" Icon="{Binding Icon}" Spin="{Binding NeedsLoading}" SpinDuration="1.2" Width="18" Height="18" Margin="2,0,4,0"/>
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding DisplayString}" VerticalAlignment="Center"/>
+                                        <TextBlock Text="{Binding SubText}" VerticalAlignment="Center" Foreground="Gray"/>
+                                    </StackPanel>
                                 </StackPanel>
-                            </StackPanel>
-                        </DataTemplate>
-                    </ListBox.Resources>
-                </ListBox>
+                            </DataTemplate>
+                            <DataTemplate DataType="{x:Type soundplorer:ISACTFileEntry}">
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Stretch" Margin="0">
+                                    <fa:ImageAwesome  Grid.Column="7" Icon="{Binding Icon}" Spin="{Binding NeedsLoading}" SpinDuration="1.2" Width="18" Height="18" Margin="2,0,4,0"/>
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding DisplayString}" VerticalAlignment="Center"/>
+                                        <TextBlock Text="{Binding TLKString}" TextWrapping="Wrap" FontSize="10" FontStyle="Italic"  Visibility="{Binding TLKString, Converter={StaticResource NullVisibilityConverter}}"/>
+                                        <TextBlock Text="{Binding SubText}" VerticalAlignment="Center" Foreground="Gray"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.Resources>
+                    </ListBox>
+                </DockPanel>
                 <GridSplitter Grid.Column="1"
                   Margin="-3,0"
                   BorderThickness="3,0"
