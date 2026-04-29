@@ -809,7 +809,7 @@
                                                 <Image Source="{StaticResource iconDialogueEditor16}" Width="64"/>
                                             </MenuItem.Icon>
                                         </MenuItem>
-                                        <MenuItem Header="Open Audio Bank in Sound Explorer" Command="{Binding OpenUsagePkgCommand}" CommandParameter="SoundExplorer" ToolTip="Opens the conversation audio bank in Sound Explorer.">
+                                        <MenuItem Header="Open Line in Sound Explorer" Command="{Binding OpenUsagePkgCommand}" CommandParameter="SoundExplorer" ToolTip="Opens this line in Sound Explorer.">
                                             <MenuItem.Icon>
                                                 <Image Source="{StaticResource iconSoundplorer16}" Width="64"/>
                                             </MenuItem.Icon>

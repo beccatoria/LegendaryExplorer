@@ -977,6 +977,15 @@ namespace LegendaryExplorer.Tools.AssetDatabase
 
             if (tool == "SoundExplorer" && currentView == 8)
             {
+                if (CurrentConvo.Item1 == null && lstbx_Lines.SelectedItem is ConvoLine selectedLine)
+                {
+                    var convo = CurrentDataBase.Conversations.FirstOrDefault(x => x.ConvName == selectedLine.Convo);
+                    if (convo != null)
+                    {
+                        (string fileName, int directoryKey) = CurrentDataBase.FileList[convo.ConvFile.FileKey];
+                        CurrentConvo = new Tuple<string, string, int, string, bool>(convo.ConvName, fileName, convo.ConvFile.UIndex, CurrentDataBase.ContentDir[directoryKey], convo.IsAmbient);
+                    }
+                }
                 TryOpenSelectedLineAudioInSoundExplorer();
                 return;
             }
@@ -1008,7 +1017,10 @@ namespace LegendaryExplorer.Tools.AssetDatabase
                 return false;
             }
 
-            string searchWav = (genderTabs.SelectedIndex == 1 ? $"{selecteditem.StrRef}_f" : $"{selecteditem.StrRef}_m").ToLower();
+            string searchWav = (genderTabs.SelectedIndex == 1
+                ? (currentGame.IsGame1() ? $"{selecteditem.StrRef}" : $"{selecteditem.StrRef}_f")
+                : $"{selecteditem.StrRef}_m").ToLower();
+            string fallbackFilePath = null;
 
             foreach (var filePath in files)
             {
@@ -1018,6 +1030,8 @@ namespace LegendaryExplorer.Tools.AssetDatabase
                 {
                     continue;
                 }
+
+                fallbackFilePath ??= filePath;
 
                 using var package = MEPackageHandler.OpenMEPackage(filePath);
                 ExportEntry stream;
@@ -1037,7 +1051,12 @@ namespace LegendaryExplorer.Tools.AssetDatabase
                 }
             }
 
-            MessageBox.Show($"Line audio {searchWav} was not found in this conversation package.");
+            if (fallbackFilePath != null)
+            {
+                OpenInToolkit("SoundExplorer", fallbackFilePath);
+                return true;
+            }
+
             return false;
         }
 
