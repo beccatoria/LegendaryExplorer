@@ -1755,13 +1755,23 @@ namespace LegendaryExplorer.Tools.AssetDatabase
 
             string searchWav = $"{selecteditem.StrRef}_m";
             if (genderTabs.SelectedIndex == 1)
-                searchWav = $"{selecteditem.StrRef}_f";
+            {
+                searchWav = currentGame.IsGame1() ? $"{selecteditem.StrRef}" : $"{selecteditem.StrRef}_f";
+            }
 
             if (audioPcc != null)
             {
                 if (Path.GetFileNameWithoutExtension(audioPcc.FilePath) == CurrentConvo.Item2) //if switching gender file is already loaded
                 {
-                    var stream = audioPcc.Exports.FirstOrDefault(x => x.ClassName == "WwiseStream" && x.ObjectNameString.ToLower().Contains(searchWav));
+                    ExportEntry stream;
+                    if (currentGame.IsGame1())
+                    {
+                        stream = audioPcc.Exports.FirstOrDefault(x => x.ClassName == "SoundNodeWave" && x.InstancedFullPath.ToLower().EndsWith(searchWav));
+                    }
+                    else
+                    {
+                        stream = audioPcc.Exports.FirstOrDefault(x => x.ClassName == "WwiseStream" && x.ObjectNameString.ToLower().Contains(searchWav));
+                    }
                     if (stream != null)
                     {
                         SoundpanelWPF_ADB.LoadExport(stream);
