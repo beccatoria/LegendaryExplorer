@@ -919,16 +919,27 @@ namespace LegendaryExplorerCore.Dialogue
             // Traverse conversation graph
             foreach (int entryIndex in StartingList.Values)
             {
+                if (entryIndex < 0 || entryIndex >= EntryList.Count)
+                {
+                    continue;
+                }
+
                 var aSpkrs = new SortedSet<int>();
                 var startNode = EntryList[entryIndex];
                 var visitedNodes = new HashSet<DialogueNodeExtended>();
                 var newNodes = new Queue<DialogueNodeExtended>();
                 aSpkrs.Add(startNode.SpeakerIndex);
                 var startprop = startNode.NodeProp.GetProp<ArrayProperty<StructProperty>>("ReplyListNew");
-                foreach (var e in startprop)
+                if (startprop != null)
                 {
-                    var lprop = e.GetProp<IntProperty>("nIndex");
-                    newNodes.Enqueue(ReplyList[lprop.Value]);
+                    foreach (var e in startprop)
+                    {
+                        var lprop = e.GetProp<IntProperty>("nIndex");
+                        if (lprop != null && lprop.Value >= 0 && lprop.Value < ReplyList.Count)
+                        {
+                            newNodes.Enqueue(ReplyList[lprop.Value]);
+                        }
+                    }
                 }
                 visitedNodes.Add(startNode);
                 while (newNodes.Any())
@@ -943,7 +954,10 @@ namespace LegendaryExplorerCore.Dialogue
                             {
                                 foreach (var r in thisprop)
                                 {
-                                    newNodes.Enqueue(EntryList[r.Value]);
+                                    if (r.Value >= 0 && r.Value < EntryList.Count)
+                                    {
+                                        newNodes.Enqueue(EntryList[r.Value]);
+                                    }
                                 }
                             }
                         }
@@ -951,10 +965,16 @@ namespace LegendaryExplorerCore.Dialogue
                         {
                             aSpkrs.Add(thisnode.SpeakerIndex);
                             var thisprop = thisnode.NodeProp.GetProp<ArrayProperty<StructProperty>>("ReplyListNew");
-                            foreach (var e in thisprop)
+                            if (thisprop != null)
                             {
-                                var eprop = e.GetProp<IntProperty>("nIndex");
-                                newNodes.Enqueue(ReplyList[eprop.Value]);
+                                foreach (var e in thisprop)
+                                {
+                                    var eprop = e.GetProp<IntProperty>("nIndex");
+                                    if (eprop != null && eprop.Value >= 0 && eprop.Value < ReplyList.Count)
+                                    {
+                                        newNodes.Enqueue(ReplyList[eprop.Value]);
+                                    }
+                                }
                             }
                         }
                         visitedNodes.Add(thisnode);
