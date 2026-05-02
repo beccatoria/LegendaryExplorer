@@ -28,6 +28,14 @@ namespace LegendaryExplorer.Tools.Dialogue_Editor.DialogueEditorExperiments
             return null;
         }
 
+        private void ShowFOVOLines_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is MenuItem menuItem)
+            {
+                GetDEWindow()?.SetShowFOVOLines(menuItem.IsChecked);
+            }
+        }
+
         // EXPERIMENTS: MGAMERZ-----------------------------------------------------------
         #region Mgamerz's experiments
         private void AddSharedFXASpeakerToAll_Click(object sender, RoutedEventArgs e)

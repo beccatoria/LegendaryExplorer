@@ -518,8 +518,9 @@ namespace LegendaryExplorer.DialogueEditor
         static readonly Color insideTextColor = Color.FromArgb(213, 213, 213);//white
         protected InputDragHandler inputDragHandler = new InputDragHandler();
         protected DialogueEditorWindow Editor;
+        protected string DisplayLine;
 
-        public DiagNode(DialogueEditorWindow editor, DialogueNodeExtended node, float x, float y, ConvGraphEditor ConvGraphEditor)
+        public DiagNode(DialogueEditorWindow editor, DialogueNodeExtended node, float x, float y, ConvGraphEditor ConvGraphEditor, string displayLine = null)
             : base(ConvGraphEditor)
         {
             Editor = editor;
@@ -529,6 +530,7 @@ namespace LegendaryExplorer.DialogueEditor
             pcc = editor.Pcc;
             originalX = x;
             originalY = y;
+            DisplayLine = displayLine ?? node.Line;
         }
 
         private bool _isSelected;
@@ -613,7 +615,7 @@ namespace LegendaryExplorer.DialogueEditor
 
             //TitleBox
             string s = $"{Node.SpeakerTag?.SpeakerName ?? "Unknown"}";
-            string l = $"{Node.Line}";
+            string l = $"{DisplayLine}";
             string n = $"E{Node.NodeCount}";
             if (Node.IsReply)
             { n = $"R{Node.NodeCount}"; }
@@ -799,8 +801,8 @@ namespace LegendaryExplorer.DialogueEditor
 
     public sealed class DiagNodeEntry : DiagNode
     {
-        public DiagNodeEntry(DialogueEditorWindow editor, DialogueNodeExtended node, float x, float y, ConvGraphEditor ConvGraphEditor)
-            : base(editor, node, x, y, ConvGraphEditor)
+        public DiagNodeEntry(DialogueEditorWindow editor, DialogueNodeExtended node, float x, float y, ConvGraphEditor ConvGraphEditor, string displayLine = null)
+            : base(editor, node, x, y, ConvGraphEditor, displayLine)
         {
             Node = node;
             NodeProp = node.NodeProp;
@@ -808,7 +810,7 @@ namespace LegendaryExplorer.DialogueEditor
             NodeUID = NodeID;
             originalX = x;
             originalY = y;
-            listname = $"E{NodeID} {node.Line}";
+            listname = $"E{NodeID} {DisplayLine}";
 
             GetOutputLinks(Node);
         }
@@ -1002,15 +1004,15 @@ namespace LegendaryExplorer.DialogueEditor
 
     public sealed class DiagNodeReply : DiagNode
     {
-        public DiagNodeReply(DialogueEditorWindow editor, DialogueNodeExtended node, float x, float y, ConvGraphEditor ConvGraphEditor)
-            : base(editor, node, x, y, ConvGraphEditor)
+        public DiagNodeReply(DialogueEditorWindow editor, DialogueNodeExtended node, float x, float y, ConvGraphEditor ConvGraphEditor, string displayLine = null)
+            : base(editor, node, x, y, ConvGraphEditor, displayLine)
         {
             Editor = editor;
             Node = node;
             NodeProp = node.NodeProp;
             NodeID = Node.NodeCount + 1000;
             NodeUID = NodeID;
-            listname = $"R{Node.NodeCount} {node.Line}";
+            listname = $"R{Node.NodeCount} {DisplayLine}";
             GetOutputLinks(Node);
             originalX = x;
             originalY = y;

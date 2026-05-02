@@ -36,6 +36,8 @@
         <MenuItem Header="Unlist Track from Group" Click="UnlistTrackFromGroup_Click" ToolTip="Remove the given InterpTrack from the matching InterpGroup in the selected node's InterpDatas."/>
     </MenuItem>
     <MenuItem Header="becca can't code">
+        <MenuItem x:Name="ShowFOVOLines_MenuItem" Header="Show FOVO Lines" IsCheckable="True" Click="ShowFOVOLines_Click" ToolTip="Show the first FOVO line when its playback starts after the node's InterpLength."/>
+        <Separator/>
         <MenuItem Header="List Input Links" Click="ListInputLinks_Click" ToolTip="List nodes that link into the selected node and double-click to go to them."/>
         <Separator/>
         <MenuItem Header="Copy/Paste Output Links">

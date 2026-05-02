@@ -18,6 +18,7 @@ using LegendaryExplorerCore.Dialogue;
 using LegendaryExplorerCore.GameFilesystem;
 using LegendaryExplorerCore.Gammtek.Extensions.Collections.Generic;
 using LegendaryExplorerCore.Helpers;
+using LegendaryExplorerCore.Matinee;
 using LegendaryExplorerCore.Misc;
 using LegendaryExplorerCore.Packages;
 using LegendaryExplorerCore.PlotDatabase;
@@ -169,6 +170,7 @@ namespace LegendaryExplorer.DialogueEditor
         public int ColumnSpace { get => _ColumnSpacee; set => SetProperty(ref _ColumnSpacee, value); }
         private int _WaterfallSpace = 40;
         public int WaterfallSpace { get => _WaterfallSpace; set => SetProperty(ref _WaterfallSpace, value); }
+        public bool ShowFOVOLines { get; private set; }
         public ICommand OpenCommand { get; set; }
         public ICommand SaveCommand { get; set; }
         public ICommand SaveAsCommand { get; set; }
@@ -372,6 +374,10 @@ namespace LegendaryExplorer.DialogueEditor
                     ShowLinesOnTop_MenuItem.IsChecked = (bool)options["LinesAtTop"];
                 if (options.ContainsKey("OutputNumbers"))
                     HideEntryOutput_MenuItem.IsChecked = (bool)options["OutputNumbers"];
+                if (options.ContainsKey("ShowFOVOLines"))
+                    ShowFOVOLines = (bool)options["ShowFOVOLines"];
+
+                DialogueExperimentsMenu.ShowFOVOLines_MenuItem.IsChecked = ShowFOVOLines;
             }
             else
             {
@@ -387,6 +393,7 @@ namespace LegendaryExplorer.DialogueEditor
                 ClrPcker_EntryPen.SelectedColor = DObj.entryPenColor.ToWPFColor();
                 ClrPcker_Reply.SelectedColor = DObj.replyColor.ToWPFColor();
                 ClrPcker_ReplyPen.SelectedColor = DObj.replyPenColor.ToWPFColor();
+                DialogueExperimentsMenu.ShowFOVOLines_MenuItem.IsChecked = ShowFOVOLines;
             }
             UpdateLayoutDefaults("startup");
         }
@@ -1270,16 +1277,101 @@ namespace LegendaryExplorer.DialogueEditor
                 }
                 if (n < ecnt)
                 {
-                    CurrentObjects.Add(new DiagNodeEntry(this, SelectedConv.EntryList[n], x, y, graphEditor));
+                    var entryNode = SelectedConv.EntryList[n];
+                    CurrentObjects.Add(new DiagNodeEntry(this, entryNode, x, y, graphEditor, GetDisplayLineForNode(entryNode)));
                 }
 
                 if (n < rcnt)
                 {
-                    CurrentObjects.Add(new DiagNodeReply(this, SelectedConv.ReplyList[n], x, y, graphEditor));
+                    var replyNode = SelectedConv.ReplyList[n];
+                    CurrentObjects.Add(new DiagNodeReply(this, replyNode, x, y, graphEditor, GetDisplayLineForNode(replyNode)));
                 }
             }
 
             return true;
+        }
+
+        public void SetShowFOVOLines(bool enabled)
+        {
+            ShowFOVOLines = enabled;
+            if (SelectedConv != null)
+            {
+                RefreshView();
+            }
+        }
+
+        private string GetDisplayLineForNode(DialogueNodeExtended node)
+        {
+            if (!ShowFOVOLines || node == null || node.InterpData == null)
+            {
+                return node?.Line;
+            }
+
+            float interpLength = node.InterpData.GetProperty<FloatProperty>("InterpLength")?.Value ?? node.InterpLength;
+            if (interpLength <= 0)
+            {
+                return node.Line;
+            }
+
+            var interpGroups = node.InterpData.GetProperty<ArrayProperty<ObjectProperty>>("InterpGroups");
+            if (interpGroups == null || interpGroups.Count == 0)
+            {
+                return node.Line;
+            }
+
+            bool defaultLinePlaysAfterNodeEnd = false;
+            int fovoStrRef = 0;
+
+            foreach (var groupRef in interpGroups)
+            {
+                if (!Pcc.TryGetUExport(groupRef.Value, out ExportEntry group))
+                {
+                    continue;
+                }
+
+                var interpTracks = group.GetProperty<ArrayProperty<ObjectProperty>>("InterpTracks");
+                if (interpTracks == null)
+                {
+                    continue;
+                }
+
+                foreach (var trackRef in interpTracks)
+                {
+                    if (!Pcc.TryGetUExport(trackRef.Value, out ExportEntry track))
+                    {
+                        continue;
+                    }
+
+                    if (!defaultLinePlaysAfterNodeEnd && track.ClassName == "BioEvtSysTrackVOElements")
+                    {
+                        var voTrackKeys = track.GetProperty<ArrayProperty<StructProperty>>("m_aTrackKeys");
+                        float defaultLinePlayTime = voTrackKeys?.FirstOrDefault()?.GetProp<FloatProperty>("fTime")?.Value ?? 0f;
+                        defaultLinePlaysAfterNodeEnd = defaultLinePlayTime > interpLength;
+                    }
+
+                    if (fovoStrRef <= 0 && track.IsA("SFXInterpTrackPlayFaceOnlyVO"))
+                    {
+                        var fovoKeys = track.GetProperty<ArrayProperty<StructProperty>>("m_aFOVOKeys");
+                        if (fovoKeys != null && fovoKeys.Count > 0)
+                        {
+                            fovoStrRef = fovoKeys[0].GetProp<IntProperty>("nLineStrRef")?.Value ?? 0;
+                        }
+                    }
+                }
+
+                if (defaultLinePlaysAfterNodeEnd && fovoStrRef > 0)
+                {
+                    break;
+                }
+            }
+
+            if (!defaultLinePlaysAfterNodeEnd || fovoStrRef <= 0)
+            {
+                return node.Line;
+            }
+
+            string fovoLine = TLKLookup(fovoStrRef, Pcc);
+            return string.IsNullOrWhiteSpace(fovoLine) ? node.Line : fovoLine;
         }
         public void Layout()
         {
