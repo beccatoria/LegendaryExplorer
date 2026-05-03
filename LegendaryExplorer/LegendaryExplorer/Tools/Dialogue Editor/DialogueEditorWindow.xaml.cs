@@ -2607,7 +2607,7 @@ namespace LegendaryExplorer.DialogueEditor
                 {
                     if (!cloneLinks && op.Name.Name == "ReplyListNew")
                     {
-                        props.AddOrReplaceProp(new ArrayProperty<IntProperty>(op.Name));
+                        props.AddOrReplaceProp(new ArrayProperty<StructProperty>(op.Name));
                         continue;
                     }
                     props.AddOrReplaceProp(op);
