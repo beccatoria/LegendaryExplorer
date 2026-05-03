@@ -458,7 +458,7 @@ namespace LegendaryExplorer.DialogueEditor.DialogueEditorExperiments
                 if (obj is EntryStringPair esp) handleSelect(esp);
             };
 
-            dlg.ShowDialog();
+            dlg.Show();
         }
 
         /// <summary>
