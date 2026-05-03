@@ -681,13 +681,22 @@
                                             TextAlignment="Left" DockPanel.Dock="Right" FontWeight="Bold" FontSize="18" />
                                     </DockPanel>
                                     <TextBlock Name="Node_Text_LineString"
-                                               Text="{Binding Path=SelectedDialogueNode.Line, Mode=OneWay}"
+                                               Text="{Binding Path=SelectedNodeDisplayLine, Mode=OneWay}"
                                                TextWrapping="Wrap" HorizontalAlignment="Left" FontWeight="Bold"
                                                FontSize="15" DockPanel.Dock="Left" Padding="5"
                                                ToolTip="Right mouse click to copy"
                                                MouseRightButtonUp="CopyStringToClipboard_Click">
 
                                     </TextBlock>
+                                    <StackPanel Orientation="Horizontal"
+                                                Visibility="{Binding Path=SelectedNodeDisplayIsFOVO, Converter={StaticResource BoolToVisibilityConverter}}"
+                                                ToolTip="Display-only FOVO TLK string reference used for this node.">
+                                        <TextBlock Text="FOVO String Ref:  " FontSize="15" />
+                                        <TextBlock Name="Node_Text_FOVOStrRef"
+                                                   Text="{Binding Path=SelectedNodeDisplayFOVOStrRef, Mode=OneWay}"
+                                                   FontWeight="Bold" FontSize="15"
+                                                   MouseRightButtonUp="CopyStringToClipboard_Click"/>
+                                    </StackPanel>
                                     <StackPanel Orientation="Horizontal">
                                         <TextBlock Text="Line String Ref:  " FontSize="15" />
                                         <TextBox Name="Node_Text_StrRef"

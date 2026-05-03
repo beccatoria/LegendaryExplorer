@@ -171,6 +171,24 @@ namespace LegendaryExplorer.DialogueEditor
         private int _WaterfallSpace = 40;
         public int WaterfallSpace { get => _WaterfallSpace; set => SetProperty(ref _WaterfallSpace, value); }
         public bool ShowFOVOLines { get; private set; }
+        private string _SelectedNodeDisplayLine;
+        public string SelectedNodeDisplayLine
+        {
+            get => _SelectedNodeDisplayLine;
+            set => SetProperty(ref _SelectedNodeDisplayLine, value);
+        }
+        private int? _SelectedNodeDisplayFOVOStrRef;
+        public int? SelectedNodeDisplayFOVOStrRef
+        {
+            get => _SelectedNodeDisplayFOVOStrRef;
+            set => SetProperty(ref _SelectedNodeDisplayFOVOStrRef, value);
+        }
+        private bool _SelectedNodeDisplayIsFOVO;
+        public bool SelectedNodeDisplayIsFOVO
+        {
+            get => _SelectedNodeDisplayIsFOVO;
+            set => SetProperty(ref _SelectedNodeDisplayIsFOVO, value);
+        }
         public ICommand OpenCommand { get; set; }
         public ICommand SaveCommand { get; set; }
         public ICommand SaveAsCommand { get; set; }
@@ -1294,29 +1312,38 @@ namespace LegendaryExplorer.DialogueEditor
         public void SetShowFOVOLines(bool enabled)
         {
             ShowFOVOLines = enabled;
+            UpdateSelectedNodeDisplayInfo(SelectedDialogueNode);
             if (SelectedConv != null)
             {
                 RefreshView();
             }
         }
 
-        private string GetDisplayLineForNode(DialogueNodeExtended node)
+        private void UpdateSelectedNodeDisplayInfo(DialogueNodeExtended node)
+        {
+            var info = GetNodeDisplayInfo(node);
+            SelectedNodeDisplayLine = info.DisplayLine;
+            SelectedNodeDisplayFOVOStrRef = info.FOVOStrRef;
+            SelectedNodeDisplayIsFOVO = info.IsFOVO;
+        }
+
+        private (string DisplayLine, int? FOVOStrRef, bool IsFOVO) GetNodeDisplayInfo(DialogueNodeExtended node)
         {
             if (!ShowFOVOLines || node == null || node.InterpData == null)
             {
-                return node?.Line;
+                return (node?.Line, null, false);
             }
 
             float interpLength = node.InterpData.GetProperty<FloatProperty>("InterpLength")?.Value ?? node.InterpLength;
             if (interpLength <= 0)
             {
-                return node.Line;
+                return (node.Line, null, false);
             }
 
             var interpGroups = node.InterpData.GetProperty<ArrayProperty<ObjectProperty>>("InterpGroups");
             if (interpGroups == null || interpGroups.Count == 0)
             {
-                return node.Line;
+                return (node.Line, null, false);
             }
 
             bool defaultLinePlaysAfterNodeEnd = false;
@@ -1367,11 +1394,21 @@ namespace LegendaryExplorer.DialogueEditor
 
             if (!defaultLinePlaysAfterNodeEnd || fovoStrRef <= 0)
             {
-                return node.Line;
+                return (node.Line, null, false);
             }
 
             string fovoLine = TLKLookup(fovoStrRef, Pcc);
-            return string.IsNullOrWhiteSpace(fovoLine) ? node.Line : fovoLine;
+            if (string.IsNullOrWhiteSpace(fovoLine))
+            {
+                return (node.Line, null, false);
+            }
+
+            return ($"{fovoLine} [FOVO]", fovoStrRef, true);
+        }
+
+        private string GetDisplayLineForNode(DialogueNodeExtended node)
+        {
+            return GetNodeDisplayInfo(node).DisplayLine;
         }
         public void Layout()
         {
@@ -2393,6 +2430,7 @@ namespace LegendaryExplorer.DialogueEditor
 
             ParseNodeData(obj.Node);
             SelectedDialogueNode = obj.Node;
+            UpdateSelectedNodeDisplayInfo(SelectedDialogueNode);
             SelectedDialogueNode.PropertyChanged += NodePropertyChanged;
             MirrorDialogueNode = new DialogueNodeExtended(SelectedDialogueNode);  //Setup gate
 
@@ -3689,6 +3727,10 @@ namespace LegendaryExplorer.DialogueEditor
             {
                 CopyStringToClipboard("ItpDta");
             }
+            else if (ReferenceEquals(sender, Node_Text_FOVOStrRef))
+            {
+                CopyStringToClipboard("FOVOStrRef");
+            }
         }
         private async void CopyStringToClipboard(object obj)
         {
@@ -3703,6 +3745,9 @@ namespace LegendaryExplorer.DialogueEditor
                     break;
                 case "ItpDta":
                     copytext = SelectedDialogueNode.InterpData.UIndex.ToString();
+                    break;
+                case "FOVOStrRef":
+                    copytext = SelectedNodeDisplayFOVOStrRef?.ToString();
                     break;
             }
 
