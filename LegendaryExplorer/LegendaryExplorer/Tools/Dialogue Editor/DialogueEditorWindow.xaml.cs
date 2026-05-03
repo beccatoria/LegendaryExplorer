@@ -1346,7 +1346,7 @@ namespace LegendaryExplorer.DialogueEditor
                 return (node.Line, null, false);
             }
 
-            bool defaultLinePlaysAfterNodeEnd = false;
+            bool shouldUseFOVOOverride = node.IsNonTextLine || node.NodeProp.GetProp<BoolProperty>("bNonTextLine");
             int fovoStrRef = 0;
 
             foreach (var groupRef in interpGroups)
@@ -1369,11 +1369,11 @@ namespace LegendaryExplorer.DialogueEditor
                         continue;
                     }
 
-                    if (!defaultLinePlaysAfterNodeEnd && track.ClassName == "BioEvtSysTrackVOElements")
+                    if (!shouldUseFOVOOverride && track.ClassName == "BioEvtSysTrackVOElements")
                     {
                         var voTrackKeys = track.GetProperty<ArrayProperty<StructProperty>>("m_aTrackKeys");
                         float defaultLinePlayTime = voTrackKeys?.FirstOrDefault()?.GetProp<FloatProperty>("fTime")?.Value ?? 0f;
-                        defaultLinePlaysAfterNodeEnd = defaultLinePlayTime > interpLength;
+                        shouldUseFOVOOverride = defaultLinePlayTime > interpLength;
                     }
 
                     if (fovoStrRef <= 0 && track.IsA("SFXInterpTrackPlayFaceOnlyVO"))
@@ -1386,13 +1386,13 @@ namespace LegendaryExplorer.DialogueEditor
                     }
                 }
 
-                if (defaultLinePlaysAfterNodeEnd && fovoStrRef > 0)
+                if (shouldUseFOVOOverride && fovoStrRef > 0)
                 {
                     break;
                 }
             }
 
-            if (!defaultLinePlaysAfterNodeEnd || fovoStrRef <= 0)
+            if (!shouldUseFOVOOverride || fovoStrRef <= 0)
             {
                 return (node.Line, null, false);
             }
