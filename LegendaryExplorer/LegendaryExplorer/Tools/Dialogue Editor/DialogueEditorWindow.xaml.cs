@@ -3540,8 +3540,29 @@ namespace LegendaryExplorer.DialogueEditor
             if (!string.IsNullOrEmpty(searchtext))
             {
                 var selectedObj = SelectedObjects.FirstOrDefault();
-                DiagNode tgt = CurrentObjects.AfterThenBefore(selectedObj).OfType<DiagNode>().FirstOrDefault(d => d.Node.LineStrRef.ToString().Contains(searchtext)
-                                                                                                               || d.Node.Line.Contains(searchtext, StringComparison.InvariantCultureIgnoreCase));
+                DiagNode tgt = CurrentObjects.AfterThenBefore(selectedObj).OfType<DiagNode>().FirstOrDefault(d =>
+                {
+                    if (d.Node.LineStrRef.ToString().Contains(searchtext)
+                        || d.Node.Line.Contains(searchtext, StringComparison.InvariantCultureIgnoreCase))
+                    {
+                        return true;
+                    }
+
+                    if (!ShowFOVOLines)
+                    {
+                        return false;
+                    }
+
+                    var displayInfo = GetNodeDisplayInfo(d.Node);
+                    if (!displayInfo.IsFOVO)
+                    {
+                        return false;
+                    }
+
+                    return (displayInfo.FOVOStrRef?.ToString().Contains(searchtext) ?? false)
+                        || (!string.IsNullOrWhiteSpace(displayInfo.DisplayLine)
+                            && displayInfo.DisplayLine.Contains(searchtext, StringComparison.InvariantCultureIgnoreCase));
+                });
                 if (tgt != null)
                 {
                     DialogueNode_Selected(tgt);
