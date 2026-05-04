@@ -521,6 +521,7 @@ namespace LegendaryExplorer.DialogueEditor
                 {"ReplyPenColor", ColorTranslator.ToHtml(DObj.replyPenColor)},
                 {"LinesAtTop", DBox.LinesAtTop},
                 {"OutputNumbers", DObj.OutputNumbers},
+                {"ShowFOVOLines", ShowFOVOLines},
                 {"AutoSaveMode", (int)SaveViewMode},
                 {"LayoutMode", (int)LayoutMode},
                 {"RowSpace", RowSpace},
