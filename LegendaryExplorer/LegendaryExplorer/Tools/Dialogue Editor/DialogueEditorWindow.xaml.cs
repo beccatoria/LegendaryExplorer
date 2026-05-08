@@ -3533,6 +3533,8 @@ namespace LegendaryExplorer.DialogueEditor
         }
 
         private string searchtext = "";
+        private string exportIdSearchText = "";
+        private PromptDialog exportIdSearchPrompt;
         private void SearchDialogue()
         {
             const string input = "Enter a TLK StringRef or the part of a line.";
@@ -3574,6 +3576,68 @@ namespace LegendaryExplorer.DialogueEditor
                 {
                     MessageBox.Show($"\"{searchtext}\" not found");
                 }
+            }
+        }
+
+        public void SearchDialogueByExportID()
+        {
+            const string input = "Enter full or partial ExportID to search for.";
+            if (exportIdSearchPrompt is not null)
+            {
+                if (!exportIdSearchPrompt.IsVisible)
+                {
+                    exportIdSearchPrompt = null;
+                }
+                else
+                {
+                    exportIdSearchPrompt.Activate();
+                    exportIdSearchPrompt.Focus();
+                    return;
+                }
+            }
+
+            exportIdSearchPrompt = PromptDialog.ShowPrompt(this, input, "Search Dialogue by ExportID", exportIdSearchText, true, validator: value =>
+            {
+                string trimmed = value?.Trim();
+                return (!string.IsNullOrEmpty(trimmed), null);
+            });
+
+            exportIdSearchPrompt.CloseOnConfirm = false;
+            exportIdSearchPrompt.ConfirmButtonText = "_Next";
+            exportIdSearchPrompt.Confirmed += OnExportIdSearchConfirmed;
+            exportIdSearchPrompt.Closed += ExportIdSearchPrompt_Closed;
+        }
+
+        private void OnExportIdSearchConfirmed(string value)
+        {
+            exportIdSearchText = value?.Trim();
+
+            if (!string.IsNullOrEmpty(exportIdSearchText))
+            {
+                var selectedObj = SelectedObjects.FirstOrDefault();
+                DiagNode tgt = CurrentObjects.AfterThenBefore(selectedObj).OfType<DiagNode>().FirstOrDefault(d =>
+                    d.Node.ExportID.ToString().Contains(exportIdSearchText));
+
+                if (tgt != null)
+                {
+                    DialogueNode_Selected(tgt);
+                    graphEditor.Camera.AnimateViewToCenterBounds(tgt.GlobalFullBounds, false, 100);
+                    graphEditor.Refresh();
+                }
+                else
+                {
+                    MessageBox.Show($"\"{exportIdSearchText}\" not found");
+                }
+            }
+        }
+
+        private void ExportIdSearchPrompt_Closed(object sender, EventArgs e)
+        {
+            if (exportIdSearchPrompt != null)
+            {
+                exportIdSearchPrompt.Confirmed -= OnExportIdSearchConfirmed;
+                exportIdSearchPrompt.Closed -= ExportIdSearchPrompt_Closed;
+                exportIdSearchPrompt = null;
             }
         }
         private void GoToBoxOpen()

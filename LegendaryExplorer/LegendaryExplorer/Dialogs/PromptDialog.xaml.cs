@@ -28,11 +28,22 @@ namespace LegendaryExplorer.Dialogs
         }
 
         private InputType _inputType;
+        private bool _shownAsDialog;
 
         /// <summary>
         /// Optional validation function that determines if the input is valid and optionally provides textual validation feedback.
         /// </summary>
         private Func<string, (bool, string)> validationFunc;
+
+        public bool CloseOnConfirm { get; set; } = true;
+
+        public string ConfirmButtonText
+        {
+            get => btnOk.Content?.ToString() ?? "";
+            set => btnOk.Content = value;
+        }
+
+        public event Action<string> Confirmed;
 
         /// <summary>
         /// Creates a new prompt dialog with the specified question, title, and default value. Ensure you set the owner before showing if this if being called from a WPF window.
@@ -120,10 +131,29 @@ namespace LegendaryExplorer.Dialogs
             }
             inst.validationFunc = validator;
             inst.Validate();
+            inst._shownAsDialog = true;
             inst.ShowDialog();
             if (inst.DialogResult == true)
                 return inst.ResponseText;
             return null;
+        }
+
+        public static PromptDialog ShowPrompt(Control owner, string question, string title = "",
+            string defaultValue = "",
+            bool selectText = false, int selectionStart = -1, int selectionEnd = -1,
+            InputType inputType = InputType.Text,
+            Func<string, (bool, string)> validator = null)
+        {
+            PromptDialog inst = new PromptDialog(question, title, defaultValue, selectText, selectionStart, selectionEnd, inputType);
+            if (owner != null)
+            {
+                inst.Owner = owner as Window ?? GetWindow(owner);
+                inst.WindowStartupLocation = WindowStartupLocation.CenterOwner;
+            }
+            inst.validationFunc = validator;
+            inst.Validate();
+            inst.Show();
+            return inst;
         }
 
         /// <summary>
@@ -171,8 +201,18 @@ namespace LegendaryExplorer.Dialogs
         {
             if (validationFunc is null || validationFunc(ResponseText).Item1)
             {
-                DialogResult = true;
-                Close();
+                Confirmed?.Invoke(ResponseText);
+                if (CloseOnConfirm)
+                {
+                    if (_shownAsDialog)
+                    {
+                        DialogResult = true;
+                    }
+                    else
+                    {
+                        Close();
+                    }
+                }
             }
         }
     }

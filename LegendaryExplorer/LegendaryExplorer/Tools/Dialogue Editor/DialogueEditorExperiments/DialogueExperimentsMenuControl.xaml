@@ -37,6 +37,7 @@
     </MenuItem>
     <MenuItem Header="becca can't code">
         <MenuItem x:Name="ShowFOVOLines_MenuItem" Header="Show FOVO Lines" IsCheckable="True" Click="ShowFOVOLines_Click" ToolTip="Show the first FOVO line when its playback starts after the node's InterpLength."/>
+        <MenuItem Header="Search Active Conversation by ExportID" Click="SearchByExportId_Click" ToolTip="Search dialogue nodes in the active conversation by full or partial ExportID. Repeating search cycles through matches."/>
         <Separator/>
         <MenuItem Header="List Input Links" Click="ListInputLinks_Click" ToolTip="List nodes that link into the selected node and double-click to go to them."/>
         <Separator/>

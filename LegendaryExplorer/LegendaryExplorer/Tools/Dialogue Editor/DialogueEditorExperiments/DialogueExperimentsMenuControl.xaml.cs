@@ -36,6 +36,11 @@ namespace LegendaryExplorer.Tools.Dialogue_Editor.DialogueEditorExperiments
             }
         }
 
+        private void SearchByExportId_Click(object sender, RoutedEventArgs e)
+        {
+            GetDEWindow()?.SearchDialogueByExportID();
+        }
+
         // EXPERIMENTS: MGAMERZ-----------------------------------------------------------
         #region Mgamerz's experiments
         private void AddSharedFXASpeakerToAll_Click(object sender, RoutedEventArgs e)
