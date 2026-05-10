@@ -191,37 +191,28 @@ namespace LegendaryExplorer.UserControls.ExportLoaderControls
 
         public int DlgStringID(int curID) //Dialog tlkstring id
         {
-            int newID;
             while (true)
             {
-                var inst = new PromptDialog("Set new string ID", "TLK Editor", curID.ToString(), true)
-                {
-                    Owner = Window.GetWindow(this)
-                };
-                //center to parent
-                if (inst.ShowDialog() == true)
-                {
-                    if (int.TryParse(inst.ResponseText, out int newIDInt) &&
-                        newIDInt > 0) //test result is an acceptable input
-                    { 
-                        if (LoadedStrings.Any(x => x.StringID == newIDInt))
-                        {
-                            MessageBox.Show($"String ID must be unique.\n{newIDInt} is currently in use in this TLK.");
-                            continue;
-                        }
-
-                        newID = newIDInt;
-                        break;
-                    }
-
-                    MessageBox.Show("String ID must be a positive integer");
-                }
-                else
+                var response = PromptDialog.Prompt(this, "Set new string ID", "TLK Editor", curID.ToString(), true);
+                if (response is null)
                 {
                     return curID; //cancel
                 }
+
+                if (int.TryParse(response, out int newIDInt) &&
+                    newIDInt > 0) //test result is an acceptable input
+                {
+                    if (LoadedStrings.Any(x => x.StringID == newIDInt))
+                    {
+                        MessageBox.Show($"String ID must be unique.\n{newIDInt} is currently in use in this TLK.");
+                        continue;
+                    }
+
+                    return newIDInt;
+                }
+
+                MessageBox.Show("String ID must be a positive integer");
             }
-            return newID;
         }
 
         private void AddString()
