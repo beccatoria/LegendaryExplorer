@@ -6,6 +6,7 @@ using System.IO;
 using System.Linq;
 using System.Windows;
 using System.Windows.Input;
+using LegendaryExplorer.Misc;
 using LegendaryExplorer.SharedUI;
 using LegendaryExplorerCore.GameFilesystem;
 using LegendaryExplorerCore.Helpers;
@@ -37,6 +38,9 @@ namespace LegendaryExplorer.UserControls.ExportLoaderControls
             }
         }
         public bool JPEXNotInstalled => !JPEXIsInstalled;
+        public string JPEXStatusToolTip => JPEXIsInstalled
+            ? $"Detected JPEXS executable: {JPEXExecutableLocation}"
+            : "JPEXS executable was not detected. Click the logo to open the download page.";
 
         private string JPEXExecutableLocation;
 
@@ -50,23 +54,78 @@ namespace LegendaryExplorer.UserControls.ExportLoaderControls
 
         private void GetJPEXInstallationStatus()
         {
-            if (JPEXIsInstalled) return;
+            string foundExecutable = null;
             try
             {
-                using RegistryKey key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\{E618D276-6596-41F4-8A98-447D442A77DB}_is1");
-                if (key?.GetValue("InstallLocation") is string InstallDir)
+                static string GetJpexPathFromRegistry(RegistryKey rootKey, string uninstallPath)
                 {
-                    JPEXExecutableLocation = Path.Combine(InstallDir, "ffdec.exe");
-                    JPEXIsInstalled = true;
-                    return;
+                    using RegistryKey uninstallKey = rootKey.OpenSubKey(uninstallPath);
+                    if (uninstallKey == null)
+                    {
+                        return null;
+                    }
+
+                    foreach (string subKeyName in uninstallKey.GetSubKeyNames())
+                    {
+                        using RegistryKey appKey = uninstallKey.OpenSubKey(subKeyName);
+                        string displayName = appKey?.GetValue("DisplayName") as string;
+                        if (string.IsNullOrWhiteSpace(displayName) || !displayName.Contains("JPEXS", StringComparison.OrdinalIgnoreCase))
+                        {
+                            continue;
+                        }
+
+                        if (appKey.GetValue("DisplayIcon") is string displayIconPath && !string.IsNullOrWhiteSpace(displayIconPath))
+                        {
+                            string iconExePath = displayIconPath.Trim('"');
+                            int commaIndex = iconExePath.IndexOf(',');
+                            if (commaIndex > 0)
+                            {
+                                iconExePath = iconExePath.Substring(0, commaIndex);
+                            }
+
+                            if (File.Exists(iconExePath))
+                            {
+                                return iconExePath;
+                            }
+                        }
+
+                        if (appKey.GetValue("InstallLocation") is string installDir && !string.IsNullOrWhiteSpace(installDir))
+                        {
+                            string installExePath = Path.Combine(installDir, "ffdec.exe");
+                            if (File.Exists(installExePath))
+                            {
+                                return installExePath;
+                            }
+                        }
+                    }
+
+                    return null;
+                }
+
+                foundExecutable = GetJpexPathFromRegistry(Registry.LocalMachine, @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall")
+                                  ?? GetJpexPathFromRegistry(Registry.LocalMachine, @"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall")
+                                  ?? GetJpexPathFromRegistry(Registry.CurrentUser, @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall");
+
+                if (string.IsNullOrWhiteSpace(foundExecutable))
+                {
+                    string[] commonInstallPaths =
+                    {
+                        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "FFDec", "ffdec.exe"),
+                        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "FFDec", "ffdec.exe")
+                    };
+
+                    foundExecutable = commonInstallPaths.FirstOrDefault(File.Exists);
                 }
             }
             catch
             {
                 //ignore
             }
-            JPEXIsInstalled = false;
-            JPEXExecutableLocation = null;
+
+            JPEXExecutableLocation = foundExecutable;
+            JPEXIsInstalled = !string.IsNullOrWhiteSpace(JPEXExecutableLocation) && File.Exists(JPEXExecutableLocation);
+            OnPropertyChanged(nameof(JPEXStatusToolTip));
+            CommandManager.InvalidateRequerySuggested();
         }
 
         private void LoadCommands()
@@ -174,7 +233,7 @@ namespace LegendaryExplorer.UserControls.ExportLoaderControls
                 }
 
                 Directory.CreateDirectory(storagePath);
-                string writeoutPath = Path.Combine(storagePath, CurrentLoadedExport.FullPath + ".gfx");
+                string writeoutPath = GetSWFExportPath();
                 extractSwf(CurrentLoadedExport, writeoutPath);
 
                 // Texture refereences
@@ -202,6 +261,7 @@ namespace LegendaryExplorer.UserControls.ExportLoaderControls
                     }
                 };
                 process.Start();
+                CommandManager.InvalidateRequerySuggested();
             }
             catch (Exception ex)
             {
@@ -252,6 +312,17 @@ namespace LegendaryExplorer.UserControls.ExportLoaderControls
 
         private void OpenWithJPEX_Click(object sender, RoutedEventArgs e)
         {
+        }
+
+        private void DownloadJPEX_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            var dlg = MessageBox.Show("Open the JPEXS FFDec download page?", "Warning", MessageBoxButton.YesNo);
+            if (dlg == MessageBoxResult.No)
+            {
+                return;
+            }
+
+            HyperlinkExtensions.OpenURL("https://github.com/jindrapetrik/jpexs-decompiler/releases");
         }
 
         public override bool CanParse(ExportEntry exportEntry)
