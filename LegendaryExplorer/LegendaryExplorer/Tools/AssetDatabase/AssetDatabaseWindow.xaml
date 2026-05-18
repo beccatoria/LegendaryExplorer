@@ -857,7 +857,7 @@
                                     </TabControl>
                                 </StackPanel>
                                 <ToggleButton x:Name="btn_LinePlaybackToggle" Content="Toggle Line Playback" Margin="5" Click="btn_LinePlaybackToggle_Click" IsChecked="False" MaxHeight="30" ClickMode="Release" DockPanel.Dock="Bottom"/>
-                                <exportLoaderControls:Soundpanel x:Name="SoundpanelWPF_ADB" PlayBackOnlyMode="True" />
+                                <exportLoaderControls:Soundpanel x:Name="SoundpanelWPF_ADB" PlayBackOnlyMode="True" GenerateWaveformGraph="True" />
                             </DockPanel>
                         </Grid>
                     </TabItem>
