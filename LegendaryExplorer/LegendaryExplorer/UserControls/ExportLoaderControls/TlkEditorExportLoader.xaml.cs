@@ -34,6 +34,15 @@ namespace LegendaryExplorer.UserControls.ExportLoaderControls
 
         private const string NO_STRING_SELECTED = "No string selected";
 
+        private bool _addAsFemaleDuplicate;
+        public bool AddAsFemaleDuplicate
+        {
+            get => _addAsFemaleDuplicate;
+            set => SetProperty(ref _addAsFemaleDuplicate, value);
+        }
+
+        public bool CanAddFemaleDuplicate => _currentMe2Me3Me2Me3TalkFile is not null && StringSelected;
+
         public bool StringSelected
         {
             get
@@ -83,6 +92,7 @@ namespace LegendaryExplorer.UserControls.ExportLoaderControls
             CleanedStrings.Remove(selectedItem);
             LoadedStrings.Remove(selectedItem);
             FileModified = true;
+            OnPropertyChanged(nameof(CanAddFemaleDuplicate));
         }
 
         private void SetStringID(object obj)
@@ -157,6 +167,7 @@ namespace LegendaryExplorer.UserControls.ExportLoaderControls
             _currentMe2Me3Me2Me3TalkFile = null;
             LoadedStrings?.Clear();
             CleanedStrings?.ClearEx();
+            AddAsFemaleDuplicate = false;
         }
 
         public override void LoadExport(ExportEntry exportEntry)
@@ -167,8 +178,10 @@ namespace LegendaryExplorer.UserControls.ExportLoaderControls
             CleanedStrings.ClearEx(); //clear strings Ex does this in bulk (faster)
             CleanedStrings.AddRange(LoadedStrings.Where(x => x.StringID > 0).ToList()); //nest it remove 0 strings.
             CurrentLoadedExport = exportEntry;
+            AddAsFemaleDuplicate = false;
             editBox.Text = NO_STRING_SELECTED; //Reset ability to save, reset edit box if export changed.
             FileModified = false;
+            OnPropertyChanged(nameof(CanAddFemaleDuplicate));
         }
 
         public string CurrentLoadedFile { get; set; }
@@ -176,6 +189,8 @@ namespace LegendaryExplorer.UserControls.ExportLoaderControls
         public override void UnloadExport()
         {
             FileModified = false;
+            AddAsFemaleDuplicate = false;
+            OnPropertyChanged(nameof(CanAddFemaleDuplicate));
         }
 
         public bool HasTLKLoaded() => CurrentLoadedFile != null || CurrentLoadedExport != null;
@@ -187,6 +202,7 @@ namespace LegendaryExplorer.UserControls.ExportLoaderControls
                 editBox.Text = selectedItem.Data;
             }
             OnPropertyChanged(nameof(StringSelected)); //Propogate this change
+            OnPropertyChanged(nameof(CanAddFemaleDuplicate));
         }
 
         public int DlgStringID(int curID) //Dialog tlkstring id
@@ -217,12 +233,56 @@ namespace LegendaryExplorer.UserControls.ExportLoaderControls
 
         private void AddString()
         {
+            if (AddAsFemaleDuplicate && _currentMe2Me3Me2Me3TalkFile is not null)
+            {
+                AddFemaleDuplicateString();
+                return;
+            }
+
             var blankstringref = new TLKStringRef(100, "New Blank Line", 1);
             LoadedStrings.Add(blankstringref);
             CleanedStrings.Add(blankstringref);
             DisplayedString_ListBox.SelectedIndex = CleanedStrings.Count() - 1; //Set focus to new line (which is the last one)
             DisplayedString_ListBox.ScrollIntoView(DisplayedString_ListBox.SelectedItem); //Scroll to last item
             SetNewID();
+            FileModified = true;
+        }
+
+        private void AddFemaleDuplicateString()
+        {
+            if (DisplayedString_ListBox.SelectedItem is not TLKStringRef selectedItem)
+            {
+                return;
+            }
+
+            int selectedEntryIndex = LoadedStrings.IndexOf(selectedItem);
+            if (selectedEntryIndex < 0)
+            {
+                return;
+            }
+
+            int firstFemaleIndex = _currentMe2Me3Me2Me3TalkFile.MaleEntryCount;
+            if (selectedEntryIndex >= firstFemaleIndex)
+            {
+                MessageBox.Show("Please select a male/main entry to duplicate as a female alternate.");
+                return;
+            }
+
+            bool alreadyHasFemaleAlternate = LoadedStrings
+                .Skip(firstFemaleIndex)
+                .Any(x => x.StringID == selectedItem.StringID);
+            if (alreadyHasFemaleAlternate)
+            {
+                MessageBox.Show("A female alternate for this String ID already exists.");
+                return;
+            }
+
+            var duplicate = new TLKStringRef(selectedItem.StringID, selectedItem.Data, selectedItem.Flags);
+
+            LoadedStrings.Add(duplicate);
+            CleanedStrings.Add(duplicate);
+            DisplayedString_ListBox.SelectedItem = duplicate;
+            DisplayedString_ListBox.ScrollIntoView(duplicate);
             FileModified = true;
         }
 
@@ -417,7 +477,9 @@ namespace LegendaryExplorer.UserControls.ExportLoaderControls
         {
             LoadedStrings = _currentMe2Me3Me2Me3TalkFile.StringRefs.ToList(); //This is not bound to so reassigning is fine
             CleanedStrings.ReplaceAll(LoadedStrings.Where(x => x.StringID > 0).ToList()); //remove 0 or null strings.
+            AddAsFemaleDuplicate = false;
             editBox.Text = NO_STRING_SELECTED; //Reset ability to save, reset edit box if export changed.
+            OnPropertyChanged(nameof(CanAddFemaleDuplicate));
         }
 
         public void LoadFileFromStream(Stream stream, string source)

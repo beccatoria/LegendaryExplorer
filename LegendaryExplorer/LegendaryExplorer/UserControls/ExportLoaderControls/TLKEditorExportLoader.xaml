@@ -32,6 +32,7 @@
             <Button Name="btnSearch" Command="{Binding SearchCommand}" Content="Search" ToolTip="Search strings" Padding="5,0" VerticalAlignment="Stretch"/>
             <Separator Style="{StaticResource {x:Static ToolBar.SeparatorStyleKey}}" />
             <Button Name="btnAddNew" Command="{Binding AddStringCommand}" Content="Add String" ToolTip="Add a new string"  Padding="5,0" VerticalAlignment="Stretch"/>
+            <ToggleButton Name="btnAddFemaleDuplicate" IsChecked="{Binding AddAsFemaleDuplicate}" Content="Female Duplicate Mode" ToolTip="When enabled, Add String duplicates the selected string as a female alternate in ME2/ME3/LE2/LE3 TLKs." Padding="5,0" VerticalAlignment="Stretch" IsEnabled="{Binding CanAddFemaleDuplicate}"/>
             <Button Name="btnAddStringRange" Command="{Binding AddStringRangeCommand}" Content="Add String Range" ToolTip="Add multiple new strings in a range"  Padding="5,0" VerticalAlignment="Stretch"/>
             <Separator Style="{StaticResource {x:Static ToolBar.SeparatorStyleKey}}" />
             <Button Name="btnSetID" Command="{Binding SetIDCommand}" Content="Change ID" ToolTip="Set StringRef ID"  Padding="5,0" VerticalAlignment="Stretch"/>
