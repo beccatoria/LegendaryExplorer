@@ -28,16 +28,22 @@ namespace LegendaryExplorerCore.Pathing
         public static void CalculateTextureToInstancesMap(IMEPackage package, TieredPackageCache cache)
         {
             LECLog.Information($"Calculating TextureToInstancesMap for {package.FileNameNoExtension}");
+            var levelExp = package.GetLevel();
+            if (levelExp is null)
+            {
+                return;
+            }
+
             var textureToInstancesMap = new Dictionary<IEntry, List<StreamableTextureInstance>>();
 
             // Look at all components
             foreach (var component in package.Exports.Where(x => x.IsA("Component")))
             {
                 // Only do ones in the world
-                if (!component.GetRootName().CaseInsensitiveEquals("TheWorld"))
+                if (!IsInParentChain(component, levelExp))
                     continue;
 
-                var props = component.GetProperties();
+                var props = component.GetCondensedProperties();
 
                 ObjectProperty meshProp = props.GetProp<ObjectProperty>("StaticMesh");
                 meshProp ??= props.GetProp<ObjectProperty>("SkeletalMesh");
@@ -106,9 +112,6 @@ namespace LegendaryExplorerCore.Pathing
                 // We now have the list of materials.
                 // Get actor location.
                 var actorLocation = GetActorLocationFromComponent(component);
-
-                if (actorLocation is { X: 0, Y: 0, Z: 0 })
-                    continue;
 
                 // Get list of textures on the materials.
                 foreach (var mat in materials.Distinct())
@@ -238,8 +241,7 @@ namespace LegendaryExplorerCore.Pathing
             // We now have location and list of textures
             // Build the map.
 
-            var levelExp = package.GetLevel();
-            var level = package.GetLevelBinary();
+            var level = ObjectBinary.From<Level>(levelExp);
 
             level.TextureToInstancesMap = new UMultiMap<int, StreamableTextureInstanceList>(textureToInstancesMap.Count);
             foreach (var tex in textureToInstancesMap)
@@ -252,6 +254,22 @@ namespace LegendaryExplorerCore.Pathing
 
             levelExp.WriteBinary(level);
 
+        }
+
+        private static bool IsInParentChain(IEntry entry, IEntry parent)
+        {
+            IEntry current = entry;
+            while (current is not null)
+            {
+                if (current == parent)
+                {
+                    return true;
+                }
+
+                current = current.Parent;
+            }
+
+            return false;
         }
 
         // Todo: Merge all the uses of these.
@@ -309,7 +327,8 @@ namespace LegendaryExplorerCore.Pathing
             }
             else
             {
-                var prop = export.GetProperty<StructProperty>("location");
+                var prop = export.GetProperty<StructProperty>("location")
+                           ?? export.GetProperty<StructProperty>("Location");
                 if (prop != null)
                 {
                     foreach (var locprop in prop.Properties)
