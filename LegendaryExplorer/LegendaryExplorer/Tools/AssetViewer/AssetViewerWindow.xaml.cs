@@ -671,6 +671,22 @@ namespace LegendaryExplorer.Tools.AssetViewer
                 // Do nothing, just close.
             });
 
+            const int mapLoadTimeoutMs = 15000;
+            Task.Delay(mapLoadTimeoutMs).ContinueWithOnUIThread(_ =>
+            {
+                if (IsBusy && !ReadyToView)
+                {
+                    EndBusy();
+                    LoadingAsset = false;
+                    MessageBox.Show(this,
+                        "Asset Viewer timed out waiting for the game to report map load.\n\n" +
+                        "This usually means interop messages are not being received (wrong game/process target, missing/outdated Interop ASI, or the map failed to stream).",
+                        "Asset Viewer Timeout",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Warning);
+                }
+            });
+
             void mapIsReady()
             {
                 // If there's anything to load, do it now

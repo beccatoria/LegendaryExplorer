@@ -1,5 +1,7 @@
 ﻿using System;
+using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Windows.Input;
 using LegendaryExplorer.Misc.AppSettings;
 using LegendaryExplorerCore.Packages;
@@ -23,6 +25,26 @@ namespace LegendaryExplorer.GameInterop.InteropTargets
         public override InteropModInfo ModInfo => throw new NotImplementedException();
         public override string ProcessName => "MassEffect2";
         public override uint GameMessageSignature => 0x02AC00C6;
+
+        public override bool TryGetProcess(out Process process)
+        {
+            process = Process.GetProcessesByName(ProcessName).FirstOrDefault();
+            if (process is null)
+            {
+                return false;
+            }
+
+            try
+            {
+                // LE2 uses ProductMajorPart >= 2. OT ME2 is < 2.
+                return process.MainModule?.FileVersionInfo.ProductMajorPart >= 2;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         public override void SelectGamePath()
         {
             OpenFileDialog ofd = new()
