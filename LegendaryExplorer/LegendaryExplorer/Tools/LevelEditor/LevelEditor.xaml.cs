@@ -49,6 +49,13 @@ public class RecentFileSet
     public string TooltipText => string.Join("\n", FilePaths.Select(Path.GetFileName));
 }
 
+public enum ObjectRenderMode
+{
+    Full,
+    Wireframe,
+    Hidden
+}
+
 public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditorContext
 {
     public LevelEditorRenderContext RenderContext { get; }
@@ -122,6 +129,13 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
     {
         get => _showVolumetrics;
         set => SetProperty(ref _showVolumetrics, value);
+    }
+
+    private ObjectRenderMode _objectRenderMode = ObjectRenderMode.Full;
+    public ObjectRenderMode ObjectRenderMode
+    {
+        get => _objectRenderMode;
+        set => SetProperty(ref _objectRenderMode, value);
     }
 
     public bool UseLocalCoordsForWidget
@@ -217,6 +231,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
     {
         float lightRenderDistanceSq = LightRenderDistance * LightRenderDistance;
         Vector3 cameraPosition = RenderContext.Camera.Position;
+        bool baseWireframe = RenderContext.Wireframe;
         for (int i = 0; i < RenderContext.DrawList_3D.Count; i++)
         {
             ActorProxy actor = RenderContext.DrawList_3D[i];
@@ -224,6 +239,24 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
             if (actor.IsLight && Vector3.DistanceSquared(actor.Location, cameraPosition) > lightRenderDistanceSq) continue;
             if (actor.IsVolume && !ShowVolumes) continue;
             if (actor.IsVolumetricMesh && !ShowVolumetrics) continue;
+            if (ObjectRenderMode is ObjectRenderMode.Hidden
+                && pass is RenderPass.Base or RenderPass.Hair
+                && !actor.IsVolume
+                && !actor.IsVolumetricMesh)
+            {
+                continue;
+            }
+
+            bool forceWireframeForActor = ObjectRenderMode is ObjectRenderMode.Wireframe
+                                          && pass is RenderPass.Base or RenderPass.Hair
+                                          && !actor.IsVolume
+                                          && !actor.IsVolumetricMesh;
+            bool targetWireframeState = baseWireframe || forceWireframeForActor;
+            if (RenderContext.Wireframe != targetWireframeState)
+            {
+                RenderContext.Wireframe = targetWireframeState;
+            }
+
             int hitID = actor.HitID;
             RenderContext.CurrentHitTestId = new Vector3((hitID & 0xFF) / 255f, ((hitID >> 8) & 0xFF) / 255f, ((hitID >> 16) & 0xFF) / 255f);
             if (actor == selectedActor)
@@ -232,6 +265,11 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
             }
             actor.Render(RenderContext, pass);
             RenderContext.RenderFlags &= ~LevelEditorRenderContext.ShaderFlags.Selected;
+        }
+
+        if (RenderContext.Wireframe != baseWireframe)
+        {
+            RenderContext.Wireframe = baseWireframe;
         }
     }
 

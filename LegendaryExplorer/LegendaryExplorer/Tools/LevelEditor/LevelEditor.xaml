@@ -120,6 +120,12 @@
                     <Separator Style="{StaticResource {x:Static ToolBar.SeparatorStyleKey}}" />
                     <ToggleButton Content="Show Collision" ToolTip="Show collision meshes" IsChecked="{Binding ShowCollision}"/>
                     <ToggleButton Content="Show Lights" ToolTip="Show light actors and static light collection components" IsChecked="{Binding ShowLights}"/>
+                     <TextBlock Text="Objects" VerticalAlignment="Center" Margin="8,0,4,0"/>
+                     <ComboBox Width="120" SelectedValuePath="Tag" SelectedValue="{Binding ObjectRenderMode}" ToolTip="Control how regular scene objects are rendered">
+                         <ComboBoxItem Content="Full" Tag="{x:Static local:ObjectRenderMode.Full}"/>
+                         <ComboBoxItem Content="Wireframe" Tag="{x:Static local:ObjectRenderMode.Wireframe}"/>
+                         <ComboBoxItem Content="Hidden" Tag="{x:Static local:ObjectRenderMode.Hidden}"/>
+                     </ComboBox>
                     <TextBlock Text="Light Dist" VerticalAlignment="Center" Margin="8,0,4,0"/>
                     <xctk:IntegerUpDown Value="{Binding LightRenderDistance}" Minimum="0" Maximum="1000000" Width="70"
                                         VerticalContentAlignment="Center" FormatString="N0"
