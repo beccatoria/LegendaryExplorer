@@ -53,7 +53,8 @@ public enum ObjectRenderMode
 {
     Full,
     Wireframe,
-    Hidden
+    Hidden,
+    VisibleSetOnly
 }
 
 public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditorContext
@@ -169,7 +170,41 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
     public ObjectRenderMode ObjectRenderMode
     {
         get => _objectRenderMode;
-        set => SetProperty(ref _objectRenderMode, value);
+        set
+        {
+            if (SetProperty(ref _objectRenderMode, value))
+            {
+                UseVisibleSetOnly = value is ObjectRenderMode.VisibleSetOnly;
+                if (value is ObjectRenderMode.VisibleSetOnly && _visibleActorSet.Count is 0)
+                {
+                    RebuildVisibleSetByDistance();
+                }
+            }
+        }
+    }
+
+    private readonly HashSet<string> _visibleActorSet = [];
+
+    private bool _useVisibleSetOnly;
+    public bool UseVisibleSetOnly
+    {
+        get => _useVisibleSetOnly;
+        set
+        {
+            if (SetProperty(ref _useVisibleSetOnly, value)
+                && ObjectRenderMode is ObjectRenderMode.VisibleSetOnly
+                && !value)
+            {
+                ObjectRenderMode = ObjectRenderMode.Full;
+            }
+        }
+    }
+
+    private int _visibleSetDistance = 5000;
+    public int VisibleSetDistance
+    {
+        get => _visibleSetDistance;
+        set => SetProperty(ref _visibleSetDistance, Math.Max(0, value));
     }
 
     public bool UseLocalCoordsForWidget
@@ -280,6 +315,16 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
             if (actor.IsLight && Vector3.DistanceSquared(actor.Location, cameraPosition) > lightRenderDistanceSq) continue;
             if (actor.IsVolume && !ShowVolumes) continue;
             if (actor.IsVolumetricMesh && !ShowVolumetrics) continue;
+            if ((UseVisibleSetOnly || ObjectRenderMode is ObjectRenderMode.VisibleSetOnly)
+                && pass is RenderPass.Base or RenderPass.Hair
+                && !actor.IsVolume
+                && !actor.IsVolumetricMesh
+                && !actor.IsLight
+                && (!_visibleActorSet.Contains(GetActorVisibilityKey(actor))
+                    || Vector3.DistanceSquared(actor.Location, cameraPosition) > VisibleSetDistance * VisibleSetDistance))
+            {
+                continue;
+            }
             if (ObjectRenderMode is ObjectRenderMode.Hidden
                 && pass is RenderPass.Base or RenderPass.Hair
                 && !actor.IsVolume
@@ -483,6 +528,8 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         SceneViewer.SetShouldRender(false);
         RenderContext.UnloadLevel();
         Actors.Clear();
+        _visibleActorSet.Clear();
+        UseVisibleSetOnly = false;
         foreach (var file in OpenFiles)
         {
             file.Dispose();
@@ -674,6 +721,17 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
     public ICommand UndoCommand { get; set; }
     public ICommand RedoCommand { get; set; }
     public ICommand ToggleOrthoViewCommand { get; set; }
+    public ICommand ToggleVisibleSetOnlyCommand { get; set; }
+    public ICommand AddSelectedToVisibleSetCommand { get; set; }
+    public ICommand RemoveSelectedFromVisibleSetCommand { get; set; }
+    public ICommand ShowOnlySelectedCommand { get; set; }
+    public ICommand ClearVisibleSetCommand { get; set; }
+    public ICommand ShowAllMeshesCommand { get; set; }
+    public ICommand AddSelectedClassToVisibleSetCommand { get; set; }
+    public ICommand RemoveSelectedClassFromVisibleSetCommand { get; set; }
+    public ICommand ShowOnlySelectedClassCommand { get; set; }
+    public ICommand AddNearbyToVisibleSetCommand { get; set; }
+    public ICommand ShowOnlyNearbyCommand { get; set; }
     private void LoadCommands()
     {
         OpenFileCommand = new GenericCommand(OpenFile);
@@ -711,6 +769,120 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         UndoCommand = new GenericCommand(Undo, () => UndoHistory.CanUndo);
         RedoCommand = new GenericCommand(Redo, () => UndoHistory.CanRedo);
         ToggleOrthoViewCommand = new GenericCommand(() => IsOrthographicView = !IsOrthographicView);
+        ToggleVisibleSetOnlyCommand = new GenericCommand(() => UseVisibleSetOnly = !UseVisibleSetOnly, PackageIsLoaded);
+        AddSelectedToVisibleSetCommand = new GenericCommand(AddSelectedToVisibleSet, () => PackageIsLoaded() && SelectedActor is not null);
+        RemoveSelectedFromVisibleSetCommand = new GenericCommand(RemoveSelectedFromVisibleSet, () => PackageIsLoaded() && SelectedActor is not null);
+        ShowOnlySelectedCommand = new GenericCommand(ShowOnlySelected, () => PackageIsLoaded() && SelectedActor is not null);
+        ClearVisibleSetCommand = new GenericCommand(ClearVisibleSet, PackageIsLoaded);
+        ShowAllMeshesCommand = new GenericCommand(ShowAllMeshes, PackageIsLoaded);
+        AddSelectedClassToVisibleSetCommand = new GenericCommand(AddSelectedClassToVisibleSet, () => PackageIsLoaded() && SelectedActor is not null);
+        RemoveSelectedClassFromVisibleSetCommand = new GenericCommand(RemoveSelectedClassFromVisibleSet, () => PackageIsLoaded() && SelectedActor is not null);
+        ShowOnlySelectedClassCommand = new GenericCommand(ShowOnlySelectedClass, () => PackageIsLoaded() && SelectedActor is not null);
+        AddNearbyToVisibleSetCommand = new GenericCommand(AddNearbyToVisibleSet, PackageIsLoaded);
+        ShowOnlyNearbyCommand = new GenericCommand(ShowOnlyNearby, PackageIsLoaded);
+    }
+
+    #endregion
+
+    #region Selective Visibility
+
+    private static string GetActorVisibilityKey(ActorProxy actor)
+    {
+        return $"{actor.Export.FileRef.FilePath}|{actor.Export.UIndex}";
+    }
+
+    private static bool IsMeshFilterCandidate(ActorProxy actor)
+    {
+        return !actor.IsVolume && !actor.IsVolumetricMesh && !actor.IsLight;
+    }
+
+    private void AddActorsToVisibleSet(IEnumerable<ActorProxy> actors)
+    {
+        foreach (var actor in actors)
+        {
+            _visibleActorSet.Add(GetActorVisibilityKey(actor));
+        }
+    }
+
+    private void AddSelectedToVisibleSet()
+    {
+        if (SelectedActor is null) return;
+        _visibleActorSet.Add(GetActorVisibilityKey(SelectedActor));
+        UseVisibleSetOnly = true;
+    }
+
+    private void RemoveSelectedFromVisibleSet()
+    {
+        if (SelectedActor is null) return;
+        _visibleActorSet.Remove(GetActorVisibilityKey(SelectedActor));
+    }
+
+    private void ShowOnlySelected()
+    {
+        if (SelectedActor is null) return;
+        _visibleActorSet.Clear();
+        _visibleActorSet.Add(GetActorVisibilityKey(SelectedActor));
+        UseVisibleSetOnly = true;
+    }
+
+    private void AddSelectedClassToVisibleSet()
+    {
+        if (SelectedActor is null) return;
+        string selectedClass = SelectedActor.Export.ClassName;
+        AddActorsToVisibleSet(Actors.Where(actor => IsMeshFilterCandidate(actor) && actor.Export.ClassName == selectedClass));
+        UseVisibleSetOnly = true;
+    }
+
+    private void RemoveSelectedClassFromVisibleSet()
+    {
+        if (SelectedActor is null) return;
+        string selectedClass = SelectedActor.Export.ClassName;
+        foreach (var actor in Actors.Where(actor => IsMeshFilterCandidate(actor) && actor.Export.ClassName == selectedClass))
+        {
+            _visibleActorSet.Remove(GetActorVisibilityKey(actor));
+        }
+    }
+
+    private void ShowOnlySelectedClass()
+    {
+        if (SelectedActor is null) return;
+        _visibleActorSet.Clear();
+        AddSelectedClassToVisibleSet();
+    }
+
+    private void AddNearbyToVisibleSet()
+    {
+        Vector3 cameraPosition = RenderContext.Camera.Position;
+        float maxDistanceSq = VisibleSetDistance * VisibleSetDistance;
+        AddActorsToVisibleSet(Actors.Where(actor => IsMeshFilterCandidate(actor)
+                                                     && Vector3.DistanceSquared(actor.Location, cameraPosition) <= maxDistanceSq));
+        UseVisibleSetOnly = true;
+    }
+
+    private void ShowOnlyNearby()
+    {
+        RebuildVisibleSetByDistance();
+    }
+
+    private void RebuildVisibleSetByDistance()
+    {
+        _visibleActorSet.Clear();
+        Vector3 cameraPosition = RenderContext.Camera.Position;
+        float maxDistanceSq = VisibleSetDistance * VisibleSetDistance;
+        AddActorsToVisibleSet(Actors.Where(actor => IsMeshFilterCandidate(actor)
+                                                     && Vector3.DistanceSquared(actor.Location, cameraPosition) <= maxDistanceSq));
+        UseVisibleSetOnly = true;
+    }
+
+    private void ClearVisibleSet()
+    {
+        _visibleActorSet.Clear();
+    }
+
+    private void ShowAllMeshes()
+    {
+        _visibleActorSet.Clear();
+        AddActorsToVisibleSet(Actors.Where(IsMeshFilterCandidate));
     }
 
     #endregion

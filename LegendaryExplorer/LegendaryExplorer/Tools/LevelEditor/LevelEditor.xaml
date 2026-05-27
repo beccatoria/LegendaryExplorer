@@ -125,6 +125,7 @@
                          <ComboBoxItem Content="Full" Tag="{x:Static local:ObjectRenderMode.Full}"/>
                          <ComboBoxItem Content="Wireframe" Tag="{x:Static local:ObjectRenderMode.Wireframe}"/>
                          <ComboBoxItem Content="Hidden" Tag="{x:Static local:ObjectRenderMode.Hidden}"/>
+                         <ComboBoxItem Content="Visible Set Only" Tag="{x:Static local:ObjectRenderMode.VisibleSetOnly}"/>
                      </ComboBox>
                     <TextBlock Text="Light Dist" VerticalAlignment="Center" Margin="8,0,4,0"/>
                     <xctk:IntegerUpDown Value="{Binding LightRenderDistance}" Minimum="0" Maximum="1000000" Width="70"
@@ -133,6 +134,10 @@
                     <ToggleButton Content="Show Volumes" ToolTip="Show volume wireframes" IsChecked="{Binding ShowVolumes}"/>
                     <ToggleButton Content="Show Volumetric Meshes" IsChecked="{Binding ShowVolumetrics}"
                                   ToolTip="Volumetrics are large spheroids used for fog, dust, etc. Since LEX can't display those effects, they just get in the way."/>
+                     <TextBlock Text="Visible Sets Dist" VerticalAlignment="Center" Margin="8,0,4,0"/>
+                     <xctk:IntegerUpDown Value="{Binding VisibleSetDistance}" Minimum="0" Maximum="1000000" Width="80"
+                                         VerticalContentAlignment="Center" FormatString="N0"
+                                         ToolTip="Maximum camera distance for rendering actors that are already in the visible set when Objects is set to Visible Set Only"/>
                      <ToggleButton Content="Show Camera Coords" IsChecked="{Binding ShowCameraCoordinates}"
                                    ToolTip="Display the current camera world coordinates in the status bar"/>
                     <Separator Style="{StaticResource {x:Static ToolBar.SeparatorStyleKey}}" />
@@ -230,6 +235,17 @@
                             <ContextMenu x:Key="MyMenu">
                                 <MenuItem Header="Focus Camera" Command="{Binding Data.FocusSelectedCommand, Source={StaticResource bindingProxy}}" InputGestureText="F"/>
                                 <MenuItem Header="Open in Package Editor" Command="{Binding Data.OpenInPackageEditorCommand, Source={StaticResource bindingProxy}}"/>
+                                <Separator/>
+                                <MenuItem Header="Show Only This Actor" Command="{Binding Data.ShowOnlySelectedCommand, Source={StaticResource bindingProxy}}"/>
+                                <MenuItem Header="Add This Actor to Visible Set" Command="{Binding Data.AddSelectedToVisibleSetCommand, Source={StaticResource bindingProxy}}"/>
+                                <MenuItem Header="Remove This Actor from Visible Set" Command="{Binding Data.RemoveSelectedFromVisibleSetCommand, Source={StaticResource bindingProxy}}"/>
+                                <Separator/>
+                                <MenuItem Header="Show Only This Class" Command="{Binding Data.ShowOnlySelectedClassCommand, Source={StaticResource bindingProxy}}"/>
+                                <MenuItem Header="Add This Class to Visible Set" Command="{Binding Data.AddSelectedClassToVisibleSetCommand, Source={StaticResource bindingProxy}}"/>
+                                <MenuItem Header="Remove This Class from Visible Set" Command="{Binding Data.RemoveSelectedClassFromVisibleSetCommand, Source={StaticResource bindingProxy}}"/>
+                                <Separator/>
+                                <MenuItem Header="Clear All Sets" Command="{Binding Data.ClearVisibleSetCommand, Source={StaticResource bindingProxy}}"/>
+                                <MenuItem Header="Show All" Command="{Binding Data.ShowAllMeshesCommand, Source={StaticResource bindingProxy}}"/>
                             </ContextMenu>
                             <Style TargetType="{x:Type ListBoxItem}">
                                 <Setter Property="ContextMenu" Value="{StaticResource MyMenu}"/>
