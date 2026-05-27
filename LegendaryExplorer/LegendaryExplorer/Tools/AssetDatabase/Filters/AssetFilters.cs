@@ -13,6 +13,7 @@ namespace LegendaryExplorer.Tools.AssetDatabase.Filters
         public GenericAssetFilter<MeshRecord> MeshFilter { get; }
         public GenericAssetFilter<ParticleSysRecord> ParticleFilter { get; }
         public GenericAssetFilter<GUIElement> GUIFilter { get; }
+        public GenericAssetFilter<RemoteEventRecord> RemoteEventFilter { get; }
         public GenericAssetFilter<PlotRecord> PlotElementFilter { get; }
         public MaterialFilter MaterialFilter { get; }
         public TextureFilter TextureFilter { get;  }
@@ -67,6 +68,9 @@ namespace LegendaryExplorer.Tools.AssetDatabase.Filters
             GUIFilter = new GenericAssetFilter<GUIElement>(new IAssetSpecification<GUIElement>[] {fileList},
                 searchPredicate: t => t.Record.GUIName.ToLower().Contains(t.SearchText.ToLower()));
 
+            RemoteEventFilter = new GenericAssetFilter<RemoteEventRecord>(new IAssetSpecification<RemoteEventRecord>[] { fileList },
+                searchPredicate: t => t.Record.EventName.ToLower().Contains(t.SearchText.ToLower()));
+
             PlotElementFilter = new GenericAssetFilter<PlotRecord>(new IAssetSpecification<PlotRecord>[] {fileList},
                 searchPredicate: t => t.Record.DisplayText.ToLower().Contains(t.SearchText.ToLower()));
         }
@@ -84,6 +88,7 @@ namespace LegendaryExplorer.Tools.AssetDatabase.Filters
             ParticleFilter.Search.SearchText = filterBoxText;
             MaterialFilter.Search.SearchText = filterBoxText;
             GUIFilter.Search.SearchText = filterBoxText;
+            RemoteEventFilter.Search.SearchText = filterBoxText;
             PlotElementFilter.Search.SearchText = filterBoxText;
             TextureFilter.Search.SearchText = filterBoxText;
         }
@@ -114,6 +119,9 @@ namespace LegendaryExplorer.Tools.AssetDatabase.Filters
                     break;
                 case IAssetSpecification<ParticleSysRecord> pr:
                     ParticleFilter.SetSelected(pr);
+                    break;
+                case IAssetSpecification<RemoteEventRecord> rr:
+                    RemoteEventFilter.SetSelected(rr);
                     break;
                 default: return false;
             }

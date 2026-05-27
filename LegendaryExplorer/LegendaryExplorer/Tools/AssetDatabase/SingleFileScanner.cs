@@ -81,6 +81,7 @@ namespace LegendaryExplorer.Tools.AssetDatabase
             new TextureScanner(),
             new GUIScanner(),
             new ConversationScanner(),
+            new RemoteEventScanner(),
             new PlotUsageScanner()
         ];
 

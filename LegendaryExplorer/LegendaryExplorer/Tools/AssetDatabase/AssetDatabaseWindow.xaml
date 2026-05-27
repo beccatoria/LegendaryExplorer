@@ -861,8 +861,73 @@
                             </DockPanel>
                         </Grid>
                     </TabItem>
+                    <!-- Remote Events -->
+                    <TabItem Header="Remote Events" TabIndex="9">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="24"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="Remote Event Names" Style="{StaticResource ColumnHeaderStyle}" ToolTip="Remote event names used by SeqEvent_RemoteEvent and SeqAct_ActivateRemoteEvent" Grid.Row="0" Grid.Column="0"/>
+                            <controls:ListBoxScroll x:Name="lstbx_RemoteEvents" MinWidth="300" ItemsSource="{Binding Path=CurrentDataBase.RemoteEvents}" SelectionChanged="lstbx_RemoteEvents_SelectionChanged" Grid.Row="1" Grid.Column="0">
+                                <controls:ListBoxScroll.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding EventName}"/>
+                                    </DataTemplate>
+                                </controls:ListBoxScroll.ItemTemplate>
+                            </controls:ListBoxScroll>
+                            <Grid Grid.Row="0" Grid.RowSpan="2" Grid.Column="1">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="24"/>
+                                    <RowDefinition Height="*"/>
+                                </Grid.RowDefinitions>
+                                <TextBlock Text="Usages" Background="AliceBlue" HorizontalAlignment="Stretch" Padding="3"
+                                           ToolTip="All sender/receiver usages for this remote event name" Grid.Row="0"/>
+                                <controls:ListBoxScroll x:Name="lstbx_RemoteEventUsages" MinWidth="200"
+                                                        ItemsSource="{Binding SelectedItem.Usages, ElementName=lstbx_RemoteEvents}"
+                                                        Grid.Row="1">
+                                    <controls:ListBoxScroll.ItemTemplate>
+                                        <DataTemplate DataType="{x:Type assetDatabase:RemoteEventUsage}">
+                                            <StackPanel Orientation="Vertical">
+                                                <TextBlock>
+                                                    <TextBlock.Text>
+                                                        <MultiBinding Converter="{StaticResource FileIndexToNameConverter}">
+                                                            <Binding Path="FileKey"/>
+                                                            <Binding Path="FileListExtended" RelativeSource="{RelativeSource Mode=FindAncestor, AncestorType={x:Type Window}}"/>
+                                                            <Binding Path="UIndex"/>
+                                                        </MultiBinding>
+                                                    </TextBlock.Text>
+                                                </TextBlock>
+                                                <TextBlock FontSize="9" Text="{Binding UsageTypeDisplayString}"/>
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </controls:ListBoxScroll.ItemTemplate>
+                                    <controls:ListBoxScroll.ItemContainerStyle>
+                                        <Style TargetType="ListBoxItem">
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding Path=IsInMod}" Value="True">
+                                                    <Setter Property="Foreground" Value="IndianRed"/>
+                                                    <Setter Property="TextElement.ToolTip" Value="Mod - file from a mod DLC directory"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </controls:ListBoxScroll.ItemContainerStyle>
+                                    <controls:ListBoxScroll.ContextMenu>
+                                        <ContextMenu>
+                                            <MenuItem Header="Open Usage" Command="{Binding OpenUsagePkgCommand}" ToolTip="Opens this Usage in Package Editor." />
+                                            <MenuItem Header="Open in Windows Explorer" Command="{Binding OpenInWindowsExplorerCommand}" ToolTip="Opens this file in Windows Explorer."/>
+                                        </ContextMenu>
+                                    </controls:ListBoxScroll.ContextMenu>
+                                </controls:ListBoxScroll>
+                            </Grid>
+                        </Grid>
+                    </TabItem>
                     <!-- Plot-->
-                    <TabItem Header="Plot Elements" TabIndex="9">
+                    <TabItem Header="Plot Elements" TabIndex="10">
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="3*"/>

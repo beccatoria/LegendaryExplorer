@@ -48,8 +48,8 @@ namespace LegendaryExplorer.Tools.AssetDatabase
     public partial class AssetDatabaseWindow : TrackingNotifyPropertyChangedWindowBase
     {
         #region Declarations
-        // v9.0: Textures now use .IsTexture() to get more texture class types. Add MaterialInstances to Materials.
-        public const string dbCurrentBuild = "9.0"; //If changes are made that invalidate old databases edit this.
+        // v10.0: Add Remote Event cataloging (SeqAct_ActivateRemoteEvent and SeqEvent_RemoteEvent).
+        public const string dbCurrentBuild = "10.0"; //If changes are made that invalidate old databases edit this.
 
         private int previousView { get; set; }
         private int _currentView;
@@ -266,7 +266,8 @@ namespace LegendaryExplorer.Tools.AssetDatabase
                 || (vfxUsagesPanel.SelectedIndex >= 0 && currentView == 6)
                 || (guiUsagesPanel.SelectedIndex >= 0 && currentView == 7)
                 || (lstbx_Lines.SelectedIndex >= 0 && currentView == 8)
-                || (currentView == 9 && lstbx_PlotUsages.SelectedIndex >= 0)
+                || (currentView == 9 && lstbx_RemoteEventUsages.SelectedIndex >= 0)
+                || (currentView == 10 && lstbx_PlotUsages.SelectedIndex >= 0)
                 || (currentView == 0 && IsNotCND(lstbx_Files.SelectedItem));
         }
 
@@ -295,6 +296,7 @@ namespace LegendaryExplorer.Tools.AssetDatabase
                 IAssetSpecification<TextureRecord> => 4,
                 IAssetSpecification<AnimationRecord> => 5,
                 IAssetSpecification<ParticleSysRecord> => 6,
+                IAssetSpecification<RemoteEventRecord> => 9,
                 _ => -1
             };
             return currentView == tabIndex;
@@ -456,6 +458,18 @@ namespace LegendaryExplorer.Tools.AssetDatabase
                         ms.Position = 0;
                         return DeserializeDB(ms, cancel);
                     }
+
+                    if (archive.Entries.FirstOrDefault(e => e.Name == $"MasterDB.{dbgame}_9.0.bin") is ZipArchiveEntry legacyEntry)
+                    {
+                        var legacyMs = new MemoryStream((int)legacyEntry.Length);
+                        using (Stream estream = legacyEntry.Open())
+                        {
+                            estream.CopyTo(legacyMs);
+                        }
+                        legacyMs.Position = 0;
+                        return DeserializeLegacyV9DB(legacyMs, cancel);
+                    }
+
                     //Wrong build - send dummy pdb back and ask user to refresh
                     AssetDB pdb = new();
                     var oldEntry = archive.Entries.FirstOrDefault(z => z.Name.StartsWith("Master"));
@@ -497,6 +511,25 @@ namespace LegendaryExplorer.Tools.AssetDatabase
             }
         }
 
+        private static AssetDB DeserializeLegacyV9DB(MemoryStream ms, CancellationToken ct)
+        {
+            try
+            {
+                var readData = BinaryConverter.Deserialize<AssetDBLegacyV9>(ms.GetBuffer().AsSpan(0, (int)ms.Length));
+                if (ct.IsCancellationRequested)
+                {
+                    Console.WriteLine("Cancelled ParseDB");
+                    return null;
+                }
+                return readData?.ToAssetDB();
+            }
+            catch
+            {
+                MessageBox.Show($"Failure deserializing legacy database");
+                return null;
+            }
+        }
+
         private async void SaveDatabase()
         {
             BusyHeader = "Saving database";
@@ -510,9 +543,18 @@ namespace LegendaryExplorer.Tools.AssetDatabase
                 using (var archive = new ZipArchive(fileStream, ZipArchiveMode.Create, true))
                 {
                     string build = dbCurrentBuild.Trim(' ', '*', '.');
-                    ZipArchiveEntry archiveEntry = archive.CreateEntry($"MasterDB.{CurrentGame}_{build}.bin");
-                    await using Stream entryStream = archiveEntry.Open();
-                    await Task.Run(() => BinaryConverter.Serialize(CurrentDataBase, entryStream));
+                    {
+                        ZipArchiveEntry archiveEntry = archive.CreateEntry($"MasterDB.{CurrentGame}_{build}.bin");
+                        await using Stream entryStream = archiveEntry.Open();
+                        await Task.Run(() => BinaryConverter.Serialize(CurrentDataBase, entryStream));
+                    }
+
+                    {
+                        ZipArchiveEntry legacyArchiveEntry = archive.CreateEntry($"MasterDB.{CurrentGame}_9.0.bin");
+                        await using Stream legacyEntryStream = legacyArchiveEntry.Open();
+                        var legacyDb = AssetDBLegacyV9.FromAssetDB(CurrentDataBase);
+                        await Task.Run(() => BinaryConverter.Serialize(legacyDb, legacyEntryStream));
+                    }
                 }
             }
             menu_SaveXEmptyLines.IsEnabled = false;
@@ -831,7 +873,7 @@ namespace LegendaryExplorer.Tools.AssetDatabase
 
         private ListBoxScroll GetSelectedPlotListBox()
         {
-            if (currentView == 9)
+            if (currentView == 10)
             {
                 return tabCtrl_plotUsage.SelectedIndex switch
                 {
@@ -859,7 +901,7 @@ namespace LegendaryExplorer.Tools.AssetDatabase
 
         private List<PlotRecord> GetSelectedPlotSource()
         {
-            if (currentView == 9 && CurrentDataBase.PlotUsages != null)
+            if (currentView == 10 && CurrentDataBase.PlotUsages != null)
             {
                 return tabCtrl_plotUsage.SelectedIndex switch
                 {
@@ -924,7 +966,7 @@ namespace LegendaryExplorer.Tools.AssetDatabase
                 contentdir = CurrentConvo.Item4;
                 usageUID = CurrentConvo.Item3;
             }
-            else if (lstbx_PlotUsages.SelectedIndex >= 0 && currentView == 9)
+            else if (lstbx_PlotUsages.SelectedIndex >= 0 && currentView == 10)
             {
                 var pu = (PlotUsage)lstbx_PlotUsages.SelectedItem;
                 (usagepkg, contentdir, usagemount) = FileListExtended[pu.FileKey];
@@ -954,7 +996,7 @@ namespace LegendaryExplorer.Tools.AssetDatabase
                 var lu = (ConvoLine)lstbx_Lines.SelectedItem;
                 strRef = lu.StrRef;
             }
-            else if (lstbx_PlotUsages.SelectedIndex >= 0 && currentView == 9)
+            else if (lstbx_PlotUsages.SelectedIndex >= 0 && currentView == 10)
             {
                 var pu = (PlotUsage)lstbx_PlotUsages.SelectedItem;
                 tool = pu.Context.ToTool();
@@ -1350,6 +1392,9 @@ namespace LegendaryExplorer.Tools.AssetDatabase
                     case 4:
                         FilterBox.Watermark = "Search (by texture name or CRC if compiled)";
                         break;
+                    case 9:
+                        FilterBox.Watermark = "Search (by remote event name)";
+                        break;
                     case 0:
                         FilterBox.Watermark = "Search (by filename or source directory)";
                         break;
@@ -1442,7 +1487,7 @@ namespace LegendaryExplorer.Tools.AssetDatabase
         private void PETabControl_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             e.Handled = true;
-            if (currentView == 9)
+            if (currentView == 10)
             {
                 FilterBox.Clear();
                 Filter();
@@ -1452,7 +1497,7 @@ namespace LegendaryExplorer.Tools.AssetDatabase
         private void lstbx_PlotElement_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             e.Handled = true;
-            if (currentView == 9)
+            if (currentView == 10)
             {
                 PlotRecord selectedRecord = GetSelectedPlotRecord();
                 if (selectedRecord != null)
@@ -1461,6 +1506,11 @@ namespace LegendaryExplorer.Tools.AssetDatabase
                     SelectedPlotUsages.AddRange(selectedRecord.Usages);
                 }
             }
+        }
+
+        private void lstbx_RemoteEvents_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            e.Handled = true;
         }
 
         private void btn_TextRenderToggle_Click(object sender, RoutedEventArgs e)
@@ -2079,7 +2129,12 @@ namespace LegendaryExplorer.Tools.AssetDatabase
                     viewL.Filter = LineFilter;
                     lstbx_Lines.ItemsSource = viewL;
                     break;
-                case 9: // PlotElements
+                case 9: // Remote Events
+                    ICollectionView viewRE = CollectionViewSource.GetDefaultView(CurrentDataBase.RemoteEvents);
+                    viewRE.Filter = AssetFilters.RemoteEventFilter.Filter;
+                    lstbx_RemoteEvents.ItemsSource = viewRE;
+                    break;
+                case 10: // PlotElements
                     var lstbx = GetSelectedPlotListBox();
                     var plotSource = GetSelectedPlotSource();
                     if (plotSource is null || lstbx is null) break;
@@ -2329,7 +2384,7 @@ namespace LegendaryExplorer.Tools.AssetDatabase
                     {
                         FileKey = FileListExtended.FindIndex(f => f.FileName == CurrentConvo.Item2);
                     }
-                    else if (currentView == 9 && lstbx_PlotUsages.SelectedIndex >= 0)
+                    else if (currentView == 10 && lstbx_PlotUsages.SelectedIndex >= 0)
                     {
                         var pu = (PlotUsage)lstbx_PlotUsages.SelectedItem;
                         FileKey = pu.FileKey;
@@ -2646,6 +2701,7 @@ namespace LegendaryExplorer.Tools.AssetDatabase
                 5 => animationsUsagesPanel.SelectedItem as IAssetUsage,
                 6 => vfxUsagesPanel.SelectedItem as IAssetUsage,
                 7 => guiUsagesPanel.SelectedItem as IAssetUsage,
+                9 => lstbx_RemoteEventUsages.SelectedItem as IAssetUsage,
                 _ => null
             };
         }

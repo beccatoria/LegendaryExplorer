@@ -48,6 +48,10 @@ namespace LegendaryExplorer.Tools.AssetDatabase
         /// </summary>
         public ConcurrentDictionary<string, ConvoLine> GeneratedLines = new();
         /// <summary>
+        /// Dictionary that stores generated remote events
+        /// </summary>
+        public ConcurrentDictionary<string, RemoteEventRecord> GeneratedRemoteEvents = new();
+        /// <summary>
         /// Dictionary that stores generated plot bool records
         /// </summary>
         public ConcurrentDictionary<int, PlotRecord> GeneratedBoolRecords = new();
@@ -87,6 +91,7 @@ namespace LegendaryExplorer.Tools.AssetDatabase
             GeneratedGUI.Clear();
             GeneratedConvo.Clear();
             GeneratedLines.Clear();
+            GeneratedRemoteEvents.Clear();
             GeneratedBoolRecords.Clear();
             GeneratedIntRecords.Clear();
             GeneratedFloatRecords.Clear();
@@ -105,6 +110,7 @@ namespace LegendaryExplorer.Tools.AssetDatabase
                    $"Textures: {GeneratedText.Count}\n" +
                    $"GUI Elements: {GeneratedGUI.Count}\n" +
                    $"Lines: {GeneratedLines.Count}\n" +
+                   $"Remote Events: {GeneratedRemoteEvents.Count}\n" +
                    $"Plot Elements: {GeneratedBoolRecords.Count + GeneratedIntRecords.Count + GeneratedFloatRecords.Count + GeneratedConditionalRecords.Count + GeneratedTransitionRecords.Count}";
         }
 
@@ -164,6 +170,13 @@ namespace LegendaryExplorer.Tools.AssetDatabase
             pdb.GUIElements.AddRange(guisSorted);
 
             pdb.Lines.AddRange(GeneratedLines.Values.OrderBy(x => x.StrRef).ToList());
+
+            var remoteEventsSorted = GeneratedRemoteEvents.Values.OrderBy(x => x.EventName).ToList();
+            foreach (var remoteEvent in remoteEventsSorted)
+            {
+                remoteEvent.Usages = remoteEvent.Usages.OrderBy(u => u.UsageType).ThenBy(u => u.FileKey).ThenBy(u => u.UIndex).ToList();
+            }
+            pdb.RemoteEvents.AddRange(remoteEventsSorted);
 
             var boolsSorted = GeneratedBoolRecords.Values.OrderBy(x => x.ElementID).ToList();
             pdb.PlotUsages.Bools.AddRange(boolsSorted);

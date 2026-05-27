@@ -52,6 +52,8 @@ namespace LegendaryExplorer.Tools.AssetDatabase
 
         public PlotUsageDB PlotUsages { get; set; } = new();
 
+        public List<RemoteEventRecord> RemoteEvents { get; set; } = new();
+
         public AssetDB(MEGame meGame, string GenerationDate, string databaseVersion, IEnumerable<FileNameDirKeyPair> FileList, IEnumerable<string> ContentDir)
         {
             this.Game = meGame;
@@ -85,6 +87,7 @@ namespace LegendaryExplorer.Tools.AssetDatabase
             Conversations.Clear();
             Lines.Clear();
             PlotUsages.ClearRecords();
+            RemoteEvents?.Clear();
         }
 
         public void AddRecords(AssetDB from)
@@ -100,6 +103,87 @@ namespace LegendaryExplorer.Tools.AssetDatabase
             Conversations.AddRange(from.Conversations);
             Lines.AddRange(from.Lines);
             PlotUsages.AddRecords(from.PlotUsages);
+            if (from.RemoteEvents != null)
+            {
+                RemoteEvents.AddRange(from.RemoteEvents);
+            }
+        }
+    }
+
+    public class AssetDBLegacyV9
+    {
+        public MEGame Game { get; set; }
+        public string GenerationDate { get; set; }
+        public string DatabaseVersion { get; set; }
+        public MELocalization Localization { get; set; }
+
+        public List<FileNameDirKeyPair> FileList { get; set; } = new();
+        public List<string> ContentDir { get; set; } = new();
+
+        public List<ClassRecord> ClassRecords { get; set; } = new();
+        public List<MaterialRecord> Materials { get; set; } = new();
+        public List<MaterialBoolSpec> MaterialBoolSpecs { get; set; } = new();
+        public List<AnimationRecord> Animations { get; set; } = new();
+        public List<MeshRecord> Meshes { get; set; } = new();
+        public List<ParticleSysRecord> Particles { get; set; } = new();
+        public List<TextureRecord> Textures { get; set; } = new();
+        public List<GUIElement> GUIElements { get; set; } = new();
+        public List<Conversation> Conversations { get; set; } = new();
+        public List<ConvoLine> Lines { get; set; } = new();
+        public PlotUsageDB PlotUsages { get; set; } = new();
+
+        public AssetDB ToAssetDB()
+        {
+            var db = new AssetDB
+            {
+                Game = Game,
+                GenerationDate = GenerationDate,
+                DatabaseVersion = DatabaseVersion,
+                Localization = Localization,
+                PlotUsages = PlotUsages ?? new PlotUsageDB()
+            };
+
+            db.FileList.AddRange(FileList ?? []);
+            db.ContentDir.AddRange(ContentDir ?? []);
+            db.ClassRecords.AddRange(ClassRecords ?? []);
+            db.Materials.AddRange(Materials ?? []);
+            db.MaterialBoolSpecs.AddRange(MaterialBoolSpecs ?? []);
+            db.Animations.AddRange(Animations ?? []);
+            db.Meshes.AddRange(Meshes ?? []);
+            db.Particles.AddRange(Particles ?? []);
+            db.Textures.AddRange(Textures ?? []);
+            db.GUIElements.AddRange(GUIElements ?? []);
+            db.Conversations.AddRange(Conversations ?? []);
+            db.Lines.AddRange(Lines ?? []);
+
+            return db;
+        }
+
+        public static AssetDBLegacyV9 FromAssetDB(AssetDB db)
+        {
+            var legacy = new AssetDBLegacyV9
+            {
+                Game = db.Game,
+                GenerationDate = db.GenerationDate,
+                DatabaseVersion = "9.0",
+                Localization = db.Localization,
+                PlotUsages = db.PlotUsages ?? new PlotUsageDB()
+            };
+
+            legacy.FileList.AddRange(db.FileList ?? []);
+            legacy.ContentDir.AddRange(db.ContentDir ?? []);
+            legacy.ClassRecords.AddRange(db.ClassRecords ?? []);
+            legacy.Materials.AddRange(db.Materials ?? []);
+            legacy.MaterialBoolSpecs.AddRange(db.MaterialBoolSpecs ?? []);
+            legacy.Animations.AddRange(db.Animations ?? []);
+            legacy.Meshes.AddRange(db.Meshes ?? []);
+            legacy.Particles.AddRange(db.Particles ?? []);
+            legacy.Textures.AddRange(db.Textures ?? []);
+            legacy.GUIElements.AddRange(db.GUIElements ?? []);
+            legacy.Conversations.AddRange(db.Conversations ?? []);
+            legacy.Lines.AddRange(db.Lines ?? []);
+
+            return legacy;
         }
     }
 
@@ -550,6 +634,37 @@ namespace LegendaryExplorer.Tools.AssetDatabase
 
         public ConvoLine()
         { }
+    }
+
+    public enum RemoteEventUsageType
+    {
+        SeqAct,
+        SeqEvt
+    }
+
+    public class RemoteEventRecord : IAssetRecord
+    {
+        public string EventName { get; set; }
+
+        [IgnoredMember] public IEnumerable<IAssetUsage> AssetUsages => Usages;
+
+        public List<RemoteEventUsage> Usages { get; set; } = new();
+
+        public RemoteEventRecord(string eventName)
+        {
+            EventName = eventName;
+        }
+
+        public RemoteEventRecord()
+        { }
+    }
+
+    public sealed record RemoteEventUsage(int FileKey, int UIndex, bool IsInMod, RemoteEventUsageType UsageType) : IAssetUsage
+    {
+        [IgnoredMember]
+        public string UsageTypeDisplayString => UsageType == RemoteEventUsageType.SeqAct ? "Sender (SeqAct_ActivateRemoteEvent)" : "Receiver (SeqEvent_RemoteEvent)";
+
+        public RemoteEventUsage() : this(default, default, default, default) { }
     }
 
     public enum PlotRecordType
