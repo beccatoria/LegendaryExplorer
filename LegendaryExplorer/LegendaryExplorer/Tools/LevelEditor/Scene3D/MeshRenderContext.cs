@@ -141,6 +141,7 @@ public class MeshRenderContext : RenderContext
     private float lastFPSTime;
     private float lastFPSFrame;
     public string ErrorText;
+    public bool ShowDebugStatsOverlay { get; set; } = App.IsDebug;
 
     /// <summary>
     /// Screen-space labels to be rendered as a D2D text overlay after 3D rendering.
@@ -326,10 +327,11 @@ public class MeshRenderContext : RenderContext
             //render D2D overlay
             RenderTarget2D.BeginDraw();
             {
-                if (App.IsDebug)
+                if (ShowDebugStatsOverlay)
                 {
                     var size = RenderTarget2D.Size;
-                    RenderTarget2D.DrawText($"{FPS} fps\n{Camera.Position}", statsTextFormat, new RawRectangleF(0, 0, size.Width, size.Height), statsTextBrush);
+                    Vector3 cameraPos = Camera.Position;
+                    RenderTarget2D.DrawText($"FPS: {FPS}\nX: {cameraPos.X:F1}  Y: {cameraPos.Y:F1}  Z: {cameraPos.Z:F1}", statsTextFormat, new RawRectangleF(0, 0, size.Width, size.Height), statsTextBrush);
                 }
 
                 foreach (ref readonly var label in CollectionsMarshal.AsSpan(ScreenLabels))
@@ -458,7 +460,7 @@ public class MeshRenderContext : RenderContext
 
         using var factory = new D2D.Factory(D2D.FactoryType.SingleThreaded, App.IsDebug ? D2D.DebugLevel.Information : D2D.DebugLevel.None);
         RenderTarget2D = new D2D.RenderTarget(factory, newBackBuffer.QueryInterface<Surface>(), new D2D.RenderTargetProperties(new D2D.PixelFormat(Format.Unknown, D2D.AlphaMode.Premultiplied)));
-        statsTextBrush = new D2D.SolidColorBrush(RenderTarget2D, new RawColor4(0, 0, 0, 1), new D2D.BrushProperties { Opacity = 1 });
+        statsTextBrush = new D2D.SolidColorBrush(RenderTarget2D, new RawColor4(0, 1, 0, 1), new D2D.BrushProperties { Opacity = 1 });
         errorTextBrush = new D2D.SolidColorBrush(RenderTarget2D, new RawColor4(0.2f, 0, 0, 1), new D2D.BrushProperties { Opacity = 1 });
         using var dwFactory = new DW.Factory(DW.FactoryType.Shared);
         statsTextFormat = new DW.TextFormat(dwFactory, "Verdana", 12)

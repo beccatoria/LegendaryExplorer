@@ -133,6 +133,8 @@
                     <ToggleButton Content="Show Volumes" ToolTip="Show volume wireframes" IsChecked="{Binding ShowVolumes}"/>
                     <ToggleButton Content="Show Volumetric Meshes" IsChecked="{Binding ShowVolumetrics}"
                                   ToolTip="Volumetrics are large spheroids used for fog, dust, etc. Since LEX can't display those effects, they just get in the way."/>
+                     <ToggleButton Content="Show Camera Coords" IsChecked="{Binding ShowCameraCoordinates}"
+                                   ToolTip="Display the current camera world coordinates in the status bar"/>
                     <Separator Style="{StaticResource {x:Static ToolBar.SeparatorStyleKey}}" />
                     <ToggleButton Content="Top Down" ToolTip="Toggle top-down orthographic view (Numpad 5)" IsChecked="{Binding IsOrthographicView}"/>
                 </ToolBar>
@@ -149,6 +151,9 @@
                 </StatusBarItem>
                 <StatusBarItem Visibility="{Binding HasAnyFileOpen, Converter={StaticResource BoolToVisibilityConverter}}">
                     <TextBlock Text="{Binding CurrentModeName, StringFormat='Mode: {0}'}" Foreground="Gray"/>
+                </StatusBarItem>
+                <StatusBarItem>
+                    <TextBlock Text="{Binding CameraCoordinatesDisplayText}" Foreground="Gray"/>
                 </StatusBarItem>
             </StatusBar>
             <Grid>

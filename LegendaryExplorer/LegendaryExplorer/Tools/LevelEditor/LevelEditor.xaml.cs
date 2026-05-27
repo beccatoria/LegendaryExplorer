@@ -131,6 +131,40 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         set => SetProperty(ref _showVolumetrics, value);
     }
 
+    private bool _showCameraCoordinates;
+    public bool ShowCameraCoordinates
+    {
+        get => _showCameraCoordinates;
+        set
+        {
+            if (SetProperty(ref _showCameraCoordinates, value))
+            {
+                RenderContext.ShowDebugStatsOverlay = value;
+                if (value)
+                {
+                Vector3 position = RenderContext.Camera.Position;
+                CameraCoordinates = $"Camera X={position.X:F1} | Y={position.Y:F1} | Z={position.Z:F1}";
+                }
+            }
+            OnPropertyChanged(nameof(CameraCoordinatesDisplayText));
+        }
+    }
+
+    private string _cameraCoordinates = "Camera X=0.0 | Y=0.0 | Z=0.0";
+    public string CameraCoordinates
+    {
+        get => _cameraCoordinates;
+        set
+        {
+            if (SetProperty(ref _cameraCoordinates, value))
+            {
+                OnPropertyChanged(nameof(CameraCoordinatesDisplayText));
+            }
+        }
+    }
+
+    public string CameraCoordinatesDisplayText => ShowCameraCoordinates ? CameraCoordinates : string.Empty;
+
     private ObjectRenderMode _objectRenderMode = ObjectRenderMode.Full;
     public ObjectRenderMode ObjectRenderMode
     {
@@ -194,6 +228,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         LoadRecentSets();
 
         SceneViewer.Context = RenderContext;
+        RenderContext.ShowDebugStatsOverlay = ShowCameraCoordinates;
         UndoHistory.PropertyChanged += UndoHistory_PropertyChanged;
     }
 
@@ -208,7 +243,13 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
 
     private void UpdateScene(object sender, float e)
     {
+        if (!ShowCameraCoordinates)
+        {
+            return;
+        }
 
+        Vector3 position = RenderContext.Camera.Position;
+        CameraCoordinates = $"Camera X={position.X:F1} | Y={position.Y:F1} | Z={position.Z:F1}";
     }
 
     private void RenderScene(object sender, EventArgs e)
