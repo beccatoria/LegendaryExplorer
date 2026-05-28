@@ -317,18 +317,31 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
             if (actor.IsVolumetricMesh && !ShowVolumetrics) continue;
             if ((UseVisibleSetOnly || ObjectRenderMode is ObjectRenderMode.VisibleSetOnly)
                 && pass is RenderPass.Base or RenderPass.Hair
-                && !actor.IsVolume
                 && !actor.IsVolumetricMesh
-                && !actor.IsLight
                 && (!_visibleActorSet.Contains(GetActorVisibilityKey(actor))
                     || Vector3.DistanceSquared(actor.Location, cameraPosition) > VisibleSetDistance * VisibleSetDistance))
+            {
+                continue;
+            }
+            if ((UseVisibleSetOnly || ObjectRenderMode is ObjectRenderMode.VisibleSetOnly)
+                && pass is RenderPass.Base or RenderPass.Hair
+                && actor.IsVolumetricMesh
+                && Vector3.DistanceSquared(actor.Location, cameraPosition) > VisibleSetDistance * VisibleSetDistance)
+            {
+                continue;
+            }
+            if ((UseVisibleSetOnly || ObjectRenderMode is ObjectRenderMode.VisibleSetOnly)
+                && pass is RenderPass.Collision
+                && !actor.IsVolumetricMesh
+                && Vector3.DistanceSquared(actor.Location, cameraPosition) > VisibleSetDistance * VisibleSetDistance)
             {
                 continue;
             }
             if (ObjectRenderMode is ObjectRenderMode.Hidden
                 && pass is RenderPass.Base or RenderPass.Hair
                 && !actor.IsVolume
-                && !actor.IsVolumetricMesh)
+                && !actor.IsVolumetricMesh
+                && !actor.IsLight)
             {
                 continue;
             }
@@ -796,6 +809,11 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         return !actor.IsVolume && !actor.IsVolumetricMesh && !actor.IsLight;
     }
 
+    private static bool IsVisibleSetCandidate(ActorProxy actor)
+    {
+        return !actor.IsVolumetricMesh;
+    }
+
     private void AddActorsToVisibleSet(IEnumerable<ActorProxy> actors)
     {
         foreach (var actor in actors)
@@ -808,6 +826,14 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
     {
         if (SelectedActor is null) return;
         _visibleActorSet.Add(GetActorVisibilityKey(SelectedActor));
+        if (SelectedActor.IsLight)
+        {
+            ShowLights = true;
+        }
+        if (SelectedActor.IsVolume)
+        {
+            ShowVolumes = true;
+        }
         UseVisibleSetOnly = true;
     }
 
@@ -822,6 +848,14 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         if (SelectedActor is null) return;
         _visibleActorSet.Clear();
         _visibleActorSet.Add(GetActorVisibilityKey(SelectedActor));
+        if (SelectedActor.IsLight)
+        {
+            ShowLights = true;
+        }
+        if (SelectedActor.IsVolume)
+        {
+            ShowVolumes = true;
+        }
         UseVisibleSetOnly = true;
     }
 
@@ -829,7 +863,15 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
     {
         if (SelectedActor is null) return;
         string selectedClass = SelectedActor.Export.ClassName;
-        AddActorsToVisibleSet(Actors.Where(actor => IsMeshFilterCandidate(actor) && actor.Export.ClassName == selectedClass));
+        AddActorsToVisibleSet(Actors.Where(actor => IsVisibleSetCandidate(actor) && actor.Export.ClassName == selectedClass));
+        if (SelectedActor.IsLight)
+        {
+            ShowLights = true;
+        }
+        if (SelectedActor.IsVolume)
+        {
+            ShowVolumes = true;
+        }
         UseVisibleSetOnly = true;
     }
 
@@ -837,7 +879,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
     {
         if (SelectedActor is null) return;
         string selectedClass = SelectedActor.Export.ClassName;
-        foreach (var actor in Actors.Where(actor => IsMeshFilterCandidate(actor) && actor.Export.ClassName == selectedClass))
+        foreach (var actor in Actors.Where(actor => IsVisibleSetCandidate(actor) && actor.Export.ClassName == selectedClass))
         {
             _visibleActorSet.Remove(GetActorVisibilityKey(actor));
         }
@@ -1359,6 +1401,14 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
             && Actors.FirstOrDefault(a => a.Export.UIndex == uIdx) is ActorProxy actor)
         {
             SelectedActor = actor;
+        }
+    }
+
+    private void DisplayFilters_ComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (sender is ComboBox comboBox && comboBox.SelectedIndex != 0)
+        {
+            comboBox.SelectedIndex = 0;
         }
     }
 

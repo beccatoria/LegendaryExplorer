@@ -118,22 +118,43 @@
                     <Separator Name="SaveToggle_Separator" Style="{StaticResource {x:Static ToolBar.SeparatorStyleKey}}" />
                     <ToggleButton Content="Local Coords" ToolTip="Use local coordinates for the transform widget" IsChecked="{Binding UseLocalCoordsForWidget}"/>
                     <Separator Style="{StaticResource {x:Static ToolBar.SeparatorStyleKey}}" />
-                    <ToggleButton Content="Show Collision" ToolTip="Show collision meshes" IsChecked="{Binding ShowCollision}"/>
-                    <ToggleButton Content="Show Lights" ToolTip="Show light actors and static light collection components" IsChecked="{Binding ShowLights}"/>
-                     <TextBlock Text="Objects" VerticalAlignment="Center" Margin="8,0,4,0"/>
-                     <ComboBox Width="120" SelectedValuePath="Tag" SelectedValue="{Binding ObjectRenderMode}" ToolTip="Control how regular scene objects are rendered">
-                         <ComboBoxItem Content="Full" Tag="{x:Static local:ObjectRenderMode.Full}"/>
-                         <ComboBoxItem Content="Wireframe" Tag="{x:Static local:ObjectRenderMode.Wireframe}"/>
-                         <ComboBoxItem Content="Hidden" Tag="{x:Static local:ObjectRenderMode.Hidden}"/>
-                         <ComboBoxItem Content="Visible Set Only" Tag="{x:Static local:ObjectRenderMode.VisibleSetOnly}"/>
-                     </ComboBox>
+                    <TextBlock Text="Objects" VerticalAlignment="Center" Margin="8,0,4,0"/>
+                    <ComboBox Width="120" SelectedValuePath="Tag" SelectedValue="{Binding ObjectRenderMode}" ToolTip="Control how regular scene objects are rendered">
+                        <ComboBoxItem Content="Full" Tag="{x:Static local:ObjectRenderMode.Full}"/>
+                        <ComboBoxItem Content="Wireframe" Tag="{x:Static local:ObjectRenderMode.Wireframe}"/>
+                        <ComboBoxItem Content="Hidden" Tag="{x:Static local:ObjectRenderMode.Hidden}"/>
+                        <ComboBoxItem Content="Visible Set Only" Tag="{x:Static local:ObjectRenderMode.VisibleSetOnly}"/>
+                    </ComboBox>
+                    <TextBlock Text="Display Filters" VerticalAlignment="Center" Margin="8,0,4,0"/>
+                    <ComboBox x:Name="DisplayFilters_ComboBox" Width="165" SelectedIndex="0" SelectionChanged="DisplayFilters_ComboBox_SelectionChanged" ToolTip="Choose additional actor classes to display">
+                        <ComboBoxItem IsEnabled="False">
+                            <TextBlock Text="Select from dropdown" FontStyle="Italic" Foreground="Gray"/>
+                        </ComboBoxItem>
+                        <ComboBoxItem>
+                            <CheckBox Content="Show Lights"
+                                      IsChecked="{Binding ShowLights}"
+                                      ToolTip="Show light actors and static light collection components"/>
+                        </ComboBoxItem>
+                        <ComboBoxItem>
+                            <CheckBox Content="Show Collision"
+                                      IsChecked="{Binding ShowCollision}"
+                                      ToolTip="Show collision meshes"/>
+                        </ComboBoxItem>
+                        <ComboBoxItem>
+                            <CheckBox Content="Show Volumes"
+                                      IsChecked="{Binding ShowVolumes}"
+                                      ToolTip="Show volume wireframes"/>
+                        </ComboBoxItem>
+                        <ComboBoxItem>
+                            <CheckBox Content="Show Volumetric Meshes"
+                                      IsChecked="{Binding ShowVolumetrics}"
+                                      ToolTip="Volumetrics are large spheroids used for fog, dust, etc. Since LEX can't display those effects, they just get in the way."/>
+                        </ComboBoxItem>
+                    </ComboBox>
                     <TextBlock Text="Light Dist" VerticalAlignment="Center" Margin="8,0,4,0"/>
                     <xctk:IntegerUpDown Value="{Binding LightRenderDistance}" Minimum="0" Maximum="1000000" Width="70"
                                         VerticalContentAlignment="Center" FormatString="N0"
                                         ToolTip="Only render lights within this many world units of the camera"/>
-                    <ToggleButton Content="Show Volumes" ToolTip="Show volume wireframes" IsChecked="{Binding ShowVolumes}"/>
-                    <ToggleButton Content="Show Volumetric Meshes" IsChecked="{Binding ShowVolumetrics}"
-                                  ToolTip="Volumetrics are large spheroids used for fog, dust, etc. Since LEX can't display those effects, they just get in the way."/>
                      <TextBlock Text="Visible Sets Dist" VerticalAlignment="Center" Margin="8,0,4,0"/>
                      <xctk:IntegerUpDown Value="{Binding VisibleSetDistance}" Minimum="0" Maximum="1000000" Width="80"
                                          VerticalContentAlignment="Center" FormatString="N0"
