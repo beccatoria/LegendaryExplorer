@@ -130,6 +130,7 @@ public class MeshRenderContext : RenderContext
     private MouseButtons PressedMouseButton;
     public float CameraSpeed { get; set; } = 500.0f; // Units per second
     private const float KeyTapMoveSeconds = 0.045f;
+    private const float FastMoveMultiplier = 4.0f;
     private const float FirstPersonRotationSensitivity = 0.014f;
     private const float OrbitRotationSensitivity = 0.014f;
     private const float MouseZoomSensitivity = 0.015f;
@@ -181,9 +182,11 @@ public class MeshRenderContext : RenderContext
             FPS = MathF.Round(frameDelta / fpsDelta);
         }
 
+        float movementSpeedMultiplier = GetCameraMovementSpeedMultiplier();
+
         if (Camera.IsOrthographic)
         {
-            float panSpeed = Camera.OrthoWidth * 0.5f;
+            float panSpeed = Camera.OrthoWidth * 0.5f * movementSpeedMultiplier;
             if (PressedKeys.HasFlag(KeyStates.W))
                 Camera.Position += Vector3.UnitY * timestep * panSpeed;
             if (PressedKeys.HasFlag(KeyStates.S))
@@ -204,29 +207,30 @@ public class MeshRenderContext : RenderContext
         }
         else if (Camera.FirstPerson)
         {
+            float firstPersonSpeed = CameraSpeed * movementSpeedMultiplier;
             if (PressedKeys.HasFlag(KeyStates.W))
             {
-                Camera.Position += Camera.CameraForward * timestep * CameraSpeed;
+                Camera.Position += Camera.CameraForward * timestep * firstPersonSpeed;
             }
             if (PressedKeys.HasFlag(KeyStates.S))
             {
-                Camera.Position -= Camera.CameraForward * timestep * CameraSpeed;
+                Camera.Position -= Camera.CameraForward * timestep * firstPersonSpeed;
             }
             if (PressedKeys.HasFlag(KeyStates.A))
             {
-                Camera.Position -= Camera.CameraRight * timestep * CameraSpeed;
+                Camera.Position -= Camera.CameraRight * timestep * firstPersonSpeed;
             }
             if (PressedKeys.HasFlag(KeyStates.D))
             {
-                Camera.Position += Camera.CameraRight * timestep * CameraSpeed;
+                Camera.Position += Camera.CameraRight * timestep * firstPersonSpeed;
             }
             if (PressedKeys.HasFlag(KeyStates.Q))
             {
-                Camera.Position -= Vector3.UnitZ * timestep * CameraSpeed;
+                Camera.Position -= Vector3.UnitZ * timestep * firstPersonSpeed;
             }
             if (PressedKeys.HasFlag(KeyStates.E))
             {
-                Camera.Position += Vector3.UnitZ * timestep * CameraSpeed;
+                Camera.Position += Vector3.UnitZ * timestep * firstPersonSpeed;
             }
         }
 
@@ -269,7 +273,7 @@ public class MeshRenderContext : RenderContext
             return;
         }
 
-        float moveAmount = MathF.Max(CameraSpeed * KeyTapMoveSeconds, 24f);
+        float moveAmount = MathF.Max(CameraSpeed * GetCameraMovementSpeedMultiplier() * KeyTapMoveSeconds, 24f);
         switch (keyState)
         {
             case KeyStates.W:
@@ -291,6 +295,11 @@ public class MeshRenderContext : RenderContext
                 Camera.Position += Vector3.UnitZ * moveAmount;
                 break;
         }
+    }
+
+    private static float GetCameraMovementSpeedMultiplier()
+    {
+        return Keyboard.Modifiers.HasFlag(ModifierKeys.Control) ? FastMoveMultiplier : 1f;
     }
 
     public override void Render()
@@ -715,18 +724,19 @@ public class MeshRenderContext : RenderContext
     public override bool MouseScroll(int delta)
     {
         float scrollSteps = delta / 120f;
+        float zoomSpeedMultiplier = GetCameraMovementSpeedMultiplier();
         if (Camera.IsOrthographic)
         {
-            Camera.OrthoWidth *= MathF.Pow(1.2f, -scrollSteps * ScrollZoomExponent * 6f);
+            Camera.OrthoWidth *= MathF.Pow(1.2f, -scrollSteps * zoomSpeedMultiplier * ScrollZoomExponent * 6f);
             Camera.OrthoWidth = MathF.Max(Camera.OrthoWidth, 1f);
         }
         else if (Camera.FirstPerson)
         {
-            Camera.Position += Camera.CameraForward * GetPerFrameMoveAmount() * (scrollSteps * 28f);
+            Camera.Position += Camera.CameraForward * GetPerFrameMoveAmount() * (scrollSteps * zoomSpeedMultiplier * 28f);
         }
         else
         {
-            Camera.FocusDepth *= MathF.Pow(1.2f, -scrollSteps * ScrollZoomExponent * 6f);
+            Camera.FocusDepth *= MathF.Pow(1.2f, -scrollSteps * zoomSpeedMultiplier * ScrollZoomExponent * 6f);
         }
         return true;
     }

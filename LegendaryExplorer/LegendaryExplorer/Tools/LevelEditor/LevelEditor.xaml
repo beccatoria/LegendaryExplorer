@@ -19,6 +19,7 @@
         Drop="Window_Drop"
         AllowDrop="True"
         Loaded="LevelEditor_Loaded"
+        PreviewKeyDown="LevelEditor_PreviewKeyDown"
         Closing="LevelEditor_Closing"
         mc:Ignorable="d"
         DataContext="{Binding RelativeSource={RelativeSource Self}}"
@@ -65,9 +66,6 @@
         <KeyBinding Key="S" Modifiers="Control+Shift" Command="{Binding SaveAsCommand}"/>
         <KeyBinding Key="Z" Modifiers="Control" Command="{Binding UndoCommand}"/>
         <KeyBinding Key="Y" Modifiers="Control" Command="{Binding RedoCommand}"/>
-        <KeyBinding Key="F" Command="{Binding FocusSelectedCommand}"/>
-        <KeyBinding Key="L" Command="{Binding ToggleLocalCoordsCommand}"/>
-        <KeyBinding Key="NumPad5" Command="{Binding ToggleOrthoViewCommand}"/>
     </Window.InputBindings>
     <xctk:BusyIndicator IsBusy="{Binding Path=IsBusy}" BusyContent="{Binding BusyText}">
         <DockPanel>

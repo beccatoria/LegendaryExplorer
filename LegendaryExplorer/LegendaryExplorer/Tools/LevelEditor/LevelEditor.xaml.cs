@@ -22,8 +22,11 @@ using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Data;
 using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Media.Media3D;
 using System.Windows.Threading;
 
 namespace LegendaryExplorer.Tools.LevelEditor;
@@ -886,8 +889,9 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
             {
                 FocusOnBounds(SelectedActor.GetBounds());
             }
-        }, () => PackageIsLoaded() && SelectedActor is not null);
-        ToggleLocalCoordsCommand = new GenericCommand(() => UseLocalCoordsForWidget = !UseLocalCoordsForWidget, PackageIsLoaded);
+        }, () => PackageIsLoaded() && SelectedActor is not null && CanUseSingleKeyShortcut());
+        ToggleLocalCoordsCommand = new GenericCommand(() => UseLocalCoordsForWidget = !UseLocalCoordsForWidget,
+            () => PackageIsLoaded() && CanUseSingleKeyShortcut());
         OpenInPackageEditorCommand = new GenericCommand(() =>
         {
             if (SelectedActor is not null)
@@ -901,7 +905,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         OpenRecentSetCommand = new RelayCommand(obj => { if (obj is RecentFileSet set) OpenRecentFileSet(set); });
         UndoCommand = new GenericCommand(Undo, () => UndoHistory.CanUndo);
         RedoCommand = new GenericCommand(Redo, () => UndoHistory.CanRedo);
-        ToggleOrthoViewCommand = new GenericCommand(() => IsOrthographicView = !IsOrthographicView);
+        ToggleOrthoViewCommand = new GenericCommand(() => IsOrthographicView = !IsOrthographicView, CanUseSingleKeyShortcut);
         ToggleVisibleSetOnlyCommand = new GenericCommand(() => UseVisibleSetOnly = !UseVisibleSetOnly, PackageIsLoaded);
         AddSelectedToVisibleSetCommand = new GenericCommand(AddSelectedToVisibleSet, () => PackageIsLoaded() && SelectedActor is not null);
         RemoveSelectedFromVisibleSetCommand = new GenericCommand(RemoveSelectedFromVisibleSet, () => PackageIsLoaded() && SelectedActor is not null);
@@ -917,6 +921,85 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
     }
 
     #endregion
+
+    private void LevelEditor_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (!CanUseSingleKeyShortcut())
+        {
+            return;
+        }
+
+        if (e.Key is Key.F)
+        {
+            if (FocusSelectedCommand?.CanExecute(null) == true)
+            {
+                FocusSelectedCommand.Execute(null);
+                e.Handled = true;
+            }
+            return;
+        }
+
+        if (e.Key is Key.L)
+        {
+            if (ToggleLocalCoordsCommand?.CanExecute(null) == true)
+            {
+                ToggleLocalCoordsCommand.Execute(null);
+                e.Handled = true;
+            }
+            return;
+        }
+
+        if (e.Key is Key.NumPad5)
+        {
+            if (ToggleOrthoViewCommand?.CanExecute(null) == true)
+            {
+                ToggleOrthoViewCommand.Execute(null);
+                e.Handled = true;
+            }
+        }
+    }
+
+    private static bool CanUseSingleKeyShortcut()
+    {
+        if (Keyboard.FocusedElement is not DependencyObject focusedElement)
+        {
+            return true;
+        }
+
+        if (GetAncestor<TextBoxBase>(focusedElement) is not null)
+        {
+            return false;
+        }
+
+        if (GetAncestor<ComboBox>(focusedElement) is { IsEditable: true })
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private static T GetAncestor<T>(DependencyObject element) where T : DependencyObject
+    {
+        DependencyObject current = element;
+        while (current is not null)
+        {
+            if (current is T match)
+            {
+                return match;
+            }
+
+            current = current switch
+            {
+                Visual visual => VisualTreeHelper.GetParent(visual),
+                Visual3D visual3D => VisualTreeHelper.GetParent(visual3D),
+                FrameworkContentElement frameworkContentElement => frameworkContentElement.Parent,
+                _ => LogicalTreeHelper.GetParent(current)
+            };
+        }
+
+        return null;
+    }
 
     #region Selective Visibility
 
