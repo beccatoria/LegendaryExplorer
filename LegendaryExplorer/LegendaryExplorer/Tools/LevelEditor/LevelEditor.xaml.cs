@@ -177,7 +177,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
                 UseVisibleSetOnly = value is ObjectRenderMode.VisibleSetOnly;
                 if (value is ObjectRenderMode.VisibleSetOnly && _visibleActorSet.Count is 0)
                 {
-                    RebuildVisibleSetByDistance();
+                    InitializeVisibleSetToAll();
                 }
             }
         }
@@ -191,9 +191,17 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         get => _useVisibleSetOnly;
         set
         {
-            if (SetProperty(ref _useVisibleSetOnly, value)
-                && ObjectRenderMode is ObjectRenderMode.VisibleSetOnly
-                && !value)
+            if (!SetProperty(ref _useVisibleSetOnly, value))
+            {
+                return;
+            }
+
+            if (value && _visibleActorSet.Count is 0)
+            {
+                InitializeVisibleSetToAll();
+            }
+
+            if (ObjectRenderMode is ObjectRenderMode.VisibleSetOnly && !value)
             {
                 ObjectRenderMode = ObjectRenderMode.Full;
             }
@@ -326,7 +334,8 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
             if ((UseVisibleSetOnly || ObjectRenderMode is ObjectRenderMode.VisibleSetOnly)
                 && pass is RenderPass.Base or RenderPass.Hair
                 && actor.IsVolumetricMesh
-                && Vector3.DistanceSquared(actor.Location, cameraPosition) > VisibleSetDistance * VisibleSetDistance)
+                && (!_visibleActorSet.Contains(GetActorVisibilityKey(actor))
+                    || Vector3.DistanceSquared(actor.Location, cameraPosition) > VisibleSetDistance * VisibleSetDistance))
             {
                 continue;
             }
@@ -745,6 +754,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
     public ICommand ShowOnlySelectedClassCommand { get; set; }
     public ICommand AddNearbyToVisibleSetCommand { get; set; }
     public ICommand ShowOnlyNearbyCommand { get; set; }
+    public ICommand OpenVisibleSetsManagerCommand { get; set; }
     private void LoadCommands()
     {
         OpenFileCommand = new GenericCommand(OpenFile);
@@ -793,6 +803,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         ShowOnlySelectedClassCommand = new GenericCommand(ShowOnlySelectedClass, () => PackageIsLoaded() && SelectedActor is not null);
         AddNearbyToVisibleSetCommand = new GenericCommand(AddNearbyToVisibleSet, PackageIsLoaded);
         ShowOnlyNearbyCommand = new GenericCommand(ShowOnlyNearby, PackageIsLoaded);
+        OpenVisibleSetsManagerCommand = new GenericCommand(OpenVisibleSetsManager, PackageIsLoaded);
     }
 
     #endregion
@@ -811,7 +822,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
 
     private static bool IsVisibleSetCandidate(ActorProxy actor)
     {
-        return !actor.IsVolumetricMesh;
+        return true;
     }
 
     private void AddActorsToVisibleSet(IEnumerable<ActorProxy> actors)
@@ -834,7 +845,11 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         {
             ShowVolumes = true;
         }
-        UseVisibleSetOnly = true;
+        if (SelectedActor.IsVolumetricMesh)
+        {
+            ShowVolumetrics = true;
+        }
+        ObjectRenderMode = ObjectRenderMode.VisibleSetOnly;
     }
 
     private void RemoveSelectedFromVisibleSet()
@@ -856,7 +871,11 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         {
             ShowVolumes = true;
         }
-        UseVisibleSetOnly = true;
+        if (SelectedActor.IsVolumetricMesh)
+        {
+            ShowVolumetrics = true;
+        }
+        ObjectRenderMode = ObjectRenderMode.VisibleSetOnly;
     }
 
     private void AddSelectedClassToVisibleSet()
@@ -872,7 +891,11 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         {
             ShowVolumes = true;
         }
-        UseVisibleSetOnly = true;
+        if (SelectedActor.IsVolumetricMesh)
+        {
+            ShowVolumetrics = true;
+        }
+        ObjectRenderMode = ObjectRenderMode.VisibleSetOnly;
     }
 
     private void RemoveSelectedClassFromVisibleSet()
@@ -898,7 +921,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         float maxDistanceSq = VisibleSetDistance * VisibleSetDistance;
         AddActorsToVisibleSet(Actors.Where(actor => IsMeshFilterCandidate(actor)
                                                      && Vector3.DistanceSquared(actor.Location, cameraPosition) <= maxDistanceSq));
-        UseVisibleSetOnly = true;
+        ObjectRenderMode = ObjectRenderMode.VisibleSetOnly;
     }
 
     private void ShowOnlyNearby()
@@ -914,6 +937,71 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         AddActorsToVisibleSet(Actors.Where(actor => IsMeshFilterCandidate(actor)
                                                      && Vector3.DistanceSquared(actor.Location, cameraPosition) <= maxDistanceSq));
         UseVisibleSetOnly = true;
+    }
+
+    private void InitializeVisibleSetToAll()
+    {
+        _visibleActorSet.Clear();
+        AddActorsToVisibleSet(Actors.Where(IsVisibleSetCandidate));
+    }
+
+    private void OpenVisibleSetsManager()
+    {
+        List<string> allClasses = Actors.Select(a => a.Export.ClassName)
+            .Where(c => !string.IsNullOrWhiteSpace(c))
+            .Distinct()
+            .OrderBy(c => c)
+            .ToList();
+        if (allClasses.Count is 0)
+        {
+            return;
+        }
+
+        if (_visibleActorSet.Count is 0)
+        {
+            InitializeVisibleSetToAll();
+        }
+
+        HashSet<string> currentlyVisibleClasses = Actors
+            .Where(actor => _visibleActorSet.Contains(GetActorVisibilityKey(actor)))
+            .Select(actor => actor.Export.ClassName)
+            .Where(c => !string.IsNullOrWhiteSpace(c))
+            .ToHashSet();
+
+        var dialog = new VisibleSetsManagerDialog(allClasses, currentlyVisibleClasses, this);
+        if (dialog.ShowDialog() != true)
+        {
+            return;
+        }
+
+        HashSet<string> desiredVisibleClasses = dialog.GetVisibleClasses();
+        foreach (ActorProxy actor in Actors)
+        {
+            string key = GetActorVisibilityKey(actor);
+            if (desiredVisibleClasses.Contains(actor.Export.ClassName))
+            {
+                _visibleActorSet.Add(key);
+            }
+            else
+            {
+                _visibleActorSet.Remove(key);
+            }
+        }
+
+        if (Actors.Any(a => a.IsLight && desiredVisibleClasses.Contains(a.Export.ClassName)))
+        {
+            ShowLights = true;
+        }
+        if (Actors.Any(a => a.IsVolume && desiredVisibleClasses.Contains(a.Export.ClassName)))
+        {
+            ShowVolumes = true;
+        }
+        if (Actors.Any(a => a.IsVolumetricMesh && desiredVisibleClasses.Contains(a.Export.ClassName)))
+        {
+            ShowVolumetrics = true;
+        }
+
+        ObjectRenderMode = ObjectRenderMode.VisibleSetOnly;
     }
 
     private void ClearVisibleSet()

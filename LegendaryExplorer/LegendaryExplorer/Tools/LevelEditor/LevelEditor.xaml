@@ -82,6 +82,9 @@
                     <Separator />
                     <MenuItem Name="Recents_MenuItem" Header="Recent" IsEnabled="false"/>
                 </MenuItem>
+                <MenuItem Header="Visible Sets" Padding="4">
+                    <MenuItem Header="Edit Visible Sets..." Command="{Binding OpenVisibleSetsManagerCommand}" IsEnabled="{Binding HasAnyFileOpen}"/>
+                </MenuItem>
             </Menu>
             <WrapPanel DockPanel.Dock="Top">
                 <ToolBar ToolBarTray.IsLocked="True" OverflowMode="Never">
