@@ -153,6 +153,31 @@
                                       IsChecked="{Binding ShowVolumetrics}"
                                       ToolTip="Volumetrics are large spheroids used for fog, dust, etc. Since LEX can't display those effects, they just get in the way."/>
                         </ComboBoxItem>
+                        <ComboBoxItem>
+                            <CheckBox Content="Show Emitters"
+                                      IsChecked="{Binding ShowEmitters}"
+                                      ToolTip="Show emitter actors as icon markers"/>
+                        </ComboBoxItem>
+                        <ComboBoxItem>
+                            <CheckBox Content="Show Location Actors"
+                                      IsChecked="{Binding ShowLocationActors}"
+                                      ToolTip="Show location actors (PlayerStart, BioStartLocation, Location, TargetPoint, SFXPointOfInterest)"/>
+                        </ComboBoxItem>
+                        <ComboBoxItem>
+                            <CheckBox Content="Show Sound Positions"
+                                      IsChecked="{Binding ShowSoundPositions}"
+                                      ToolTip="Show sound position actors (AmbientSound, WwiseMicPosOrient) as icon markers"/>
+                        </ComboBoxItem>
+                        <ComboBoxItem>
+                            <CheckBox Content="Show Cinematic Actors"
+                                      IsChecked="{Binding ShowCinematicActors}"
+                                      ToolTip="Show cinematic actors (BioStage wireframes, CameraActor markers)"/>
+                        </ComboBoxItem>
+                        <ComboBoxItem>
+                            <CheckBox Content="Show Decal/Effect Actors"
+                                      IsChecked="{Binding ShowDecalActors}"
+                                      ToolTip="Show decal/effect placement actors (DecalActor, MaterialInstanceActor) as icon markers"/>
+                        </ComboBoxItem>
                     </ComboBox>
                     <TextBlock Text="Light Dist" VerticalAlignment="Center" Margin="8,0,4,0"/>
                     <xctk:IntegerUpDown Value="{Binding LightRenderDistance}" Minimum="0" Maximum="1000000" Width="70"
@@ -209,6 +234,7 @@
                     <TextBlock DockPanel.Dock="Bottom" Text="{Binding TextBelowActors}" TextWrapping="Wrap"/>
 
                     <ListBox DockPanel.Dock="Bottom" ItemsSource="{Binding ActorsView}" Name="MeshExportsList" SelectedItem="{Binding SelectedActor}" HorizontalContentAlignment="Stretch"
+                             PreviewMouseRightButtonDown="MeshExportsList_PreviewMouseRightButtonDown"
                              VirtualizingStackPanel.IsVirtualizing="True" VirtualizingStackPanel.VirtualizationMode="Recycling">
                         <ListBox.GroupStyle>
                             <GroupStyle>

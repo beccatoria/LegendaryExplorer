@@ -208,6 +208,15 @@ public class ActorProxy : NotifyPropertyChangedBase, IDisposable, IHitProxy
     public bool SupportsLightProperties => LightEditorComponent is not null;
     public virtual bool IsVolume => false;
     public bool IsVolumetricMesh { get; protected set; }
+    public bool IsEmitter { get; protected set; }
+    public bool IsStartPoint { get; protected set; }
+    public bool IsTargetPoint { get; protected set; }
+    public bool IsPointOfInterest { get; protected set; }
+    public bool IsLocationActor { get; protected set; }
+    public bool IsAmbientSound { get; protected set; }
+    public bool IsCameraActor { get; protected set; }
+    public bool IsCinematicActor { get; protected set; }
+    public bool IsDecalActor { get; protected set; }
 
     public float LightBrightness
     {
@@ -396,7 +405,21 @@ public class ActorProxy : NotifyPropertyChangedBase, IDisposable, IHitProxy
         "PrefabInstance",
         "SFXDroppedGrenade",
         "SFXDroppedAmmo",
-        "SFXDroppedPickup"
+        "SFXDroppedPickup",
+        "Emitter",
+        "BioEmitter",
+        "PlayerStart",
+        "BioStartLocation",
+        "Location",
+        "TargetPoint",
+        "SFXPointOfInterest",
+        "AmbientSound",
+        "WwiseMicPosOrient",
+        "CameraActor",
+        "DecalActor",
+        "MaterialInstanceActor",
+        "LensFlareSource",
+        "BioStage"
     }.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
 
     public static bool CanCreate(ExportEntry actorExport)
@@ -463,6 +486,56 @@ public class ActorProxy : NotifyPropertyChangedBase, IDisposable, IHitProxy
         if (GlobalUnrealObjectInfo.IsA(className, "Light", actorExport.Game))
         {
             return new LightActorProxy(context, actorExport);
+        }
+        if (GlobalUnrealObjectInfo.IsA(className, "Emitter", actorExport.Game)
+            || GlobalUnrealObjectInfo.IsA(className, "BioEmitter", actorExport.Game))
+        {
+            return new IconActorProxy(context, actorExport, IconActorCategory.Emitter);
+        }
+        if (GlobalUnrealObjectInfo.IsA(className, "PlayerStart", actorExport.Game))
+        {
+            return new IconActorProxy(context, actorExport, IconActorCategory.StartPoint);
+        }
+        if (GlobalUnrealObjectInfo.IsA(className, "Location", actorExport.Game)
+            || GlobalUnrealObjectInfo.IsA(className, "BioStartLocation", actorExport.Game))
+        {
+            return new IconActorProxy(context, actorExport, IconActorCategory.StartPoint);
+        }
+        if (GlobalUnrealObjectInfo.IsA(className, "TargetPoint", actorExport.Game))
+        {
+            return new IconActorProxy(context, actorExport, IconActorCategory.TargetPoint);
+        }
+        if (GlobalUnrealObjectInfo.IsA(className, "SFXPointOfInterest", actorExport.Game))
+        {
+            return new IconActorProxy(context, actorExport, IconActorCategory.PointOfInterest);
+        }
+        if (GlobalUnrealObjectInfo.IsA(className, "AmbientSound", actorExport.Game))
+        {
+            return new IconActorProxy(context, actorExport, IconActorCategory.AmbientSound);
+        }
+        if (GlobalUnrealObjectInfo.IsA(className, "WwiseMicPosOrient", actorExport.Game))
+        {
+            return new IconActorProxy(context, actorExport, IconActorCategory.AmbientSound);
+        }
+        if (GlobalUnrealObjectInfo.IsA(className, "CameraActor", actorExport.Game))
+        {
+            return new IconActorProxy(context, actorExport, IconActorCategory.Camera);
+        }
+        if (GlobalUnrealObjectInfo.IsA(className, "BioStage", actorExport.Game))
+        {
+            return new BioStageActorProxy(context, actorExport);
+        }
+        if (GlobalUnrealObjectInfo.IsA(className, "DecalActor", actorExport.Game))
+        {
+            return new IconActorProxy(context, actorExport, IconActorCategory.Decal);
+        }
+        if (GlobalUnrealObjectInfo.IsA(className, "MaterialInstanceActor", actorExport.Game))
+        {
+            return new IconActorProxy(context, actorExport, IconActorCategory.Decal);
+        }
+        if (GlobalUnrealObjectInfo.IsA(className, "LensFlareSource", actorExport.Game))
+        {
+            return new IconActorProxy(context, actorExport, IconActorCategory.LensFlareLight);
         }
         return null;
         //return new ActorProxy(context, actorExport);
@@ -695,6 +768,90 @@ public class BrushProxy : ActorProxy
     }
     public override int HitPriority => IHitProxy.WireFramePriority;
 }
+
+public class BioStageActorProxy : ActorProxy
+{
+    public SkeletalMeshComponentProxy MeshComponent;
+    public StaticMeshComponentProxy StaticMeshComponent;
+    public BrushComponentProxy BrushComponent;
+    private List<PrimitiveComponentProxy> StageComponents = [];
+
+    public BioStageActorProxy(IActorEditorContext context, ExportEntry actorExport) : base(context, actorExport)
+    {
+        IsCinematicActor = true;
+
+        // BioStage implementations vary; try generic actor components first.
+        AddComponentArray(context.RenderContext, ref StageComponents, "Components");
+
+        // Many BioStage exports use a direct Mesh -> SkeletalMeshComponent reference.
+        AddComponent(context.RenderContext, ref MeshComponent, "Mesh");
+        if (MeshComponent is not null)
+        {
+            MeshComponent.ForceWireframeRender = true;
+        }
+
+        // Fallbacks for stage variants that expose explicit component refs.
+        if (StageComponents.Count is 0)
+        {
+            AddComponent(context.RenderContext, ref StaticMeshComponent);
+            AddComponent(context.RenderContext, ref BrushComponent);
+        }
+    }
+
+    public override int HitPriority => IHitProxy.WireFramePriority;
+
+    public override void Render(LevelEditorRenderContext context, RenderPass pass)
+    {
+        base.Render(context, pass);
+
+        if (pass is not (RenderPass.Base or RenderPass.Hair))
+        {
+            return;
+        }
+
+        bool hasRenderableStageGeometry = Components.Any(c => c is BrushComponentProxy or StaticMeshComponentProxy or SkeletalMeshComponentProxy);
+        if (hasRenderableStageGeometry)
+        {
+            return;
+        }
+
+        float size = context.Camera.IsOrthographic ? 80f : Math.Clamp(Vector3.Distance(Location, context.Camera.Position) * 0.02f, 50f, 180f);
+        float half = size * 0.5f;
+        Vector4 color = new(1f, 0.9f, 0.25f, 1f);
+
+        Vector3 p000 = new(-half, -half, -half);
+        Vector3 p001 = new(-half, -half, half);
+        Vector3 p010 = new(-half, half, -half);
+        Vector3 p011 = new(-half, half, half);
+        Vector3 p100 = new(half, -half, -half);
+        Vector3 p101 = new(half, -half, half);
+        Vector3 p110 = new(half, half, -half);
+        Vector3 p111 = new(half, half, half);
+
+        Matrix4x4 transform = Matrix4x4.CreateTranslation(Location);
+        p000 = Vector3.Transform(p000, transform);
+        p001 = Vector3.Transform(p001, transform);
+        p010 = Vector3.Transform(p010, transform);
+        p011 = Vector3.Transform(p011, transform);
+        p100 = Vector3.Transform(p100, transform);
+        p101 = Vector3.Transform(p101, transform);
+        p110 = Vector3.Transform(p110, transform);
+        p111 = Vector3.Transform(p111, transform);
+
+        context.Primitives.AddLine(p000, p001, color, HitID);
+        context.Primitives.AddLine(p000, p010, color, HitID);
+        context.Primitives.AddLine(p000, p100, color, HitID);
+        context.Primitives.AddLine(p001, p011, color, HitID);
+        context.Primitives.AddLine(p001, p101, color, HitID);
+        context.Primitives.AddLine(p010, p011, color, HitID);
+        context.Primitives.AddLine(p010, p110, color, HitID);
+        context.Primitives.AddLine(p100, p101, color, HitID);
+        context.Primitives.AddLine(p100, p110, color, HitID);
+        context.Primitives.AddLine(p011, p111, color, HitID);
+        context.Primitives.AddLine(p101, p111, color, HitID);
+        context.Primitives.AddLine(p110, p111, color, HitID);
+    }
+}
 public class SFXStuntActorProxy : ActorProxy
 {
     public SkeletalMeshComponentProxy BodyMesh;
@@ -896,8 +1053,15 @@ public class PrefabInstanceProxy : ActorProxy
     {
         foreach (var actor in Actors)
         {
+            actor.HitID = HitID;
+            if (actor.IsLight && !context.ShowLights) continue;
             if (actor.IsVolume && !context.ShowVolumes) continue;
             if (actor.IsVolumetricMesh && !context.ShowVolumetrics) continue;
+            if (actor.IsEmitter && !context.ShowEmitters) continue;
+            if (actor.IsLocationActor && !context.ShowLocationActors) continue;
+            if (actor.IsAmbientSound && !context.ShowSoundPositions) continue;
+            if (actor.IsCinematicActor && !context.ShowCinematicActors) continue;
+            if (actor.IsDecalActor && !context.ShowDecalActors) continue;
             actor.Render(context, pass);
         }
     }
@@ -995,6 +1159,204 @@ public class LightActorProxy : ActorProxy
         IsLight = true;
         AddComponent(context.RenderContext, ref LightComponent);
         LightEditorComponent = LightComponent;
+    }
+}
+
+public enum IconActorCategory
+{
+    Emitter,
+    StartPoint,
+    TargetPoint,
+    PointOfInterest,
+    AmbientSound,
+    Camera,
+    Decal,
+    LensFlareLight
+}
+
+public class IconActorProxy : ActorProxy
+{
+    public IconActorCategory IconCategory { get; }
+
+    public IconActorProxy(IActorEditorContext context, ExportEntry actorExport, IconActorCategory iconCategory)
+        : base(context, actorExport)
+    {
+        IconCategory = iconCategory;
+        switch (IconCategory)
+        {
+            case IconActorCategory.Emitter:
+                IsEmitter = true;
+                break;
+            case IconActorCategory.StartPoint:
+                IsStartPoint = true;
+                IsLocationActor = true;
+                break;
+            case IconActorCategory.TargetPoint:
+                IsTargetPoint = true;
+                IsLocationActor = true;
+                break;
+            case IconActorCategory.PointOfInterest:
+                IsPointOfInterest = true;
+                IsLocationActor = true;
+                break;
+            case IconActorCategory.AmbientSound:
+                IsAmbientSound = true;
+                break;
+            case IconActorCategory.Camera:
+                IsCameraActor = true;
+                IsCinematicActor = true;
+                break;
+            case IconActorCategory.Decal:
+                IsDecalActor = true;
+                break;
+            case IconActorCategory.LensFlareLight:
+                IsLight = true;
+                break;
+        }
+    }
+
+    public override void Render(LevelEditorRenderContext context, RenderPass pass)
+    {
+        if (pass is not (RenderPass.Base or RenderPass.Hair))
+        {
+            return;
+        }
+
+        Vector4 color = IconCategory switch
+        {
+            IconActorCategory.Emitter => new Vector4(1.0f, 0.52f, 0.12f, 1f),
+            IconActorCategory.StartPoint => new Vector4(0.18f, 1.0f, 0.32f, 1f),
+            IconActorCategory.TargetPoint => new Vector4(1.0f, 0.22f, 0.22f, 1f),
+            IconActorCategory.PointOfInterest => new Vector4(1.0f, 0.58f, 0.18f, 1f),
+            IconActorCategory.AmbientSound => new Vector4(0.25f, 0.88f, 1.0f, 1f),
+            IconActorCategory.Camera => new Vector4(1.0f, 0.92f, 0.18f, 1f),
+            IconActorCategory.Decal => new Vector4(0.92f, 0.38f, 1.0f, 1f),
+            IconActorCategory.LensFlareLight => new Vector4(1.0f, 0.95f, 0.35f, 1f),
+            _ => Vector4.One
+        };
+
+        float categoryScale = IconCategory switch
+        {
+            IconActorCategory.StartPoint => 1.18f,
+            IconActorCategory.TargetPoint => 1.12f,
+            IconActorCategory.Camera => 1.1f,
+            _ => 1f
+        };
+
+        float radius = 10.5f * categoryScale;
+        if (!context.Camera.IsOrthographic)
+        {
+            float distance = Vector3.Distance(LocalToWorld.Translation, context.Camera.Position);
+            radius = Math.Clamp((7f + (distance * 0.0042f)) * categoryScale, 7f, 24f);
+        }
+
+        var mesh = context.Primitives.BuildMesh(color, HitID, Matrix4x4.CreateTranslation(LocalToWorld.Translation));
+        switch (IconCategory)
+        {
+            case IconActorCategory.AmbientSound:
+                RenderOctahedron(mesh, radius);
+                break;
+            case IconActorCategory.Camera:
+                RenderPyramid(mesh, radius);
+                break;
+            default:
+                RenderOrb(mesh, radius);
+                break;
+        }
+    }
+
+    private static void RenderOrb(BatchedPrimitives.MeshBuilder mesh, float radius)
+    {
+        const int stacks = 4;
+        const int slices = 7;
+
+        mesh.AddVertex(0, 0, radius);
+        for (int stack = 1; stack < stacks; stack++)
+        {
+            float phi = MathF.PI * stack / stacks;
+            float sinPhi = MathF.Sin(phi);
+            float cosPhi = MathF.Cos(phi);
+            for (int slice = 0; slice < slices; slice++)
+            {
+                float theta = MathF.PI * 2f * slice / slices;
+                mesh.AddVertex(
+                    radius * sinPhi * MathF.Cos(theta),
+                    radius * sinPhi * MathF.Sin(theta),
+                    radius * cosPhi);
+            }
+        }
+
+        int bottomIndex = 1 + ((stacks - 1) * slices - slices);
+        mesh.AddVertex(0, 0, -radius);
+        int southPoleIndex = 1 + ((stacks - 1) * slices);
+        for (int slice = 0; slice < slices; slice++)
+        {
+            int nextSlice = (slice + 1) % slices;
+            mesh.AddTriangle(0, 1 + nextSlice, 1 + slice);
+        }
+
+        for (int stack = 0; stack < stacks - 2; stack++)
+        {
+            int rowStart = 1 + (stack * slices);
+            int nextRowStart = rowStart + slices;
+            for (int slice = 0; slice < slices; slice++)
+            {
+                int nextSlice = (slice + 1) % slices;
+                int current = rowStart + slice;
+                int currentNext = rowStart + nextSlice;
+                int below = nextRowStart + slice;
+                int belowNext = nextRowStart + nextSlice;
+                mesh.AddTriangle(current, currentNext, below);
+                mesh.AddTriangle(currentNext, belowNext, below);
+            }
+        }
+
+        for (int slice = 0; slice < slices; slice++)
+        {
+            int nextSlice = (slice + 1) % slices;
+            mesh.AddTriangle(southPoleIndex, bottomIndex + slice, bottomIndex + nextSlice);
+        }
+    }
+
+    private static void RenderOctahedron(BatchedPrimitives.MeshBuilder mesh, float radius)
+    {
+        mesh.AddVertex(0, 0, radius);       // 0 top
+        mesh.AddVertex(radius, 0, 0);       // 1 +X
+        mesh.AddVertex(0, radius, 0);       // 2 +Y
+        mesh.AddVertex(-radius, 0, 0);      // 3 -X
+        mesh.AddVertex(0, -radius, 0);      // 4 -Y
+        mesh.AddVertex(0, 0, -radius);      // 5 bottom
+
+        mesh.AddTriangle(0, 1, 2);
+        mesh.AddTriangle(0, 2, 3);
+        mesh.AddTriangle(0, 3, 4);
+        mesh.AddTriangle(0, 4, 1);
+
+        mesh.AddTriangle(5, 2, 1);
+        mesh.AddTriangle(5, 3, 2);
+        mesh.AddTriangle(5, 4, 3);
+        mesh.AddTriangle(5, 1, 4);
+    }
+
+    private static void RenderPyramid(BatchedPrimitives.MeshBuilder mesh, float radius)
+    {
+        float baseHalf = radius * 0.55f;
+        float apexZ = radius;
+        float baseZ = -radius * 0.55f;
+
+        mesh.AddVertex(0, 0, apexZ);                // 0 apex
+        mesh.AddVertex(-baseHalf, -baseHalf, baseZ);// 1
+        mesh.AddVertex(baseHalf, -baseHalf, baseZ); // 2
+        mesh.AddVertex(baseHalf, baseHalf, baseZ);  // 3
+        mesh.AddVertex(-baseHalf, baseHalf, baseZ); // 4
+
+        mesh.AddTriangle(0, 1, 2);
+        mesh.AddTriangle(0, 2, 3);
+        mesh.AddTriangle(0, 3, 4);
+        mesh.AddTriangle(0, 4, 1);
+
+        mesh.AddTriangle(1, 3, 2);
+        mesh.AddTriangle(1, 4, 3);
     }
 }
 

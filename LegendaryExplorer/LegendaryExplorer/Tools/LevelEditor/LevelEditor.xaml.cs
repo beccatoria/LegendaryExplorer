@@ -81,12 +81,15 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
     }
 
     private ActorProxy selectedActor;
+    private bool _suppressSelectionFocus;
     public ActorProxy SelectedActor
     {
         get => selectedActor;
         set
         {
-            SelectActor(value, true);
+            bool shouldFocus = !_suppressSelectionFocus;
+            _suppressSelectionFocus = false;
+            SelectActor(value, shouldFocus);
         }
     }
 
@@ -108,7 +111,13 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
     public bool ShowLights
     {
         get => _showLights;
-        set => SetProperty(ref _showLights, value);
+        set
+        {
+            if (SetProperty(ref _showLights, value))
+            {
+                SyncCategoryWithVisibleSetWhenActive(value, actor => actor.IsLight);
+            }
+        }
     }
 
     private int _lightRenderDistance = 1000;
@@ -122,14 +131,91 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
     public bool ShowVolumes
     {
         get => _showVolumes;
-        set => SetProperty(ref _showVolumes, value);
+        set
+        {
+            if (SetProperty(ref _showVolumes, value))
+            {
+                SyncCategoryWithVisibleSetWhenActive(value, actor => actor.IsVolume);
+            }
+        }
     }
 
     private bool _showVolumetrics = false;
     public bool ShowVolumetrics
     {
         get => _showVolumetrics;
-        set => SetProperty(ref _showVolumetrics, value);
+        set
+        {
+            if (SetProperty(ref _showVolumetrics, value))
+            {
+                SyncCategoryWithVisibleSetWhenActive(value, actor => actor.IsVolumetricMesh);
+            }
+        }
+    }
+
+    private bool _showEmitters;
+    public bool ShowEmitters
+    {
+        get => _showEmitters;
+        set
+        {
+            if (SetProperty(ref _showEmitters, value))
+            {
+                SyncCategoryWithVisibleSetWhenActive(value, actor => actor.IsEmitter);
+            }
+        }
+    }
+
+    private bool _showLocationActors;
+    public bool ShowLocationActors
+    {
+        get => _showLocationActors;
+        set
+        {
+            if (SetProperty(ref _showLocationActors, value))
+            {
+                SyncCategoryWithVisibleSetWhenActive(value, actor => actor.IsLocationActor);
+            }
+        }
+    }
+
+    private bool _showSoundPositions;
+    public bool ShowSoundPositions
+    {
+        get => _showSoundPositions;
+        set
+        {
+            if (SetProperty(ref _showSoundPositions, value))
+            {
+                SyncCategoryWithVisibleSetWhenActive(value, actor => actor.IsAmbientSound);
+            }
+        }
+    }
+
+    private bool _showCinematicActors;
+    public bool ShowCinematicActors
+    {
+        get => _showCinematicActors;
+        set
+        {
+            if (SetProperty(ref _showCinematicActors, value))
+            {
+                SyncCategoryWithVisibleSetWhenActive(value, actor => actor.IsCinematicActor);
+            }
+        }
+    }
+
+    private bool _showDecalActors;
+    public bool ShowDecalActors
+    {
+        get => _showDecalActors;
+        set
+        {
+            if (SetProperty(ref _showDecalActors, value))
+            {
+                SyncCategoryWithVisibleSetWhenActive(value, actor => actor.IsDecalActor);
+            }
+        }
     }
 
     private bool _showCameraCoordinates;
@@ -184,6 +270,8 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
     }
 
     private readonly HashSet<string> _visibleActorSet = [];
+    private bool _hasUserEditedVisibleSets;
+    private bool _suppressDisplayFilterVisibleSetSync;
 
     private bool _useVisibleSetOnly;
     public bool UseVisibleSetOnly
@@ -196,7 +284,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
                 return;
             }
 
-            if (value && _visibleActorSet.Count is 0)
+            if (value && _visibleActorSet.Count is 0 && !_hasUserEditedVisibleSets)
             {
                 InitializeVisibleSetToAll();
             }
@@ -300,6 +388,11 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         RenderContext.ShowLights = ShowLights;
         RenderContext.ShowVolumes = ShowVolumes;
         RenderContext.ShowVolumetrics = ShowVolumetrics;
+        RenderContext.ShowEmitters = ShowEmitters;
+        RenderContext.ShowLocationActors = ShowLocationActors;
+        RenderContext.ShowSoundPositions = ShowSoundPositions;
+        RenderContext.ShowCinematicActors = ShowCinematicActors;
+        RenderContext.ShowDecalActors = ShowDecalActors;
         Span<RenderPass> passes = ShowCollision
             ? [RenderPass.Base, RenderPass.Hair, RenderPass.Collision]
             : [RenderPass.Base, RenderPass.Hair];
@@ -323,6 +416,11 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
             if (actor.IsLight && Vector3.DistanceSquared(actor.Location, cameraPosition) > lightRenderDistanceSq) continue;
             if (actor.IsVolume && !ShowVolumes) continue;
             if (actor.IsVolumetricMesh && !ShowVolumetrics) continue;
+            if (actor.IsEmitter && !ShowEmitters) continue;
+            if (actor.IsLocationActor && !ShowLocationActors) continue;
+            if (actor.IsAmbientSound && !ShowSoundPositions) continue;
+            if (actor.IsCinematicActor && !ShowCinematicActors) continue;
+            if (actor.IsDecalActor && !ShowDecalActors) continue;
             if ((UseVisibleSetOnly || ObjectRenderMode is ObjectRenderMode.VisibleSetOnly)
                 && pass is RenderPass.Base or RenderPass.Hair
                 && !actor.IsVolumetricMesh
@@ -350,7 +448,19 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
                 && pass is RenderPass.Base or RenderPass.Hair
                 && !actor.IsVolume
                 && !actor.IsVolumetricMesh
-                && !actor.IsLight)
+                && !actor.IsLight
+                && !actor.IsEmitter
+                && !actor.IsLocationActor
+                && !actor.IsAmbientSound
+                && !actor.IsCinematicActor
+                && !actor.IsDecalActor)
+            {
+                continue;
+            }
+            if ((UseVisibleSetOnly || ObjectRenderMode is ObjectRenderMode.VisibleSetOnly)
+                && pass is RenderPass.Base or RenderPass.Hair
+                && actor.IsAmbientSound
+                && Vector3.DistanceSquared(actor.Location, cameraPosition) > VisibleSetDistance * VisibleSetDistance)
             {
                 continue;
             }
@@ -825,6 +935,26 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         return true;
     }
 
+    private void SyncCategoryWithVisibleSetWhenActive(bool isEnabled, Func<ActorProxy, bool> predicate)
+    {
+        if (!(UseVisibleSetOnly || ObjectRenderMode is ObjectRenderMode.VisibleSetOnly))
+        {
+            return;
+        }
+
+        _hasUserEditedVisibleSets = true;
+        if (isEnabled)
+        {
+            AddActorsToVisibleSet(Actors.Where(actor => IsVisibleSetCandidate(actor) && predicate(actor)));
+            return;
+        }
+
+        foreach (var actor in Actors.Where(actor => IsVisibleSetCandidate(actor) && predicate(actor)))
+        {
+            _visibleActorSet.Remove(GetActorVisibilityKey(actor));
+        }
+    }
+
     private void AddActorsToVisibleSet(IEnumerable<ActorProxy> actors)
     {
         foreach (var actor in actors)
@@ -833,34 +963,65 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         }
     }
 
+    private void SyncDisplayFiltersWithVisibleSet()
+    {
+        bool IsVisible(ActorProxy actor) => _visibleActorSet.Contains(GetActorVisibilityKey(actor));
+
+        _suppressDisplayFilterVisibleSetSync = true;
+        try
+        {
+            ShowLights = Actors.Any(a => a.IsLight && IsVisible(a));
+            ShowVolumes = Actors.Any(a => a.IsVolume && IsVisible(a));
+            ShowVolumetrics = Actors.Any(a => a.IsVolumetricMesh && IsVisible(a));
+            ShowEmitters = Actors.Any(a => a.IsEmitter && IsVisible(a));
+            ShowLocationActors = Actors.Any(a => a.IsLocationActor && IsVisible(a));
+            ShowSoundPositions = Actors.Any(a => a.IsAmbientSound && IsVisible(a));
+            ShowCinematicActors = Actors.Any(a => a.IsCinematicActor && IsVisible(a));
+            ShowDecalActors = Actors.Any(a => a.IsDecalActor && IsVisible(a));
+        }
+        finally
+        {
+            _suppressDisplayFilterVisibleSetSync = false;
+        }
+    }
+
+    private void EnableDisplayFilterForActorType(ActorProxy actor)
+    {
+        if (actor is null)
+        {
+            return;
+        }
+
+        if (actor.IsLight) ShowLights = true;
+        if (actor.IsVolume) ShowVolumes = true;
+        if (actor.IsVolumetricMesh) ShowVolumetrics = true;
+        if (actor.IsEmitter) ShowEmitters = true;
+        if (actor.IsLocationActor) ShowLocationActors = true;
+        if (actor.IsAmbientSound) ShowSoundPositions = true;
+        if (actor.IsCinematicActor) ShowCinematicActors = true;
+        if (actor.IsDecalActor) ShowDecalActors = true;
+    }
+
     private void AddSelectedToVisibleSet()
     {
         if (SelectedActor is null) return;
+        _hasUserEditedVisibleSets = true;
         _visibleActorSet.Add(GetActorVisibilityKey(SelectedActor));
-        if (SelectedActor.IsLight)
-        {
-            ShowLights = true;
-        }
-        if (SelectedActor.IsVolume)
-        {
-            ShowVolumes = true;
-        }
-        if (SelectedActor.IsVolumetricMesh)
-        {
-            ShowVolumetrics = true;
-        }
+        EnableDisplayFilterForActorType(SelectedActor);
         ObjectRenderMode = ObjectRenderMode.VisibleSetOnly;
     }
 
     private void RemoveSelectedFromVisibleSet()
     {
         if (SelectedActor is null) return;
+        _hasUserEditedVisibleSets = true;
         _visibleActorSet.Remove(GetActorVisibilityKey(SelectedActor));
     }
 
     private void ShowOnlySelected()
     {
         if (SelectedActor is null) return;
+        _hasUserEditedVisibleSets = true;
         _visibleActorSet.Clear();
         _visibleActorSet.Add(GetActorVisibilityKey(SelectedActor));
         if (SelectedActor.IsLight)
@@ -881,6 +1042,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
     private void AddSelectedClassToVisibleSet()
     {
         if (SelectedActor is null) return;
+        _hasUserEditedVisibleSets = true;
         string selectedClass = SelectedActor.Export.ClassName;
         AddActorsToVisibleSet(Actors.Where(actor => IsVisibleSetCandidate(actor) && actor.Export.ClassName == selectedClass));
         if (SelectedActor.IsLight)
@@ -901,6 +1063,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
     private void RemoveSelectedClassFromVisibleSet()
     {
         if (SelectedActor is null) return;
+        _hasUserEditedVisibleSets = true;
         string selectedClass = SelectedActor.Export.ClassName;
         foreach (var actor in Actors.Where(actor => IsVisibleSetCandidate(actor) && actor.Export.ClassName == selectedClass))
         {
@@ -917,6 +1080,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
 
     private void AddNearbyToVisibleSet()
     {
+        _hasUserEditedVisibleSets = true;
         Vector3 cameraPosition = RenderContext.Camera.Position;
         float maxDistanceSq = VisibleSetDistance * VisibleSetDistance;
         AddActorsToVisibleSet(Actors.Where(actor => IsMeshFilterCandidate(actor)
@@ -931,6 +1095,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
 
     private void RebuildVisibleSetByDistance()
     {
+        _hasUserEditedVisibleSets = true;
         _visibleActorSet.Clear();
         Vector3 cameraPosition = RenderContext.Camera.Position;
         float maxDistanceSq = VisibleSetDistance * VisibleSetDistance;
@@ -957,7 +1122,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
             return;
         }
 
-        if (_visibleActorSet.Count is 0)
+        if (_visibleActorSet.Count is 0 && !_hasUserEditedVisibleSets)
         {
             InitializeVisibleSetToAll();
         }
@@ -975,6 +1140,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         }
 
         HashSet<string> desiredVisibleClasses = dialog.GetVisibleClasses();
+        _hasUserEditedVisibleSets = true;
         foreach (ActorProxy actor in Actors)
         {
             string key = GetActorVisibilityKey(actor);
@@ -988,31 +1154,24 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
             }
         }
 
-        if (Actors.Any(a => a.IsLight && desiredVisibleClasses.Contains(a.Export.ClassName)))
-        {
-            ShowLights = true;
-        }
-        if (Actors.Any(a => a.IsVolume && desiredVisibleClasses.Contains(a.Export.ClassName)))
-        {
-            ShowVolumes = true;
-        }
-        if (Actors.Any(a => a.IsVolumetricMesh && desiredVisibleClasses.Contains(a.Export.ClassName)))
-        {
-            ShowVolumetrics = true;
-        }
+        SyncDisplayFiltersWithVisibleSet();
 
         ObjectRenderMode = ObjectRenderMode.VisibleSetOnly;
     }
 
     private void ClearVisibleSet()
     {
+        _hasUserEditedVisibleSets = true;
         _visibleActorSet.Clear();
+        SyncDisplayFiltersWithVisibleSet();
     }
 
     private void ShowAllMeshes()
     {
+        _hasUserEditedVisibleSets = true;
         _visibleActorSet.Clear();
-        AddActorsToVisibleSet(Actors.Where(IsMeshFilterCandidate));
+        AddActorsToVisibleSet(Actors.Where(IsVisibleSetCandidate));
+        SyncDisplayFiltersWithVisibleSet();
     }
 
     #endregion
@@ -1497,6 +1656,20 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         if (sender is ComboBox comboBox && comboBox.SelectedIndex != 0)
         {
             comboBox.SelectedIndex = 0;
+        }
+    }
+
+    private void MeshExportsList_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is not ListBox listBox || e.OriginalSource is not DependencyObject source)
+        {
+            return;
+        }
+
+        if (ItemsControl.ContainerFromElement(listBox, source) is ListBoxItem { DataContext: ActorProxy actor })
+        {
+            _suppressSelectionFocus = true;
+            listBox.SelectedItem = actor;
         }
     }
 

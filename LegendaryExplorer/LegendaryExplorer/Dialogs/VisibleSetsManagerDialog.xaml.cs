@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 
 namespace LegendaryExplorer.Dialogs;
 
@@ -55,6 +56,44 @@ public partial class VisibleSetsManagerDialog : TrackingNotifyPropertyChangedWin
         Owner = owner;
         RefreshVisibleFilter();
         RefreshHiddenFilter();
+    }
+
+    private void AddAll_Click(object sender, RoutedEventArgs e)
+    {
+        if (HiddenClasses.Count is 0)
+        {
+            return;
+        }
+
+        VisibleClasses.AddRange(HiddenClasses);
+        HiddenClasses.Clear();
+        VisibleClasses.Sort(x => x);
+        RefreshVisibleFilter();
+        RefreshHiddenFilter();
+
+        if (sender is ToggleButton toggleButton)
+        {
+            toggleButton.IsChecked = false;
+        }
+    }
+
+    private void ClearAll_Click(object sender, RoutedEventArgs e)
+    {
+        if (VisibleClasses.Count is 0)
+        {
+            return;
+        }
+
+        HiddenClasses.AddRange(VisibleClasses);
+        VisibleClasses.Clear();
+        HiddenClasses.Sort(x => x);
+        RefreshVisibleFilter();
+        RefreshHiddenFilter();
+
+        if (sender is ToggleButton toggleButton)
+        {
+            toggleButton.IsChecked = false;
+        }
     }
 
     public HashSet<string> GetVisibleClasses()

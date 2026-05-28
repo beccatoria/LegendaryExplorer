@@ -8,7 +8,13 @@
         WindowStartupLocation="CenterOwner"
         Title="Visible Sets" Width="760" Height="520">
     <DockPanel Margin="10" LastChildFill="True">
-        <TextBlock Text="Move classes between Visible and Hidden sets." TextWrapping="Wrap" DockPanel.Dock="Top" Margin="0,0,0,8"/>
+        <StackPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+            <TextBlock Text="Move classes between Visible and Hidden sets." TextWrapping="Wrap" Margin="0,0,0,6"/>
+            <StackPanel Orientation="Horizontal">
+                <ToggleButton Content="Add All" Click="AddAll_Click" Padding="10,3" Margin="0,0,6,0" ToolTip="Move all classes to visible"/>
+                <ToggleButton Content="Clear All" Click="ClearAll_Click" Padding="10,3" ToolTip="Move all classes to hidden"/>
+            </StackPanel>
+        </StackPanel>
         <StackPanel Orientation="Horizontal" DockPanel.Dock="Bottom" HorizontalAlignment="Right" Margin="0,8,0,0">
             <Button Content="OK" Click="OK_Click" IsDefault="True" Padding="20,4" Margin="0,0,5,0"/>
             <Button Content="Cancel" Click="Cancel_Click" IsCancel="True" Padding="20,4"/>

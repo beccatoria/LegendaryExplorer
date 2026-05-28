@@ -313,6 +313,7 @@ public class SkeletalMeshComponentProxy : MeshComponentProxy
 {
     SkinnedMeshRenderer skinnedMeshRenderer;
     AnimSequencePlayer animPlayer;
+    public bool ForceWireframeRender { get; set; }
 
     public SkeletalMeshComponentProxy(MeshRenderContext context, ExportEntry componentExport, ActorProxy parent) : base(context, componentExport, parent)
     {
@@ -351,6 +352,11 @@ public class SkeletalMeshComponentProxy : MeshComponentProxy
     public override void Render(MeshRenderContext context, RenderPass pass)
     {
         if (!IsVisible) return;
+        if (ForceWireframeRender && pass is RenderPass.Base or RenderPass.Hair && Mesh is { LODs.Count: > 0 })
+        {
+            context.RenderMeshAsWireframe(Mesh.LODs[LOD].Mesh);
+            return;
+        }
         Mesh?.Render(pass, context, LOD);
     }
 

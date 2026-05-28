@@ -33,6 +33,11 @@ public class LevelEditorRenderContext : MeshRenderContext
     public bool ShowLights;
     public bool ShowVolumes;
     public bool ShowVolumetrics;
+    public bool ShowEmitters;
+    public bool ShowLocationActors;
+    public bool ShowSoundPositions;
+    public bool ShowCinematicActors;
+    public bool ShowDecalActors;
 
     private bool IsReadOnly;
 
