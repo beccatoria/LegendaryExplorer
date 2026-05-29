@@ -39,6 +39,7 @@ public class RecentFileSet
     public MEGame Game { get; set; }
     public List<string> FilePaths { get; set; } = [];
     public List<string> ReadOnlyFilePaths { get; set; } = [];
+    public RecentViewState ViewState { get; set; }
 
     [JsonIgnore]
     public string DisplayName => FilePaths.Count switch
@@ -50,6 +51,34 @@ public class RecentFileSet
 
     [JsonIgnore]
     public string TooltipText => string.Join("\n", FilePaths.Select(Path.GetFileName));
+}
+
+public class RecentViewState
+{
+    public float CameraX { get; set; }
+    public float CameraY { get; set; }
+    public float CameraZ { get; set; }
+    public float CameraYaw { get; set; }
+    public float CameraPitch { get; set; }
+    public float CameraOrthoWidth { get; set; }
+    public bool IsOrthographicView { get; set; }
+
+    public ObjectRenderMode ObjectRenderMode { get; set; } = ObjectRenderMode.Full;
+    public bool UseVisibleSetOnly { get; set; }
+    public bool HasUserEditedVisibleSets { get; set; }
+    public int VisibleSetDistance { get; set; } = 5000;
+    public List<string> VisibleActorKeys { get; set; } = [];
+
+    public bool ShowLights { get; set; } = true;
+    public int LightRenderDistance { get; set; } = 1000;
+    public bool ShowVolumes { get; set; }
+    public bool ShowVolumetrics { get; set; }
+    public bool ShowEmitters { get; set; }
+    public bool ShowLocationActors { get; set; }
+    public bool ShowSoundPositions { get; set; }
+    public bool ShowCinematicActors { get; set; }
+    public bool ShowDecalActors { get; set; }
+    public bool ShowCollision { get; set; }
 }
 
 public enum ObjectRenderMode
@@ -232,8 +261,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
                 RenderContext.ShowDebugStatsOverlay = value;
                 if (value)
                 {
-                Vector3 position = RenderContext.Camera.Position;
-                CameraCoordinates = $"Camera X={position.X:F1} | Y={position.Y:F1} | Z={position.Z:F1}";
+                    UpdateCameraCoordinatesText();
                 }
             }
             OnPropertyChanged(nameof(CameraCoordinatesDisplayText));
@@ -382,8 +410,15 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
             return;
         }
 
+        UpdateCameraCoordinatesText();
+    }
+
+    private void UpdateCameraCoordinatesText()
+    {
         Vector3 position = RenderContext.Camera.Position;
-        CameraCoordinates = $"Camera X={position.X:F1} | Y={position.Y:F1} | Z={position.Z:F1}";
+        float yawDegrees = RenderContext.Camera.Yaw * (180f / MathF.PI);
+        float pitchDegrees = RenderContext.Camera.Pitch * (180f / MathF.PI);
+        CameraCoordinates = $"Camera X={position.X:F1} | Y={position.Y:F1} | Z={position.Z:F1} | Yaw={yawDegrees:F1}° | Pitch={pitchDegrees:F1}°";
     }
 
     private void RenderScene(object sender, EventArgs e)
@@ -568,6 +603,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
     {
         try
         {
+            PersistCurrentRecentViewState();
             CloseAllFiles();
             Dispatcher.Invoke(new Action(() => { }), DispatcherPriority.ContextIdle, null);
 
@@ -1097,6 +1133,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
     private void RemoveSelectedFromVisibleSet()
     {
         if (SelectedActor is null) return;
+        EnsureVisibleSetInitializedForPreModeRemoval();
         _hasUserEditedVisibleSets = true;
         _visibleActorSet.Remove(GetActorVisibilityKey(SelectedActor));
     }
@@ -1146,11 +1183,20 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
     private void RemoveSelectedClassFromVisibleSet()
     {
         if (SelectedActor is null) return;
+        EnsureVisibleSetInitializedForPreModeRemoval();
         _hasUserEditedVisibleSets = true;
         string selectedClass = SelectedActor.Export.ClassName;
         foreach (var actor in Actors.Where(actor => IsVisibleSetCandidate(actor) && actor.Export.ClassName == selectedClass))
         {
             _visibleActorSet.Remove(GetActorVisibilityKey(actor));
+        }
+    }
+
+    private void EnsureVisibleSetInitializedForPreModeRemoval()
+    {
+        if (_visibleActorSet.Count is 0 && !UseVisibleSetOnly && ObjectRenderMode is not ObjectRenderMode.VisibleSetOnly)
+        {
+            InitializeVisibleSetToAll();
         }
     }
 
@@ -1216,6 +1262,18 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
             .Where(c => !string.IsNullOrWhiteSpace(c))
             .ToHashSet();
 
+        HashSet<string> explicitlyHiddenActorKeys = Actors
+            .Where(actor => currentlyVisibleClasses.Contains(actor.Export.ClassName)
+                            && !_visibleActorSet.Contains(GetActorVisibilityKey(actor)))
+            .Select(GetActorVisibilityKey)
+            .ToHashSet();
+
+        HashSet<string> explicitlyVisibleActorKeys = Actors
+            .Where(actor => !currentlyVisibleClasses.Contains(actor.Export.ClassName)
+                            && _visibleActorSet.Contains(GetActorVisibilityKey(actor)))
+            .Select(GetActorVisibilityKey)
+            .ToHashSet();
+
         var dialog = new VisibleSetsManagerDialog(allClasses, currentlyVisibleClasses, this);
         if (dialog.ShowDialog() != true)
         {
@@ -1234,6 +1292,20 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
             else
             {
                 _visibleActorSet.Remove(key);
+            }
+        }
+
+        foreach (ActorProxy actor in Actors)
+        {
+            string key = GetActorVisibilityKey(actor);
+            bool classIsVisible = desiredVisibleClasses.Contains(actor.Export.ClassName);
+            if (classIsVisible && explicitlyHiddenActorKeys.Contains(key))
+            {
+                _visibleActorSet.Remove(key);
+            }
+            else if (!classIsVisible && explicitlyVisibleActorKeys.Contains(key))
+            {
+                _visibleActorSet.Add(key);
             }
         }
 
@@ -1893,6 +1965,8 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
             }
         }
 
+        PersistCurrentRecentViewState();
+
         CloseAllFiles();
 
         RenderContext.UpdateScene -= UpdateScene;
@@ -1938,6 +2012,11 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
             foreach (var set in sets)
             {
                 set.FilePaths.RemoveAll(p => !File.Exists(p));
+                set.ReadOnlyFilePaths ??= [];
+                if (set.ViewState is not null)
+                {
+                    set.ViewState.VisibleActorKeys ??= [];
+                }
                 if (set.FilePaths.Count > 0)
                     RecentSets.Add(set);
             }
@@ -1971,7 +2050,8 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         {
             Game = Game,
             FilePaths = currentPaths,
-            ReadOnlyFilePaths = OpenFiles.Where(f => f.IsReadOnly).Select(f => f.FilePath).ToList()
+            ReadOnlyFilePaths = OpenFiles.Where(f => f.IsReadOnly).Select(f => f.FilePath).ToList(),
+            ViewState = CaptureCurrentViewState()
         });
 
         while (RecentSets.Count > 10)
@@ -1982,6 +2062,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
 
     private async void OpenRecentFileSet(RecentFileSet set)
     {
+        PersistCurrentRecentViewState();
         CloseAllFiles();
 
         using var guard = new RenderGuard(this);
@@ -1995,6 +2076,100 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
                 if (openFile is not null && set.ReadOnlyFilePaths.Contains(path))
                     openFile.IsReadOnly = true;
             }
+        }
+
+        ApplyViewState(set.ViewState);
+        RecordCurrentFilesAsRecent();
+    }
+
+    private void PersistCurrentRecentViewState()
+    {
+        if (OpenFiles.Count == 0)
+        {
+            return;
+        }
+
+        var currentPaths = OpenFiles.Select(f => f.FilePath).ToList();
+        var existing = RecentSets.FirstOrDefault(set => set.FilePaths.Count > 0 && set.FilePaths[0] == currentPaths[0]);
+        if (existing is null)
+        {
+            RecordCurrentFilesAsRecent();
+            return;
+        }
+
+        existing.Game = Game;
+        existing.FilePaths = currentPaths;
+        existing.ReadOnlyFilePaths = OpenFiles.Where(f => f.IsReadOnly).Select(f => f.FilePath).ToList();
+        existing.ViewState = CaptureCurrentViewState();
+        SaveRecentSets();
+    }
+
+    private RecentViewState CaptureCurrentViewState()
+    {
+        Vector3 cameraPosition = RenderContext.Camera.Position;
+        return new RecentViewState
+        {
+            CameraX = cameraPosition.X,
+            CameraY = cameraPosition.Y,
+            CameraZ = cameraPosition.Z,
+            CameraYaw = RenderContext.Camera.Yaw,
+            CameraPitch = RenderContext.Camera.Pitch,
+            CameraOrthoWidth = RenderContext.Camera.OrthoWidth,
+            IsOrthographicView = IsOrthographicView,
+            ObjectRenderMode = ObjectRenderMode,
+            UseVisibleSetOnly = UseVisibleSetOnly,
+            HasUserEditedVisibleSets = _hasUserEditedVisibleSets,
+            VisibleSetDistance = VisibleSetDistance,
+            VisibleActorKeys = _visibleActorSet.ToList(),
+            ShowLights = ShowLights,
+            LightRenderDistance = LightRenderDistance,
+            ShowVolumes = ShowVolumes,
+            ShowVolumetrics = ShowVolumetrics,
+            ShowEmitters = ShowEmitters,
+            ShowLocationActors = ShowLocationActors,
+            ShowSoundPositions = ShowSoundPositions,
+            ShowCinematicActors = ShowCinematicActors,
+            ShowDecalActors = ShowDecalActors,
+            ShowCollision = ShowCollision
+        };
+    }
+
+    private void ApplyViewState(RecentViewState viewState)
+    {
+        if (viewState is null)
+        {
+            return;
+        }
+
+        ShowLights = viewState.ShowLights;
+        LightRenderDistance = viewState.LightRenderDistance;
+        ShowVolumes = viewState.ShowVolumes;
+        ShowVolumetrics = viewState.ShowVolumetrics;
+        ShowEmitters = viewState.ShowEmitters;
+        ShowLocationActors = viewState.ShowLocationActors;
+        ShowSoundPositions = viewState.ShowSoundPositions;
+        ShowCinematicActors = viewState.ShowCinematicActors;
+        ShowDecalActors = viewState.ShowDecalActors;
+        ShowCollision = viewState.ShowCollision;
+
+        VisibleSetDistance = viewState.VisibleSetDistance;
+        _hasUserEditedVisibleSets = viewState.HasUserEditedVisibleSets;
+        _visibleActorSet.Clear();
+        if (viewState.VisibleActorKeys.Count > 0)
+        {
+            _visibleActorSet.UnionWith(viewState.VisibleActorKeys);
+        }
+
+        ObjectRenderMode = viewState.ObjectRenderMode;
+        UseVisibleSetOnly = viewState.UseVisibleSetOnly;
+
+        IsOrthographicView = viewState.IsOrthographicView;
+        RenderContext.Camera.Position = new Vector3(viewState.CameraX, viewState.CameraY, viewState.CameraZ);
+        RenderContext.Camera.Yaw = viewState.CameraYaw;
+        RenderContext.Camera.Pitch = viewState.CameraPitch;
+        if (viewState.IsOrthographicView)
+        {
+            RenderContext.Camera.OrthoWidth = viewState.CameraOrthoWidth;
         }
     }
 

@@ -340,7 +340,9 @@ public class MeshRenderContext : RenderContext
                 {
                     var size = RenderTarget2D.Size;
                     Vector3 cameraPos = Camera.Position;
-                    RenderTarget2D.DrawText($"FPS: {FPS}\nX: {cameraPos.X:F1}  Y: {cameraPos.Y:F1}  Z: {cameraPos.Z:F1}", statsTextFormat, new RawRectangleF(0, 0, size.Width, size.Height), statsTextBrush);
+                    float yawDegrees = Camera.Yaw * (180f / MathF.PI);
+                    float pitchDegrees = Camera.Pitch * (180f / MathF.PI);
+                    RenderTarget2D.DrawText($"FPS: {FPS}\nX: {cameraPos.X:F1}  Y: {cameraPos.Y:F1}  Z: {cameraPos.Z:F1}\nYaw: {yawDegrees:F1}  Pitch: {pitchDegrees:F1}", statsTextFormat, new RawRectangleF(0, 0, size.Width, size.Height), statsTextBrush);
                 }
 
                 foreach (ref readonly var label in CollectionsMarshal.AsSpan(ScreenLabels))
