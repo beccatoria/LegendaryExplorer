@@ -127,7 +127,7 @@
                         <ComboBoxItem Content="Visible Set Only" Tag="{x:Static local:ObjectRenderMode.VisibleSetOnly}"/>
                     </ComboBox>
                     <TextBlock Text="Display Filters" VerticalAlignment="Center" Margin="8,0,4,0"/>
-                    <ComboBox x:Name="DisplayFilters_ComboBox" Width="165" SelectedIndex="0" SelectionChanged="DisplayFilters_ComboBox_SelectionChanged" ToolTip="Choose additional actor classes to display">
+                    <ComboBox x:Name="DisplayFilters_ComboBox" Width="165" SelectedIndex="0" SelectionChanged="DisplayFilters_ComboBox_SelectionChanged" PreviewMouseLeftButtonDown="DisplayFilters_ComboBox_PreviewMouseLeftButtonDown" ToolTip="Choose additional actor classes to display">
                         <ComboBoxItem IsEnabled="False">
                             <TextBlock Text="Select from dropdown" FontStyle="Italic" Foreground="Gray"/>
                         </ComboBoxItem>

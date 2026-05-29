@@ -515,7 +515,7 @@ public class ActorProxy : NotifyPropertyChangedBase, IDisposable, IHitProxy
         }
         if (GlobalUnrealObjectInfo.IsA(className, "WwiseMicPosOrient", actorExport.Game))
         {
-            return new IconActorProxy(context, actorExport, IconActorCategory.AmbientSound);
+            return new IconActorProxy(context, actorExport, IconActorCategory.WwiseMic);
         }
         if (GlobalUnrealObjectInfo.IsA(className, "CameraActor", actorExport.Game))
         {
@@ -531,7 +531,7 @@ public class ActorProxy : NotifyPropertyChangedBase, IDisposable, IHitProxy
         }
         if (GlobalUnrealObjectInfo.IsA(className, "MaterialInstanceActor", actorExport.Game))
         {
-            return new IconActorProxy(context, actorExport, IconActorCategory.Decal);
+            return new IconActorProxy(context, actorExport, IconActorCategory.MaterialInstance);
         }
         if (GlobalUnrealObjectInfo.IsA(className, "LensFlareSource", actorExport.Game))
         {
@@ -1169,8 +1169,10 @@ public enum IconActorCategory
     TargetPoint,
     PointOfInterest,
     AmbientSound,
+    WwiseMic,
     Camera,
     Decal,
+    MaterialInstance,
     LensFlareLight
 }
 
@@ -1200,6 +1202,7 @@ public class IconActorProxy : ActorProxy
                 IsLocationActor = true;
                 break;
             case IconActorCategory.AmbientSound:
+            case IconActorCategory.WwiseMic:
                 IsAmbientSound = true;
                 break;
             case IconActorCategory.Camera:
@@ -1207,6 +1210,7 @@ public class IconActorProxy : ActorProxy
                 IsCinematicActor = true;
                 break;
             case IconActorCategory.Decal:
+            case IconActorCategory.MaterialInstance:
                 IsDecalActor = true;
                 break;
             case IconActorCategory.LensFlareLight:
@@ -1229,17 +1233,24 @@ public class IconActorProxy : ActorProxy
             IconActorCategory.TargetPoint => new Vector4(1.0f, 0.22f, 0.22f, 1f),
             IconActorCategory.PointOfInterest => new Vector4(1.0f, 0.58f, 0.18f, 1f),
             IconActorCategory.AmbientSound => new Vector4(0.25f, 0.88f, 1.0f, 1f),
+            IconActorCategory.WwiseMic => new Vector4(0.36f, 0.62f, 1.0f, 1f),
             IconActorCategory.Camera => new Vector4(1.0f, 0.92f, 0.18f, 1f),
             IconActorCategory.Decal => new Vector4(0.92f, 0.38f, 1.0f, 1f),
+            IconActorCategory.MaterialInstance => new Vector4(0.55f, 0.30f, 1.0f, 1f),
             IconActorCategory.LensFlareLight => new Vector4(1.0f, 0.95f, 0.35f, 1f),
             _ => Vector4.One
         };
 
         float categoryScale = IconCategory switch
         {
-            IconActorCategory.StartPoint => 1.18f,
-            IconActorCategory.TargetPoint => 1.12f,
-            IconActorCategory.Camera => 1.1f,
+            IconActorCategory.Emitter => 1.06f,
+            IconActorCategory.StartPoint => 1.14f,
+            IconActorCategory.TargetPoint => 1.1f,
+            IconActorCategory.AmbientSound => 1.08f,
+            IconActorCategory.WwiseMic => 1.08f,
+            IconActorCategory.Decal => 1.05f,
+            IconActorCategory.MaterialInstance => 1.05f,
+            IconActorCategory.Camera => 1.12f,
             _ => 1f
         };
 
@@ -1253,16 +1264,423 @@ public class IconActorProxy : ActorProxy
         var mesh = context.Primitives.BuildMesh(color, HitID, Matrix4x4.CreateTranslation(LocalToWorld.Translation));
         switch (IconCategory)
         {
+            case IconActorCategory.StartPoint:
+                RenderStartFlag(mesh, radius);
+                break;
+            case IconActorCategory.TargetPoint:
+            case IconActorCategory.PointOfInterest:
+                RenderLocationCrosshair(mesh, radius);
+                break;
+            case IconActorCategory.Emitter:
+                RenderEmitterConeBurst(mesh, radius);
+                break;
             case IconActorCategory.AmbientSound:
-                RenderOctahedron(mesh, radius);
+            case IconActorCategory.WwiseMic:
+                RenderSoundSpeakerWaves(mesh, radius);
+                break;
+            case IconActorCategory.Decal:
+            case IconActorCategory.MaterialInstance:
+                RenderDecalProjectionStamp(mesh, radius);
                 break;
             case IconActorCategory.Camera:
-                RenderPyramid(mesh, radius);
+                RenderFilmCameraSilhouette(mesh, radius);
                 break;
             default:
                 RenderOrb(mesh, radius);
                 break;
         }
+    }
+
+    private static void RenderStartFlag(BatchedPrimitives.MeshBuilder mesh, float radius)
+    {
+        float poleHalfWidth = radius * 0.08f;
+        float poleMinZ = -radius * 0.9f;
+        float poleMaxZ = radius * 0.95f;
+        float poleX = -radius * 0.22f;
+
+        // Pole box (verts 0..7)
+        mesh.AddVertex(poleX - poleHalfWidth, -poleHalfWidth, poleMinZ);
+        mesh.AddVertex(poleX + poleHalfWidth, -poleHalfWidth, poleMinZ);
+        mesh.AddVertex(poleX + poleHalfWidth, poleHalfWidth, poleMinZ);
+        mesh.AddVertex(poleX - poleHalfWidth, poleHalfWidth, poleMinZ);
+        mesh.AddVertex(poleX - poleHalfWidth, -poleHalfWidth, poleMaxZ);
+        mesh.AddVertex(poleX + poleHalfWidth, -poleHalfWidth, poleMaxZ);
+        mesh.AddVertex(poleX + poleHalfWidth, poleHalfWidth, poleMaxZ);
+        mesh.AddVertex(poleX - poleHalfWidth, poleHalfWidth, poleMaxZ);
+
+        mesh.AddTriangle(0, 2, 1); mesh.AddTriangle(0, 3, 2);
+        mesh.AddTriangle(4, 5, 6); mesh.AddTriangle(4, 6, 7);
+        mesh.AddTriangle(0, 1, 5); mesh.AddTriangle(0, 5, 4);
+        mesh.AddTriangle(1, 2, 6); mesh.AddTriangle(1, 6, 5);
+        mesh.AddTriangle(2, 3, 7); mesh.AddTriangle(2, 7, 6);
+        mesh.AddTriangle(3, 0, 4); mesh.AddTriangle(3, 4, 7);
+
+        // Pennant box (verts 8..15)
+        float flagMinX = poleX + poleHalfWidth;
+        float flagMaxX = radius * 0.72f;
+        float flagHalfY = radius * 0.11f;
+        float flagMinZ = radius * 0.22f;
+        float flagMaxZ = radius * 0.7f;
+
+        mesh.AddVertex(flagMinX, -flagHalfY, flagMinZ);
+        mesh.AddVertex(flagMaxX, -flagHalfY, flagMinZ);
+        mesh.AddVertex(flagMaxX, flagHalfY, flagMinZ);
+        mesh.AddVertex(flagMinX, flagHalfY, flagMinZ);
+        mesh.AddVertex(flagMinX, -flagHalfY, flagMaxZ);
+        mesh.AddVertex(flagMaxX, -flagHalfY, flagMaxZ);
+        mesh.AddVertex(flagMaxX, flagHalfY, flagMaxZ);
+        mesh.AddVertex(flagMinX, flagHalfY, flagMaxZ);
+
+        mesh.AddTriangle(8, 10, 9); mesh.AddTriangle(8, 11, 10);
+        mesh.AddTriangle(12, 13, 14); mesh.AddTriangle(12, 14, 15);
+        mesh.AddTriangle(8, 9, 13); mesh.AddTriangle(8, 13, 12);
+        mesh.AddTriangle(9, 10, 14); mesh.AddTriangle(9, 14, 13);
+        mesh.AddTriangle(10, 11, 15); mesh.AddTriangle(10, 15, 14);
+        mesh.AddTriangle(11, 8, 12); mesh.AddTriangle(11, 12, 15);
+    }
+
+    private static void RenderLocationCrosshair(BatchedPrimitives.MeshBuilder mesh, float radius)
+    {
+        float armLength = radius * 0.95f;
+        float t = radius * 0.10f;
+        float z = radius * 0.08f;
+
+        // X arm plate (verts 0..7)
+        mesh.AddVertex(-armLength, -t, -z);
+        mesh.AddVertex(armLength, -t, -z);
+        mesh.AddVertex(armLength, t, -z);
+        mesh.AddVertex(-armLength, t, -z);
+        mesh.AddVertex(-armLength, -t, z);
+        mesh.AddVertex(armLength, -t, z);
+        mesh.AddVertex(armLength, t, z);
+        mesh.AddVertex(-armLength, t, z);
+
+        mesh.AddTriangle(0, 2, 1); mesh.AddTriangle(0, 3, 2);
+        mesh.AddTriangle(4, 5, 6); mesh.AddTriangle(4, 6, 7);
+        mesh.AddTriangle(0, 1, 5); mesh.AddTriangle(0, 5, 4);
+        mesh.AddTriangle(1, 2, 6); mesh.AddTriangle(1, 6, 5);
+        mesh.AddTriangle(2, 3, 7); mesh.AddTriangle(2, 7, 6);
+        mesh.AddTriangle(3, 0, 4); mesh.AddTriangle(3, 4, 7);
+
+        // Y arm plate (verts 8..15)
+        mesh.AddVertex(-t, -armLength, -z);
+        mesh.AddVertex(t, -armLength, -z);
+        mesh.AddVertex(t, armLength, -z);
+        mesh.AddVertex(-t, armLength, -z);
+        mesh.AddVertex(-t, -armLength, z);
+        mesh.AddVertex(t, -armLength, z);
+        mesh.AddVertex(t, armLength, z);
+        mesh.AddVertex(-t, armLength, z);
+
+        mesh.AddTriangle(8, 10, 9); mesh.AddTriangle(8, 11, 10);
+        mesh.AddTriangle(12, 13, 14); mesh.AddTriangle(12, 14, 15);
+        mesh.AddTriangle(8, 9, 13); mesh.AddTriangle(8, 13, 12);
+        mesh.AddTriangle(9, 10, 14); mesh.AddTriangle(9, 14, 13);
+        mesh.AddTriangle(10, 11, 15); mesh.AddTriangle(10, 15, 14);
+        mesh.AddTriangle(11, 8, 12); mesh.AddTriangle(11, 12, 15);
+
+        // Center diamond marker
+        RenderOctahedron(mesh, radius * 0.30f);
+    }
+
+    private static void RenderSoundSpeakerWaves(BatchedPrimitives.MeshBuilder mesh, float radius)
+    {
+        int v = 0;
+
+        // Speaker body (box)
+        float bMinX = -radius * 0.62f;
+        float bMaxX = -radius * 0.20f;
+        float bHalfY = radius * 0.25f;
+        float bHalfZ = radius * 0.32f;
+
+        int b0 = AddIndexedVertex(mesh, ref v, bMinX, -bHalfY, -bHalfZ);
+        int b1 = AddIndexedVertex(mesh, ref v, bMaxX, -bHalfY, -bHalfZ);
+        int b2 = AddIndexedVertex(mesh, ref v, bMaxX, bHalfY, -bHalfZ);
+        int b3 = AddIndexedVertex(mesh, ref v, bMinX, bHalfY, -bHalfZ);
+        int b4 = AddIndexedVertex(mesh, ref v, bMinX, -bHalfY, bHalfZ);
+        int b5 = AddIndexedVertex(mesh, ref v, bMaxX, -bHalfY, bHalfZ);
+        int b6 = AddIndexedVertex(mesh, ref v, bMaxX, bHalfY, bHalfZ);
+        int b7 = AddIndexedVertex(mesh, ref v, bMinX, bHalfY, bHalfZ);
+
+        AddQuad(mesh, b0, b1, b2, b3);
+        AddQuad(mesh, b4, b7, b6, b5);
+        AddQuad(mesh, b0, b4, b5, b1);
+        AddQuad(mesh, b1, b5, b6, b2);
+        AddQuad(mesh, b2, b6, b7, b3);
+        AddQuad(mesh, b3, b7, b4, b0);
+
+        // Speaker cone (truncated to a point)
+        float cBaseX = bMaxX;
+        float cTipX = radius * 0.40f;
+        float cHalfY = radius * 0.19f;
+        float cHalfZ = radius * 0.24f;
+
+        int c0 = AddIndexedVertex(mesh, ref v, cBaseX, -cHalfY, -cHalfZ);
+        int c1 = AddIndexedVertex(mesh, ref v, cBaseX, cHalfY, -cHalfZ);
+        int c2 = AddIndexedVertex(mesh, ref v, cBaseX, cHalfY, cHalfZ);
+        int c3 = AddIndexedVertex(mesh, ref v, cBaseX, -cHalfY, cHalfZ);
+        int cTip = AddIndexedVertex(mesh, ref v, cTipX, 0, 0);
+
+        mesh.AddTriangle(c0, c1, cTip);
+        mesh.AddTriangle(c1, c2, cTip);
+        mesh.AddTriangle(c2, c3, cTip);
+        mesh.AddTriangle(c3, c0, cTip);
+
+        float centerX = bMinX - radius * 0.10f;
+        float halfDepth = radius * 0.04f;
+        AddWaveArc(mesh, ref v, centerX, halfDepth, radius * 0.20f, radius * 0.32f, MathF.PI);
+        AddWaveArc(mesh, ref v, centerX, halfDepth, radius * 0.38f, radius * 0.52f, MathF.PI);
+        AddWaveArc(mesh, ref v, centerX, halfDepth, radius * 0.58f, radius * 0.74f, MathF.PI);
+    }
+
+    private static void RenderDecalProjectionStamp(BatchedPrimitives.MeshBuilder mesh, float radius)
+    {
+        int v = 0;
+
+        // Tilted stamp plate (diamond-like quad with thickness)
+        float half = radius * 0.58f;
+        float zTop = radius * 0.22f;
+        float zBottom = radius * 0.04f;
+
+        int p0 = AddIndexedVertex(mesh, ref v, 0, -half, zBottom);
+        int p1 = AddIndexedVertex(mesh, ref v, half, 0, zBottom);
+        int p2 = AddIndexedVertex(mesh, ref v, 0, half, zBottom);
+        int p3 = AddIndexedVertex(mesh, ref v, -half, 0, zBottom);
+        int p4 = AddIndexedVertex(mesh, ref v, 0, -half, zTop);
+        int p5 = AddIndexedVertex(mesh, ref v, half, 0, zTop);
+        int p6 = AddIndexedVertex(mesh, ref v, 0, half, zTop);
+        int p7 = AddIndexedVertex(mesh, ref v, -half, 0, zTop);
+
+        AddQuad(mesh, p0, p1, p2, p3);
+        AddQuad(mesh, p4, p7, p6, p5);
+        AddQuad(mesh, p0, p4, p5, p1);
+        AddQuad(mesh, p1, p5, p6, p2);
+        AddQuad(mesh, p2, p6, p7, p3);
+        AddQuad(mesh, p3, p7, p4, p0);
+
+        // Projection arrow shaft
+        float shaftHalf = radius * 0.08f;
+        float shaftTop = zBottom;
+        float shaftBottom = -radius * 0.52f;
+
+        int s0 = AddIndexedVertex(mesh, ref v, -shaftHalf, -shaftHalf, shaftBottom);
+        int s1 = AddIndexedVertex(mesh, ref v, shaftHalf, -shaftHalf, shaftBottom);
+        int s2 = AddIndexedVertex(mesh, ref v, shaftHalf, shaftHalf, shaftBottom);
+        int s3 = AddIndexedVertex(mesh, ref v, -shaftHalf, shaftHalf, shaftBottom);
+        int s4 = AddIndexedVertex(mesh, ref v, -shaftHalf, -shaftHalf, shaftTop);
+        int s5 = AddIndexedVertex(mesh, ref v, shaftHalf, -shaftHalf, shaftTop);
+        int s6 = AddIndexedVertex(mesh, ref v, shaftHalf, shaftHalf, shaftTop);
+        int s7 = AddIndexedVertex(mesh, ref v, -shaftHalf, shaftHalf, shaftTop);
+
+        AddQuad(mesh, s0, s1, s2, s3);
+        AddQuad(mesh, s4, s7, s6, s5);
+        AddQuad(mesh, s0, s4, s5, s1);
+        AddQuad(mesh, s1, s5, s6, s2);
+        AddQuad(mesh, s2, s6, s7, s3);
+        AddQuad(mesh, s3, s7, s4, s0);
+
+        // Arrow tip (projection direction)
+        float tipBase = shaftBottom;
+        float tipBottom = -radius * 0.92f;
+        float tipHalf = radius * 0.20f;
+
+        int t0 = AddIndexedVertex(mesh, ref v, -tipHalf, -tipHalf, tipBase);
+        int t1 = AddIndexedVertex(mesh, ref v, tipHalf, -tipHalf, tipBase);
+        int t2 = AddIndexedVertex(mesh, ref v, tipHalf, tipHalf, tipBase);
+        int t3 = AddIndexedVertex(mesh, ref v, -tipHalf, tipHalf, tipBase);
+        int tA = AddIndexedVertex(mesh, ref v, 0, 0, tipBottom);
+
+        mesh.AddTriangle(t0, t1, tA);
+        mesh.AddTriangle(t1, t2, tA);
+        mesh.AddTriangle(t2, t3, tA);
+        mesh.AddTriangle(t3, t0, tA);
+    }
+
+    private static void RenderFilmCameraSilhouette(BatchedPrimitives.MeshBuilder mesh, float radius)
+    {
+        int v = 0;
+
+        // Camera body
+        float bMinX = -radius * 0.45f;
+        float bMaxX = radius * 0.35f;
+        float bHalfY = radius * 0.22f;
+        float bHalfZ = radius * 0.28f;
+
+        int b0 = AddIndexedVertex(mesh, ref v, bMinX, -bHalfY, -bHalfZ);
+        int b1 = AddIndexedVertex(mesh, ref v, bMaxX, -bHalfY, -bHalfZ);
+        int b2 = AddIndexedVertex(mesh, ref v, bMaxX, bHalfY, -bHalfZ);
+        int b3 = AddIndexedVertex(mesh, ref v, bMinX, bHalfY, -bHalfZ);
+        int b4 = AddIndexedVertex(mesh, ref v, bMinX, -bHalfY, bHalfZ);
+        int b5 = AddIndexedVertex(mesh, ref v, bMaxX, -bHalfY, bHalfZ);
+        int b6 = AddIndexedVertex(mesh, ref v, bMaxX, bHalfY, bHalfZ);
+        int b7 = AddIndexedVertex(mesh, ref v, bMinX, bHalfY, bHalfZ);
+
+        AddQuad(mesh, b0, b1, b2, b3);
+        AddQuad(mesh, b4, b7, b6, b5);
+        AddQuad(mesh, b0, b4, b5, b1);
+        AddQuad(mesh, b1, b5, b6, b2);
+        AddQuad(mesh, b2, b6, b7, b3);
+        AddQuad(mesh, b3, b7, b4, b0);
+
+        // Lens barrel (forward)
+        float lMinX = bMaxX;
+        float lMaxX = radius * 0.75f;
+        float lHalfY = radius * 0.16f;
+        float lHalfZ = radius * 0.16f;
+
+        int l0 = AddIndexedVertex(mesh, ref v, lMinX, -lHalfY, -lHalfZ);
+        int l1 = AddIndexedVertex(mesh, ref v, lMaxX, -lHalfY, -lHalfZ);
+        int l2 = AddIndexedVertex(mesh, ref v, lMaxX, lHalfY, -lHalfZ);
+        int l3 = AddIndexedVertex(mesh, ref v, lMinX, lHalfY, -lHalfZ);
+        int l4 = AddIndexedVertex(mesh, ref v, lMinX, -lHalfY, lHalfZ);
+        int l5 = AddIndexedVertex(mesh, ref v, lMaxX, -lHalfY, lHalfZ);
+        int l6 = AddIndexedVertex(mesh, ref v, lMaxX, lHalfY, lHalfZ);
+        int l7 = AddIndexedVertex(mesh, ref v, lMinX, lHalfY, lHalfZ);
+
+        AddQuad(mesh, l0, l1, l2, l3);
+        AddQuad(mesh, l4, l7, l6, l5);
+        AddQuad(mesh, l0, l4, l5, l1);
+        AddQuad(mesh, l1, l5, l6, l2);
+        AddQuad(mesh, l2, l6, l7, l3);
+        AddQuad(mesh, l3, l7, l4, l0);
+
+        // Film reels (two short cylinders so they read as circular reels)
+        const int reelSegments = 16;
+        float rearReelX = -radius * 0.24f;
+        float frontReelX = radius * 0.02f;
+        float reelCenterZ = bHalfZ + radius * 0.12f;
+        float reelRadius = radius * 0.14f;
+        float reelHalfThickness = radius * 0.06f;
+
+        AddReelCylinder(mesh, ref v, rearReelX, 0f, reelCenterZ, reelRadius, reelHalfThickness, reelSegments);
+        AddReelCylinder(mesh, ref v, frontReelX, 0f, reelCenterZ, reelRadius, reelHalfThickness, reelSegments);
+    }
+
+    private static void AddReelCylinder(BatchedPrimitives.MeshBuilder mesh, ref int vertexCounter,
+        float centerX, float centerY, float centerZ, float radius, float halfThickness, int segments)
+    {
+        // Reel disc plane: XZ (vertical), thickness axis: Y
+        int topCenter = AddIndexedVertex(mesh, ref vertexCounter, centerX, centerY + halfThickness, centerZ);
+        int bottomCenter = AddIndexedVertex(mesh, ref vertexCounter, centerX, centerY - halfThickness, centerZ);
+
+        int[] topRing = new int[segments];
+        int[] bottomRing = new int[segments];
+        for (int i = 0; i < segments; i++)
+        {
+            float a = MathF.PI * 2f * i / segments;
+            float x = centerX + radius * MathF.Cos(a);
+            float z = centerZ + radius * MathF.Sin(a);
+            topRing[i] = AddIndexedVertex(mesh, ref vertexCounter, x, centerY + halfThickness, z);
+            bottomRing[i] = AddIndexedVertex(mesh, ref vertexCounter, x, centerY - halfThickness, z);
+        }
+
+        for (int i = 0; i < segments; i++)
+        {
+            int next = (i + 1) % segments;
+            mesh.AddTriangle(topCenter, topRing[i], topRing[next]);
+            mesh.AddTriangle(bottomCenter, bottomRing[next], bottomRing[i]);
+            AddQuad(mesh, topRing[i], topRing[next], bottomRing[next], bottomRing[i]);
+        }
+    }
+
+    private static int AddIndexedVertex(BatchedPrimitives.MeshBuilder mesh, ref int vertexCounter, float x, float y, float z)
+    {
+        mesh.AddVertex(x, y, z);
+        return vertexCounter++;
+    }
+
+    private static void AddQuad(BatchedPrimitives.MeshBuilder mesh, int a, int b, int c, int d)
+    {
+        mesh.AddTriangle(a, b, c);
+        mesh.AddTriangle(a, c, d);
+    }
+
+    private static void AddWaveArc(BatchedPrimitives.MeshBuilder mesh, ref int vertexCounter, float centerX, float halfDepth, float innerR, float outerR, float angleOffset)
+    {
+        const int segments = 12;
+        const float startA = -1.2f;
+        const float endA = 1.2f;
+
+        for (int i = 0; i < segments; i++)
+        {
+            float t0 = i / (float)segments;
+            float t1 = (i + 1) / (float)segments;
+            float a0 = angleOffset + startA + (endA - startA) * t0;
+            float a1 = angleOffset + startA + (endA - startA) * t1;
+
+            float ca0 = MathF.Cos(a0);
+            float sa0 = MathF.Sin(a0);
+            float ca1 = MathF.Cos(a1);
+            float sa1 = MathF.Sin(a1);
+
+            int i0f = AddIndexedVertex(mesh, ref vertexCounter, centerX + innerR * ca0, halfDepth, innerR * sa0);
+            int i1f = AddIndexedVertex(mesh, ref vertexCounter, centerX + innerR * ca1, halfDepth, innerR * sa1);
+            int o1f = AddIndexedVertex(mesh, ref vertexCounter, centerX + outerR * ca1, halfDepth, outerR * sa1);
+            int o0f = AddIndexedVertex(mesh, ref vertexCounter, centerX + outerR * ca0, halfDepth, outerR * sa0);
+
+            int i0b = AddIndexedVertex(mesh, ref vertexCounter, centerX + innerR * ca0, -halfDepth, innerR * sa0);
+            int i1b = AddIndexedVertex(mesh, ref vertexCounter, centerX + innerR * ca1, -halfDepth, innerR * sa1);
+            int o1b = AddIndexedVertex(mesh, ref vertexCounter, centerX + outerR * ca1, -halfDepth, outerR * sa1);
+            int o0b = AddIndexedVertex(mesh, ref vertexCounter, centerX + outerR * ca0, -halfDepth, outerR * sa0);
+
+            AddQuad(mesh, i0f, i1f, o1f, o0f);
+            AddQuad(mesh, i0b, o0b, o1b, i1b);
+            AddQuad(mesh, i0f, i0b, i1b, i1f);
+            AddQuad(mesh, o0f, o1f, o1b, o0b);
+        }
+    }
+
+    private static void RenderEmitterConeBurst(BatchedPrimitives.MeshBuilder mesh, float radius)
+    {
+        const int segments = 8;
+        float baseRadius = radius * 0.55f;
+        float baseZ = radius * 0.7f;
+        float tipZ = -radius * 1.05f;
+
+        mesh.AddVertex(0, 0, tipZ); // 0 cone tip
+        for (int i = 0; i < segments; i++)
+        {
+            float theta = MathF.PI * 2f * i / segments;
+            mesh.AddVertex(baseRadius * MathF.Cos(theta), baseRadius * MathF.Sin(theta), baseZ); // 1..segments
+        }
+
+        for (int i = 0; i < segments; i++)
+        {
+            int current = 1 + i;
+            int next = 1 + ((i + 1) % segments);
+            mesh.AddTriangle(0, next, current);
+        }
+
+        int baseCenter = 1 + segments;
+        mesh.AddVertex(0, 0, baseZ); // base center
+        for (int i = 0; i < segments; i++)
+        {
+            int current = 1 + i;
+            int next = 1 + ((i + 1) % segments);
+            mesh.AddTriangle(baseCenter, current, next);
+        }
+
+        // Small burst at tip (mini-octahedron)
+        float burstCenterZ = tipZ - radius * 0.35f;
+        float burstRadius = radius * 0.32f;
+        int burstStart = baseCenter + 1;
+
+        mesh.AddVertex(0, 0, burstCenterZ + burstRadius); // top
+        mesh.AddVertex(burstRadius, 0, burstCenterZ); // +X
+        mesh.AddVertex(0, burstRadius, burstCenterZ); // +Y
+        mesh.AddVertex(-burstRadius, 0, burstCenterZ); // -X
+        mesh.AddVertex(0, -burstRadius, burstCenterZ); // -Y
+        mesh.AddVertex(0, 0, burstCenterZ - burstRadius); // bottom
+
+        mesh.AddTriangle(burstStart, burstStart + 1, burstStart + 2);
+        mesh.AddTriangle(burstStart, burstStart + 2, burstStart + 3);
+        mesh.AddTriangle(burstStart, burstStart + 3, burstStart + 4);
+        mesh.AddTriangle(burstStart, burstStart + 4, burstStart + 1);
+
+        mesh.AddTriangle(burstStart + 5, burstStart + 2, burstStart + 1);
+        mesh.AddTriangle(burstStart + 5, burstStart + 3, burstStart + 2);
+        mesh.AddTriangle(burstStart + 5, burstStart + 4, burstStart + 3);
+        mesh.AddTriangle(burstStart + 5, burstStart + 1, burstStart + 4);
     }
 
     private static void RenderOrb(BatchedPrimitives.MeshBuilder mesh, float radius)

@@ -264,7 +264,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
             if (SetProperty(ref _objectRenderMode, value))
             {
                 UseVisibleSetOnly = value is ObjectRenderMode.VisibleSetOnly;
-                if (value is ObjectRenderMode.VisibleSetOnly && _visibleActorSet.Count is 0)
+                if (value is ObjectRenderMode.VisibleSetOnly && _visibleActorSet.Count is 0 && !_hasUserEditedVisibleSets)
                 {
                     InitializeVisibleSetToAll();
                 }
@@ -1740,6 +1740,23 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         {
             comboBox.SelectedIndex = 0;
         }
+    }
+
+    private void DisplayFilters_ComboBox_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.OriginalSource is not DependencyObject source)
+        {
+            return;
+        }
+
+        var checkbox = GetAncestor<CheckBox>(source);
+        if (checkbox is null)
+        {
+            return;
+        }
+
+        checkbox.IsChecked = !(checkbox.IsChecked ?? false);
+        e.Handled = true;
     }
 
     private void MeshExportsList_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
