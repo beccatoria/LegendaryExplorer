@@ -336,15 +336,19 @@ namespace LegendaryExplorer.UserControls.ExportLoaderControls
                             }
                         }
                     }
-                    PromptDialog p = new PromptDialog("Enter name for a new TFC. It must start with Textures_DLC_MOD_, and will be created in the local directory of this package file.", "Enter new name for TFC", defaultTfcName, true, "Textures_DLC_MOD_".Length) { Owner = Window.GetWindow(this) };
-                    var hasResult = p.ShowDialog();
-                    if (hasResult.HasValue && hasResult.Value)
+                    var responseText = PromptDialog.Prompt(this,
+                        "Enter name for a new TFC. It must start with Textures_DLC_MOD_, and will be created in the local directory of this package file.",
+                        "Enter new name for TFC",
+                        defaultTfcName,
+                        true,
+                        "Textures_DLC_MOD_".Length);
+                    if (responseText != null)
                     {
-                        if (p.ResponseText.StartsWith("Textures_DLC_MOD_") && p.ResponseText.Length > 14)
+                        if (responseText.StartsWith("Textures_DLC_MOD_") && responseText.Length > 14)
                         {
                             //Check TFC name isn't in list
-                            CurrentLoadedExport.FileRef.FindNameOrAdd(p.ResponseText);
-                            selectedTFCName = p.ResponseText;
+                            CurrentLoadedExport.FileRef.FindNameOrAdd(responseText);
+                            selectedTFCName = responseText;
                         }
                         else
                         {
