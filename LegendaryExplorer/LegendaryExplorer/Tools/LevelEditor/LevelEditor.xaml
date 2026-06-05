@@ -185,10 +185,38 @@
                      <xctk:IntegerUpDown Value="{Binding VisibleSetDistance}" Minimum="0" Maximum="1000000" Width="80"
                                          VerticalContentAlignment="Center" FormatString="N0"
                                          ToolTip="Maximum camera distance for rendering actors that are already in the visible set when Objects is set to Visible Set Only"/>
-                     <ToggleButton Content="Show Camera Coords" IsChecked="{Binding ShowCameraCoordinates}"
-                                   ToolTip="Display the current camera world coordinates in the status bar"/>
+                    <Grid>
+                        <CheckBox Content="Show Camera Coords"
+                                  IsChecked="{Binding ShowCameraCoordinates}"
+                                  ToolTip="Display the current camera world coordinates in the status bar"
+                                  VerticalAlignment="Center"
+                                  Padding="6,0,16,0"/>
+                        <TextBlock Text="▾"
+                                   FontSize="8"
+                                   Width="10"
+                                   Height="10"
+                                   HorizontalAlignment="Right"
+                                   VerticalAlignment="Bottom"
+                                   Margin="0,0,4,1"
+                                   TextAlignment="Center"
+                                   ToolTip="Camera coordinates actions"
+                                   MouseLeftButtonUp="CameraCoordinatesMenuGlyph_MouseLeftButtonUp">
+                            <TextBlock.ContextMenu>
+                                <ContextMenu>
+                                    <MenuItem Header="Copy Camera Coordinates"
+                                              Click="CopyCameraCoordinatesMenuItem_Click"/>
+                                    <MenuItem Header="Paste to Selected Actor"
+                                              Click="PasteCameraCoordinatesMenuItem_Click"
+                                              IsEnabled="{Binding SelectedActor, Converter={StaticResource NullEnabledConverter}}"/>
+                                </ContextMenu>
+                            </TextBlock.ContextMenu>
+                        </TextBlock>
+                    </Grid>
                     <Separator Style="{StaticResource {x:Static ToolBar.SeparatorStyleKey}}" />
-                    <ToggleButton Content="Top Down" ToolTip="Toggle top-down orthographic view (Numpad 5)" IsChecked="{Binding IsOrthographicView}"/>
+                    <CheckBox Content="Top Down"
+                              ToolTip="Toggle top-down orthographic view (Numpad 5)"
+                              IsChecked="{Binding IsOrthographicView}"
+                              VerticalAlignment="Center"/>
                 </ToolBar>
             </WrapPanel>
 

@@ -15,6 +15,7 @@ using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Numerics;
@@ -91,6 +92,8 @@ public enum ObjectRenderMode
 
 public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditorContext
 {
+    private static readonly Regex CoordinatePasteRegex = new(@"([XYZ])\s*=\s*(-?\d+(?:[\.,]\d+)?)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
     public LevelEditorRenderContext RenderContext { get; }
 
     public ObservableCollectionExtended<OpenLevelFile> OpenFiles { get; } = [];
@@ -1843,6 +1846,107 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
             _suppressSelectionFocus = true;
             listBox.SelectedItem = actor;
         }
+    }
+
+    private void CameraCoordinatesMenuGlyph_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is FrameworkElement { ContextMenu: { } contextMenu } element)
+        {
+            contextMenu.PlacementTarget = element;
+            contextMenu.Placement = PlacementMode.Bottom;
+            contextMenu.IsOpen = true;
+            e.Handled = true;
+        }
+    }
+
+    private void CopyCameraCoordinatesMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        Vector3 position = RenderContext.Camera.Position;
+        string text = $"X={position.X:F1} | Y={position.Y:F1} | Z={position.Z:F1}";
+        Clipboard.SetText(text);
+    }
+
+    private void PasteCameraCoordinatesMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedActor is null)
+        {
+            MessageBox.Show(this, "Select an actor first.", "Paste Camera Coordinates", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        if (SelectedActor.IsReadOnly)
+        {
+            MessageBox.Show(this, "The selected actor is read-only and cannot be edited.", "Paste Camera Coordinates", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        string clipboardText = Clipboard.ContainsText() ? Clipboard.GetText() : string.Empty;
+        if (!TryParseCoordinatesFromText(clipboardText, out Vector3 coordinates))
+        {
+            MessageBox.Show(this, "Clipboard does not contain valid X/Y/Z coordinates.", "Paste Camera Coordinates", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        MessageBoxResult result = MessageBox.Show(this,
+            $"Paste coordinates to selected actor '{SelectedActor.Export.ObjectName.Instanced}'?",
+            "Confirm Paste Coordinates",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning);
+        if (result is not MessageBoxResult.Yes)
+        {
+            return;
+        }
+
+        SelectedActor.Location = coordinates;
+    }
+
+    private static bool TryParseCoordinatesFromText(string text, out Vector3 coordinates)
+    {
+        coordinates = default;
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return false;
+        }
+
+        float? x = null;
+        float? y = null;
+        float? z = null;
+        MatchCollection matches = CoordinatePasteRegex.Matches(text);
+        foreach (Match match in matches)
+        {
+            if (!match.Success || match.Groups.Count < 3)
+            {
+                continue;
+            }
+
+            string axisText = match.Groups[1].Value;
+            string valueText = match.Groups[2].Value.Replace(',', '.');
+            if (!float.TryParse(valueText, NumberStyles.Float, CultureInfo.InvariantCulture, out float value))
+            {
+                continue;
+            }
+
+            switch (axisText.ToUpperInvariant())
+            {
+                case "X":
+                    x = value;
+                    break;
+                case "Y":
+                    y = value;
+                    break;
+                case "Z":
+                    z = value;
+                    break;
+            }
+        }
+
+        if (x is null || y is null || z is null)
+        {
+            return false;
+        }
+
+        coordinates = new Vector3(x.Value, y.Value, z.Value);
+        return true;
     }
 
     #region Open / Drag-Drop
