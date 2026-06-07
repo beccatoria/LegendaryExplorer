@@ -36,6 +36,7 @@ using LegendaryExplorerCore.Sound.Wwise;
 using LegendaryExplorerCore.Unreal;
 using LegendaryExplorerCore.Unreal.BinaryConverters;
 using Microsoft.Win32;
+using NAudio.Vorbis;
 using NAudio.Wave;
 using NAudio.WaveFormRenderer;
 using AudioStreamHelper = LegendaryExplorer.UnrealExtensions.AudioStreamHelper;
@@ -2189,7 +2190,17 @@ namespace LegendaryExplorer.UserControls.ExportLoaderControls
             if (!GenerateWaveformGraph)
                 return;
             waveStream.Position = 0;
-            var audioFileReader = new WaveFileReader(waveStream);
+            WaveStream audioFileReader;
+            try
+            {
+                audioFileReader = waveStream is OggWaveStream
+                    ? new VorbisWaveReader(waveStream)
+                    : new WaveFileReader(waveStream);
+            }
+            catch (FormatException)
+            {
+                return;
+            }
 
             // 1. Configure Providers
             MaxPeakProvider maxPeakProvider = new MaxPeakProvider();
@@ -2207,6 +2218,7 @@ namespace LegendaryExplorer.UserControls.ExportLoaderControls
             // 3. Define the audio file from which the audio wave will be created and define the providers and settings
             WaveFormRenderer renderer = new WaveFormRenderer();
             var image = renderer.Render(audioFileReader, averagePeakProvider, myRendererSettings);
+            audioFileReader.Dispose();
             waveformImage.Source = image.ToBitmapImage(ImageFormat.Png);
         }
 
