@@ -1071,6 +1071,9 @@ namespace LegendaryExplorer.DialogueEditor
             if (updatedConvos.IsEmpty())
                 return;
 
+            var reselectedNodeID = SelectedDialogueNode?.NodeCount ?? -1;
+            var reselectedNodeReply = SelectedDialogueNode?.IsReply ?? false;
+
             int cSelectedIdx = Conversations_ListBox.SelectedIndex;
             int sSelectedIdx = Speakers_ListBox.SelectedIndex;
             foreach (var uxp in updatedConvos)
@@ -1090,7 +1093,14 @@ namespace LegendaryExplorer.DialogueEditor
             {
                 RefreshView();
                 SetUIMode(CurrentUIMode, true);
-                DialogueNode_SelectByIndex(-1);
+                if (reselectedNodeID >= 0)
+                {
+                    DialogueNode_SelectByIndex(reselectedNodeID, reselectedNodeReply);
+                }
+                else
+                {
+                    DialogueNode_SelectByIndex(-1);
+                }
             }
             NoUIRefresh = false;
         }
