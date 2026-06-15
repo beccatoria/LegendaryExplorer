@@ -1452,12 +1452,36 @@ namespace LegendaryExplorer.UserControls.PackageEditorControls
                 });
             }
         }
+
+        private void ShiftInterpTrackMovePackageWideSceneTest(object sender, RoutedEventArgs e)
+        {
+            var pccLoaded = GetPEWindow().Pcc != null;
+            if (pccLoaded)
+            {
+                PackageEditorExperimentsK.ShiftInterpTrackMovesInPackageTrue3DTest(GetPEWindow().Pcc);
+            }
+        }
+
         private void MakeInterpTrackMovesIntoAnchors(object sender, RoutedEventArgs e)
         {
             var pccLoaded = GetPEWindow().Pcc != null;
             if (pccLoaded)
             {
                 PackageEditorExperimentsK.MakeInterpTrackMovesStageRelative(GetPEWindow().Pcc, x =>
+                {
+                    var prop = x.GetProperty<EnumProperty>("MoveFrame");
+                    if (prop == null || prop.Value != "IMF_AnchorObject") return true;
+                    return false; // IMF_AnchorObject
+                });
+            }
+        }
+
+        private void MakeInterpTrackMovesIntoAnchorsTest(object sender, RoutedEventArgs e)
+        {
+            var pccLoaded = GetPEWindow().Pcc != null;
+            if (pccLoaded)
+            {
+                PackageEditorExperimentsK.MakeInterpTrackMovesStageRelativeTrue3DTest(GetPEWindow().Pcc, x =>
                 {
                     var prop = x.GetProperty<EnumProperty>("MoveFrame");
                     if (prop == null || prop.Value != "IMF_AnchorObject") return true;

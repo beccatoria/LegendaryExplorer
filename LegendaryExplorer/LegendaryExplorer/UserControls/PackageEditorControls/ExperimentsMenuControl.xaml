@@ -185,7 +185,9 @@
         <MenuItem Header="Destroyer" Click="BlowMeUp"/>
         <MenuItem Header="Trash Compactor" Click="RunTrashCompactor"/>
         <MenuItem Header="Move Scene" Click="ShiftInterpTrackMovePackageWideScene"/>
+        <MenuItem Header="Move Scene - Test" Click="ShiftInterpTrackMovePackageWideSceneTest"/>
         <MenuItem Header="Anchor Moves" Click="MakeInterpTrackMovesIntoAnchors"/>
+        <MenuItem Header="Move Anchors - Test" Click="MakeInterpTrackMovesIntoAnchorsTest"/>
         <MenuItem Header="Bulk Replace TLK refs" Click="ReplaceAllTlkRefs"/>
         <MenuItem Header="RenameFXA (including internal)" Click="RenameFXA"/>
         <MenuItem Header="Wwise Import Bank and References - Do not overwrite existing streams" Click="ImportWwiseBankRefs_Click"/>
