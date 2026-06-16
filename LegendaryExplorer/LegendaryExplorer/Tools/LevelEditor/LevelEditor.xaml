@@ -260,6 +260,8 @@
                     <TextBlock DockPanel.Dock="Bottom" Text="{Binding TextBelowActors}" TextWrapping="Wrap"/>
 
                     <ListBox DockPanel.Dock="Bottom" ItemsSource="{Binding ActorsView}" Name="MeshExportsList" SelectedItem="{Binding SelectedActor}" HorizontalContentAlignment="Stretch"
+                             PreviewMouseLeftButtonDown="MeshExportsList_PreviewMouseLeftButtonDown"
+                             MouseDoubleClick="MeshExportsList_MouseDoubleClick"
                              PreviewMouseRightButtonDown="MeshExportsList_PreviewMouseRightButtonDown"
                              VirtualizingStackPanel.IsVirtualizing="True" VirtualizingStackPanel.VirtualizationMode="Recycling">
                         <ListBox.GroupStyle>

@@ -1931,6 +1931,41 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         }
     }
 
+    private void MeshExportsList_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is not ListBox listBox || e.OriginalSource is not DependencyObject source)
+        {
+            return;
+        }
+
+        if (ItemsControl.ContainerFromElement(listBox, source) is ListBoxItem { DataContext: ActorProxy actor })
+        {
+            _suppressSelectionFocus = true;
+            listBox.SelectedItem = actor;
+        }
+    }
+
+    private void MeshExportsList_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is not ListBox listBox || e.OriginalSource is not DependencyObject source)
+        {
+            return;
+        }
+
+        if (ItemsControl.ContainerFromElement(listBox, source) is not ListBoxItem { DataContext: ActorProxy actor })
+        {
+            return;
+        }
+
+        _suppressSelectionFocus = true;
+        listBox.SelectedItem = actor;
+
+        if (FocusSelectedCommand?.CanExecute(null) == true)
+        {
+            FocusSelectedCommand.Execute(null);
+        }
+    }
+
     private void CameraCoordinatesMenuGlyph_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
         if (sender is FrameworkElement { ContextMenu: { } contextMenu } element)
