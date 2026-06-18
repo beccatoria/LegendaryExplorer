@@ -394,6 +394,10 @@
                                 <TextBlock Text=" Increment:  " VerticalAlignment="Center" />
                                 <xctk:SingleUpDown Value="{Binding PosIncrement, RelativeSource={RelativeSource AncestorType={x:Type local:LevelEditor}}}" Minimum="0" ButtonSpinnerLocation="Left" FormatString="F3"/>
                             </StackPanel>
+                            <WrapPanel Margin="0, 5, 0, 0">
+                                <Button Content="Copy Location Coords" Click="CopyLocationCoordinatesButton_Click"/>
+                                <Button Content="Paste Location Coords" Click="PasteLocationCoordinatesButton_Click" Margin="10,0,0,0"/>
+                            </WrapPanel>
 
                         </StackPanel>
                     </GroupBox>
@@ -411,6 +415,10 @@
                                 <TextBlock Text=" Increment:  " VerticalAlignment="Center" />
                                 <xctk:IntegerUpDown Value="{Binding RotIncrement, RelativeSource={RelativeSource AncestorType={x:Type local:LevelEditor}}}" Minimum="0" ButtonSpinnerLocation="Left"/>
                             </StackPanel>
+                            <WrapPanel Margin="0, 5, 0, 0">
+                                <Button Content="Copy Rotation Coords" Click="CopyRotationCoordinatesButton_Click"/>
+                                <Button Content="Paste Rotation Coords" Click="PasteRotationCoordinatesButton_Click" Margin="10,0,0,0"/>
+                            </WrapPanel>
                         </StackPanel>
                     </GroupBox>
                     <GroupBox Header="Actor DrawScale" Margin="5,0,5,5" BorderThickness="2" >

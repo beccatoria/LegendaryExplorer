@@ -95,6 +95,8 @@ public enum ObjectRenderMode
 public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditorContext
 {
     private static readonly Regex CoordinatePasteRegex = new(@"([XYZ])\s*=\s*(-?\d+(?:[\.,]\d+)?)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static Vector3? copiedCoordinates;
+    private static Rotator? copiedRotation;
 
     public LevelEditorRenderContext RenderContext { get; }
 
@@ -1980,8 +1982,77 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
     private void CopyCameraCoordinatesMenuItem_Click(object sender, RoutedEventArgs e)
     {
         Vector3 position = RenderContext.Camera.Position;
+        copiedCoordinates = position;
         string text = $"X={position.X:F1} | Y={position.Y:F1} | Z={position.Z:F1}";
         Clipboard.SetText(text);
+    }
+
+    private void CopyLocationCoordinatesButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedActor is null)
+        {
+            MessageBox.Show(this, "Select an actor first.", "Copy Location Coordinates", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        copiedCoordinates = SelectedActor.Location;
+    }
+
+    private void PasteLocationCoordinatesButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedActor is null)
+        {
+            MessageBox.Show(this, "Select an actor first.", "Paste Location Coordinates", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        if (SelectedActor.IsReadOnly)
+        {
+            MessageBox.Show(this, "The selected actor is read-only and cannot be edited.", "Paste Location Coordinates", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        if (!copiedCoordinates.HasValue)
+        {
+            MessageBox.Show(this, "No copied coordinates are available yet.", "Paste Location Coordinates", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        SelectedActor.Location = copiedCoordinates.Value;
+    }
+
+    private void CopyRotationCoordinatesButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedActor is null)
+        {
+            MessageBox.Show(this, "Select an actor first.", "Copy Rotation Coordinates", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        copiedRotation = SelectedActor.Rotation;
+    }
+
+    private void PasteRotationCoordinatesButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedActor is null)
+        {
+            MessageBox.Show(this, "Select an actor first.", "Paste Rotation Coordinates", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        if (SelectedActor.IsReadOnly)
+        {
+            MessageBox.Show(this, "The selected actor is read-only and cannot be edited.", "Paste Rotation Coordinates", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        if (!copiedRotation.HasValue)
+        {
+            MessageBox.Show(this, "No copied rotation is available yet.", "Paste Rotation Coordinates", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        SelectedActor.Rotation = copiedRotation.Value;
     }
 
     private void PasteCameraCoordinatesMenuItem_Click(object sender, RoutedEventArgs e)
