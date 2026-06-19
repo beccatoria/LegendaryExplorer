@@ -45,6 +45,37 @@ public class TransformAction : IUndoAction
     public void Redo() => _actor.RestoreTransform(_after);
 }
 
+public class TransformBatchAction : IUndoAction
+{
+    private readonly IReadOnlyList<(ActorProxy Actor, TransformSnapshot Before, TransformSnapshot After)> _entries;
+
+    public string Description { get; }
+
+    public TransformBatchAction(IReadOnlyList<(ActorProxy Actor, TransformSnapshot Before, TransformSnapshot After)> entries, string description)
+    {
+        _entries = entries;
+        Description = description;
+    }
+
+    public void Undo()
+    {
+        for (int i = 0; i < _entries.Count; i++)
+        {
+            var entry = _entries[i];
+            entry.Actor.RestoreTransform(entry.Before);
+        }
+    }
+
+    public void Redo()
+    {
+        for (int i = 0; i < _entries.Count; i++)
+        {
+            var entry = _entries[i];
+            entry.Actor.RestoreTransform(entry.After);
+        }
+    }
+}
+
 public class UndoHistory : NotifyPropertyChangedBase
 {
     private readonly Stack<IUndoAction> _undoStack = new();

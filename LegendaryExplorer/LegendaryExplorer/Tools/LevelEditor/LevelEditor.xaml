@@ -66,6 +66,8 @@
         <KeyBinding Key="S" Modifiers="Control+Shift" Command="{Binding SaveAsCommand}"/>
         <KeyBinding Key="Z" Modifiers="Control" Command="{Binding UndoCommand}"/>
         <KeyBinding Key="Y" Modifiers="Control" Command="{Binding RedoCommand}"/>
+        <KeyBinding Key="G" Modifiers="Control" Command="{Binding GroupSelectedActorsCommand}"/>
+        <KeyBinding Key="G" Modifiers="Control+Shift" Command="{Binding UngroupActorsCommand}"/>
     </Window.InputBindings>
     <xctk:BusyIndicator IsBusy="{Binding Path=IsBusy}" BusyContent="{Binding BusyText}">
         <DockPanel>
@@ -82,6 +84,10 @@
                 </MenuItem>
                 <MenuItem Header="Visible Sets" Padding="4">
                     <MenuItem Header="Edit Visible Sets..." Command="{Binding OpenVisibleSetsManagerCommand}" IsEnabled="{Binding HasAnyFileOpen}"/>
+                </MenuItem>
+                <MenuItem Header="Groups" Padding="4">
+                    <MenuItem Header="Group Selected Actors" Command="{Binding GroupSelectedActorsCommand}" InputGestureText="Ctrl+G"/>
+                    <MenuItem Header="Ungroup Actors" Command="{Binding UngroupActorsCommand}" InputGestureText="Ctrl+Shift+G"/>
                 </MenuItem>
             </Menu>
             <WrapPanel DockPanel.Dock="Top">
@@ -263,6 +269,8 @@
                              PreviewMouseLeftButtonDown="MeshExportsList_PreviewMouseLeftButtonDown"
                              MouseDoubleClick="MeshExportsList_MouseDoubleClick"
                              PreviewMouseRightButtonDown="MeshExportsList_PreviewMouseRightButtonDown"
+                             SelectionChanged="MeshExportsList_SelectionChanged"
+                             SelectionMode="Extended"
                              VirtualizingStackPanel.IsVirtualizing="True" VirtualizingStackPanel.VirtualizationMode="Recycling">
                         <ListBox.GroupStyle>
                             <GroupStyle>
@@ -324,6 +332,9 @@
                                 <Separator/>
                                 <MenuItem Header="Clear All Sets" Command="{Binding Data.ClearVisibleSetCommand, Source={StaticResource bindingProxy}}"/>
                                 <MenuItem Header="Show All" Command="{Binding Data.ShowAllMeshesCommand, Source={StaticResource bindingProxy}}"/>
+                                <Separator/>
+                                <MenuItem Header="Group Selected Actors" Command="{Binding Data.GroupSelectedActorsCommand, Source={StaticResource bindingProxy}}" InputGestureText="Ctrl+G"/>
+                                <MenuItem Header="Ungroup Actors" Command="{Binding Data.UngroupActorsCommand, Source={StaticResource bindingProxy}}" InputGestureText="Ctrl+Shift+G"/>
                             </ContextMenu>
                             <Style TargetType="{x:Type ListBoxItem}">
                                 <Setter Property="ContextMenu" Value="{StaticResource MyMenu}"/>
@@ -337,6 +348,26 @@
 
 
                 <DockPanel Grid.Column="4">
+                    <GroupBox DockPanel.Dock="Top" Header="Transform Group" Margin="5,0,5,5" BorderThickness="2" Padding="5"
+                              IsEnabled="{Binding HasAnyFileOpen}">
+                        <StackPanel>
+                            <TextBlock Text="{Binding ActiveTransformGroupSummary}" TextWrapping="Wrap"/>
+                            <WrapPanel Margin="0,6,0,4">
+                                <Button Content="Group Selected" Command="{Binding GroupSelectedActorsCommand}" Padding="6,1"/>
+                                <Button Content="Ungroup" Command="{Binding UngroupActorsCommand}" Padding="6,1" Margin="6,0,0,0"/>
+                                <Button Content="Reselect Group" Command="{Binding ReselectGroupCommand}" Padding="6,1" Margin="6,0,0,0"/>
+                            </WrapPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
+                                <TextBlock Text="Offset X:" VerticalAlignment="Center"/>
+                                <xctk:SingleUpDown Value="{Binding GroupOffsetX}" Width="65" Margin="4,0,4,0" FormatString="F1" ButtonSpinnerLocation="Left"/>
+                                <TextBlock Text="Y:" VerticalAlignment="Center"/>
+                                <xctk:SingleUpDown Value="{Binding GroupOffsetY}" Width="65" Margin="4,0,4,0" FormatString="F1" ButtonSpinnerLocation="Left"/>
+                                <TextBlock Text="Z:" VerticalAlignment="Center"/>
+                                <xctk:SingleUpDown Value="{Binding GroupOffsetZ}" Width="65" Margin="4,0,4,0" FormatString="F1" ButtonSpinnerLocation="Left"/>
+                                <Button Content="Apply" Command="{Binding ApplyGroupOffsetCommand}" Padding="8,1"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </GroupBox>
                     <GroupBox DockPanel.Dock="Bottom" Header="Snap" Margin="5,5,5,0" BorderThickness="2" Padding="5"
                               DataContext="{Binding RelativeSource={RelativeSource AncestorType={x:Type local:LevelEditor}}}">
                         <Grid>

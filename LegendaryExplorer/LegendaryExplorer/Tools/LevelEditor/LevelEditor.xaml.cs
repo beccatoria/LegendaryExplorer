@@ -92,6 +92,20 @@ public enum ObjectRenderMode
     VisibleSetOnly
 }
 
+public sealed class ActorTransformGroup
+{
+    public string Name { get; }
+    public ActorProxy LeadActor { get; }
+    public IReadOnlyList<ActorProxy> Members { get; }
+
+    public ActorTransformGroup(string name, ActorProxy leadActor, IReadOnlyList<ActorProxy> members)
+    {
+        Name = name;
+        LeadActor = leadActor;
+        Members = members;
+    }
+}
+
 public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditorContext
 {
     private static readonly Regex CoordinatePasteRegex = new(@"([XYZ])\s*=\s*(-?\d+(?:[\.,]\d+)?)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
@@ -121,6 +135,48 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
 
     private ActorProxy selectedActor;
     private bool _suppressSelectionFocus;
+    private bool _isApplyingGroupMove;
+    private bool _isUpdatingGroupSelection;
+    private ActorTransformGroup _activeTransformGroup;
+    private Vector3 _groupOffset;
+
+    public ActorTransformGroup ActiveTransformGroup
+    {
+        get => _activeTransformGroup;
+        private set
+        {
+            if (SetProperty(ref _activeTransformGroup, value))
+            {
+                OnPropertyChanged(nameof(HasActiveTransformGroup));
+                OnPropertyChanged(nameof(ActiveTransformGroupSummary));
+                CommandManager.InvalidateRequerySuggested();
+            }
+        }
+    }
+
+    public bool HasActiveTransformGroup => ActiveTransformGroup is not null;
+
+    public string ActiveTransformGroupSummary => ActiveTransformGroup is null
+        ? "No active group"
+        : $"{ActiveTransformGroup.Name}: {ActiveTransformGroup.Members.Count} actors (Lead: {ActiveTransformGroup.LeadActor.Export.ObjectName.Instanced})";
+
+    public float GroupOffsetX
+    {
+        get => _groupOffset.X;
+        set => SetGroupOffsetComponent(value, 0);
+    }
+
+    public float GroupOffsetY
+    {
+        get => _groupOffset.Y;
+        set => SetGroupOffsetComponent(value, 1);
+    }
+
+    public float GroupOffsetZ
+    {
+        get => _groupOffset.Z;
+        set => SetGroupOffsetComponent(value, 2);
+    }
     public ActorProxy SelectedActor
     {
         get => selectedActor;
@@ -765,6 +821,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
             RenderContext.RemoveActor(actor);
             actor.Dispose();
         }
+        ReevaluateActiveGroup();
 
         file.Dispose();
         OpenFiles.Remove(file);
@@ -929,6 +986,10 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
     public ICommand AddNearbyToVisibleSetCommand { get; set; }
     public ICommand ShowOnlyNearbyCommand { get; set; }
     public ICommand OpenVisibleSetsManagerCommand { get; set; }
+    public ICommand GroupSelectedActorsCommand { get; set; }
+    public ICommand UngroupActorsCommand { get; set; }
+    public ICommand ApplyGroupOffsetCommand { get; set; }
+    public ICommand ReselectGroupCommand { get; set; }
     private void LoadCommands()
     {
         OpenFileCommand = new GenericCommand(OpenFile);
@@ -979,6 +1040,10 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         AddNearbyToVisibleSetCommand = new GenericCommand(AddNearbyToVisibleSet, PackageIsLoaded);
         ShowOnlyNearbyCommand = new GenericCommand(ShowOnlyNearby, PackageIsLoaded);
         OpenVisibleSetsManagerCommand = new GenericCommand(OpenVisibleSetsManager, PackageIsLoaded);
+        GroupSelectedActorsCommand = new GenericCommand(CreateActorGroupFromSelection, () => PackageIsLoaded() && GetGroupableSelectedActors().Count >= 2);
+        UngroupActorsCommand = new GenericCommand(UngroupActors, () => PackageIsLoaded() && HasActiveTransformGroup);
+        ApplyGroupOffsetCommand = new GenericCommand(ApplyGroupOffset, () => PackageIsLoaded() && HasActiveTransformGroup && _groupOffset != Vector3.Zero);
+        ReselectGroupCommand = new GenericCommand(ReselectActiveGroup, () => PackageIsLoaded() && HasActiveTransformGroup && MeshExportsList is not null);
     }
 
     #endregion
@@ -1060,6 +1125,305 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         }
 
         return null;
+    }
+
+    private void SetGroupOffsetComponent(float value, int componentIndex)
+    {
+        Vector3 next = componentIndex switch
+        {
+            0 => _groupOffset with { X = value },
+            1 => _groupOffset with { Y = value },
+            2 => _groupOffset with { Z = value },
+            _ => _groupOffset
+        };
+
+        if (SetProperty(ref _groupOffset, next))
+        {
+            OnPropertyChanged(nameof(GroupOffsetX));
+            OnPropertyChanged(nameof(GroupOffsetY));
+            OnPropertyChanged(nameof(GroupOffsetZ));
+            CommandManager.InvalidateRequerySuggested();
+        }
+    }
+
+    private List<ActorProxy> GetGroupableSelectedActors()
+    {
+        if (MeshExportsList is null)
+        {
+            return [];
+        }
+
+        return MeshExportsList.SelectedItems
+            .OfType<ActorProxy>()
+            .Where(actor => !actor.IsReadOnly)
+            .Distinct()
+            .ToList();
+    }
+
+    private void CreateActorGroupFromSelection()
+    {
+        List<ActorProxy> members = GetGroupableSelectedActors();
+        if (members.Count < 2)
+        {
+            MessageBox.Show(this, "Select at least two editable actors to create a transform group.", "Create Group", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        ActorProxy lead = SelectedActor is not null && members.Contains(SelectedActor)
+            ? SelectedActor
+            : members[0];
+
+        ActiveTransformGroup = new ActorTransformGroup($"Group {DateTime.Now:HHmmss}", lead, members);
+        SetGroupOffsetComponent(0, 0);
+        SetGroupOffsetComponent(0, 1);
+        SetGroupOffsetComponent(0, 2);
+        _suppressSelectionFocus = true;
+        SelectedActor = lead;
+        RenderContext.TransformWidget.Attach = lead;
+    }
+
+    private void UngroupActors()
+    {
+        ActiveTransformGroup = null;
+        SetGroupOffsetComponent(0, 0);
+        SetGroupOffsetComponent(0, 1);
+        SetGroupOffsetComponent(0, 2);
+    }
+
+    private void ReselectActiveGroup()
+    {
+        ReevaluateActiveGroup();
+        if (ActiveTransformGroup is null || MeshExportsList is null)
+        {
+            return;
+        }
+
+        try
+        {
+            _isUpdatingGroupSelection = true;
+            MeshExportsList.SelectedItems.Clear();
+            foreach (var member in ActiveTransformGroup.Members.Where(actor => actor is not null && Actors.Contains(actor)))
+            {
+                MeshExportsList.SelectedItems.Add(member);
+            }
+        }
+        finally
+        {
+            _isUpdatingGroupSelection = false;
+        }
+
+        _suppressSelectionFocus = true;
+        SelectedActor = ActiveTransformGroup.LeadActor;
+        MeshExportsList.ScrollIntoView(ActiveTransformGroup.LeadActor);
+        RenderContext.TransformWidget.Attach = ActiveTransformGroup.LeadActor;
+        CommandManager.InvalidateRequerySuggested();
+    }
+
+    private void ReevaluateActiveGroup()
+    {
+        if (ActiveTransformGroup is null)
+        {
+            return;
+        }
+
+        List<ActorProxy> validMembers = ActiveTransformGroup.Members
+            .Where(actor => actor is not null && !actor.IsReadOnly && Actors.Contains(actor))
+            .Distinct()
+            .ToList();
+
+        if (validMembers.Count < 2)
+        {
+            UngroupActors();
+            return;
+        }
+
+        ActorProxy lead = ActiveTransformGroup.LeadActor;
+        if (!validMembers.Contains(lead))
+        {
+            lead = SelectedActor is not null && validMembers.Contains(SelectedActor)
+                ? SelectedActor
+                : validMembers[0];
+        }
+
+        if (!ReferenceEquals(lead, ActiveTransformGroup.LeadActor)
+            || validMembers.Count != ActiveTransformGroup.Members.Count
+            || validMembers.Any(actor => !ActiveTransformGroup.Members.Contains(actor)))
+        {
+            ActiveTransformGroup = new ActorTransformGroup(ActiveTransformGroup.Name, lead, validMembers);
+        }
+        else
+        {
+            OnPropertyChanged(nameof(ActiveTransformGroupSummary));
+        }
+    }
+
+    private void ApplyGroupOffset()
+    {
+        if (ActiveTransformGroup is null || _groupOffset == Vector3.Zero)
+        {
+            return;
+        }
+
+        ApplyGroupLocationDelta(_groupOffset, "Move grouped actors");
+        SetGroupOffsetComponent(0, 0);
+        SetGroupOffsetComponent(0, 1);
+        SetGroupOffsetComponent(0, 2);
+    }
+
+    private void ApplyGroupLocationDelta(Vector3 delta, string description)
+    {
+        if (ActiveTransformGroup is null || delta == Vector3.Zero)
+        {
+            return;
+        }
+
+        var entries = new List<(ActorProxy Actor, TransformSnapshot Before, TransformSnapshot After)>();
+        try
+        {
+            _isApplyingGroupMove = true;
+            foreach (var actor in ActiveTransformGroup.Members)
+            {
+                if (actor is null || actor.IsReadOnly || !Actors.Contains(actor))
+                {
+                    continue;
+                }
+
+                TransformSnapshot before = actor.SnapshotTransform();
+                actor.Location = before.Location + delta;
+                TransformSnapshot after = actor.SnapshotTransform();
+                if (!before.Equals(after))
+                {
+                    entries.Add((actor, before, after));
+                }
+            }
+        }
+        finally
+        {
+            _isApplyingGroupMove = false;
+        }
+
+        if (entries.Count > 0)
+        {
+            UndoHistory.Push(new TransformBatchAction(entries, description));
+            if (SelectedActor is not null)
+            {
+                _preEditSnapshot = SelectedActor.SnapshotTransform();
+            }
+        }
+    }
+
+    private static Rotator AddRotator(Rotator left, Rotator right)
+        => new(left.Pitch + right.Pitch, left.Yaw + right.Yaw, left.Roll + right.Roll);
+
+    private static Rotator SubtractRotator(Rotator left, Rotator right)
+        => new(left.Pitch - right.Pitch, left.Yaw - right.Yaw, left.Roll - right.Roll);
+
+    private static float ApplyScaleDelta(float memberValue, float leadBefore, float leadAfter)
+    {
+        if (leadBefore != 0f)
+        {
+            float factor = leadAfter / leadBefore;
+            if (!float.IsNaN(factor) && !float.IsInfinity(factor))
+            {
+                return memberValue * factor;
+            }
+        }
+
+        return memberValue + (leadAfter - leadBefore);
+    }
+
+    private static Vector3 ApplyScaleDelta(Vector3 memberValue, Vector3 leadBefore, Vector3 leadAfter)
+    {
+        return new Vector3(
+            ApplyScaleDelta(memberValue.X, leadBefore.X, leadAfter.X),
+            ApplyScaleDelta(memberValue.Y, leadBefore.Y, leadAfter.Y),
+            ApplyScaleDelta(memberValue.Z, leadBefore.Z, leadAfter.Z));
+    }
+
+    private bool TryApplyGroupedLeadTransformEdit(ActorProxy actor, TransformSnapshot before, TransformSnapshot after, string description)
+    {
+        if (ActiveTransformGroup is null
+            || !ReferenceEquals(actor, ActiveTransformGroup.LeadActor)
+            || before.Equals(after))
+        {
+            return false;
+        }
+
+        bool locationChanged = before.Location != after.Location;
+        bool rotationChanged = before.Rotation != after.Rotation;
+        bool drawScaleChanged = before.DrawScale != after.DrawScale;
+        bool drawScale3DChanged = before.DrawScale3D != after.DrawScale3D;
+
+        Vector3 locationDelta = after.Location - before.Location;
+        Rotator rotationDelta = SubtractRotator(after.Rotation, before.Rotation);
+        System.Numerics.Quaternion rotationDeltaQuat = rotationChanged ? rotationDelta.ToQuaternion() : System.Numerics.Quaternion.Identity;
+
+        var entries = new List<(ActorProxy Actor, TransformSnapshot Before, TransformSnapshot After)>
+        {
+            (actor, before, after)
+        };
+
+        try
+        {
+            _isApplyingGroupMove = true;
+            foreach (var member in ActiveTransformGroup.Members)
+            {
+                if (ReferenceEquals(member, actor)
+                    || member is null
+                    || member.IsReadOnly
+                    || !Actors.Contains(member))
+                {
+                    continue;
+                }
+
+                TransformSnapshot memberBefore = member.SnapshotTransform();
+                if (locationChanged || rotationChanged)
+                {
+                    Vector3 memberLocation = memberBefore.Location;
+                    if (rotationChanged)
+                    {
+                        Vector3 relativeToLead = memberBefore.Location - before.Location;
+                        memberLocation = before.Location + Vector3.Transform(relativeToLead, rotationDeltaQuat);
+                    }
+
+                    if (locationChanged)
+                    {
+                        memberLocation += locationDelta;
+                    }
+
+                    member.Location = memberLocation;
+                }
+
+                if (rotationChanged)
+                {
+                    member.Rotation = AddRotator(memberBefore.Rotation, rotationDelta);
+                }
+
+                if (drawScaleChanged)
+                {
+                    member.DrawScale = ApplyScaleDelta(memberBefore.DrawScale, before.DrawScale, after.DrawScale);
+                }
+
+                if (drawScale3DChanged)
+                {
+                    member.DrawScale3D = ApplyScaleDelta(memberBefore.DrawScale3D, before.DrawScale3D, after.DrawScale3D);
+                }
+
+                TransformSnapshot memberAfter = member.SnapshotTransform();
+                if (!memberBefore.Equals(memberAfter))
+                {
+                    entries.Add((member, memberBefore, memberAfter));
+                }
+            }
+        }
+        finally
+        {
+            _isApplyingGroupMove = false;
+        }
+
+        UndoHistory.Push(new TransformBatchAction(entries, description));
+        _preEditSnapshot = after;
+        return true;
     }
 
     #region Selective Visibility
@@ -1809,6 +2173,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
             RenderContext.RemoveActor(actor);
             actor.Dispose();
         }
+        ReevaluateActiveGroup();
         file.Actors.Clear();
 
         Level levelBin = file.LevelExport.GetBinaryData<Level>();
@@ -1843,7 +2208,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
 
     private void OnActorPropertyChanged(object sender, PropertyChangedEventArgs e)
     {
-        if (_isApplyingUndoRedo || RenderContext.TransformWidget.IsDragging) return;
+        if (_isApplyingUndoRedo || _isApplyingGroupMove || RenderContext.TransformWidget.IsDragging) return;
         if (e.PropertyName is not (nameof(ActorProxy.Location) or nameof(ActorProxy.Rotation) or nameof(ActorProxy.DrawScale) or nameof(ActorProxy.DrawScale3D))) return;
 
         if (sender is ActorProxy actor && _preEditSnapshot is { } before)
@@ -1851,6 +2216,11 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
             var after = actor.SnapshotTransform();
             if (!before.Equals(after))
             {
+                if (TryApplyGroupedLeadTransformEdit(actor, before, after, $"Edit group ({ActiveTransformGroup?.Name ?? "Lead"})"))
+                {
+                    return;
+                }
+
                 UndoHistory.Push(new TransformAction(actor, before, after, $"Edit {actor.Export.ObjectName.Instanced}"));
                 _preEditSnapshot = after;
             }
@@ -1860,6 +2230,12 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
     private void OnWidgetDragComplete(ActorProxy actor, TransformSnapshot before, TransformSnapshot after)
     {
         if (before.Equals(after)) return;
+
+        if (TryApplyGroupedLeadTransformEdit(actor, before, after, $"Drag group ({ActiveTransformGroup?.Name ?? "Lead"})"))
+        {
+            return;
+        }
+
         UndoHistory.Push(new TransformAction(actor, before, after, $"Drag {actor.Export.ObjectName.Instanced}"));
         _preEditSnapshot = after;
     }
@@ -1926,10 +2302,13 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
             return;
         }
 
-        if (ItemsControl.ContainerFromElement(listBox, source) is ListBoxItem { DataContext: ActorProxy actor })
+        if (ItemsControl.ContainerFromElement(listBox, source) is ListBoxItem { DataContext: ActorProxy actor } listBoxItem)
         {
-            _suppressSelectionFocus = true;
-            listBox.SelectedItem = actor;
+            if (!listBoxItem.IsSelected)
+            {
+                _suppressSelectionFocus = true;
+                listBox.SelectedItem = actor;
+            }
         }
     }
 
@@ -1940,11 +2319,39 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
             return;
         }
 
-        if (ItemsControl.ContainerFromElement(listBox, source) is ListBoxItem { DataContext: ActorProxy actor })
+        if ((Keyboard.Modifiers & (ModifierKeys.Control | ModifierKeys.Shift)) != ModifierKeys.None)
+        {
+            return;
+        }
+
+        if (ItemsControl.ContainerFromElement(listBox, source) is ListBoxItem { DataContext: ActorProxy actor } listBoxItem)
         {
             _suppressSelectionFocus = true;
-            listBox.SelectedItem = actor;
+            if (!listBoxItem.IsSelected || listBox.SelectedItems.Count > 1)
+            {
+                listBox.SelectedItem = actor;
+            }
         }
+    }
+
+    private void MeshExportsList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_isUpdatingGroupSelection)
+        {
+            return;
+        }
+
+        ReevaluateActiveGroup();
+        if (ActiveTransformGroup is not null
+            && SelectedActor is not null
+            && ActiveTransformGroup.Members.Contains(SelectedActor)
+            && !ReferenceEquals(ActiveTransformGroup.LeadActor, SelectedActor))
+        {
+            ActiveTransformGroup = new ActorTransformGroup(ActiveTransformGroup.Name, SelectedActor, ActiveTransformGroup.Members.ToList());
+            RenderContext.TransformWidget.Attach = SelectedActor;
+        }
+
+        CommandManager.InvalidateRequerySuggested();
     }
 
     private void MeshExportsList_MouseDoubleClick(object sender, MouseButtonEventArgs e)
