@@ -57,6 +57,26 @@ namespace LegendaryExplorer.Tools.PackageEditor
     /// </summary>
     public partial class PackageEditorWindow : WPFBase, IDropTarget, IBusyUIHost, IRecents
     {
+        public override void HandleSaveStateChange(bool isSaving)
+        {
+            base.HandleSaveStateChange(isSaving);
+
+            if (isSaving)
+            {
+                return;
+            }
+
+            if (!Dispatcher.CheckAccess())
+            {
+                Dispatcher.BeginInvoke((Action)(() => HandleSaveStateChange(false)));
+                return;
+            }
+
+            RefreshView();
+            LeftSide_ListView?.Items.Refresh();
+            LeftSide_TreeView?.Items.Refresh();
+        }
+
         public enum CurrentViewMode
         {
             Names,

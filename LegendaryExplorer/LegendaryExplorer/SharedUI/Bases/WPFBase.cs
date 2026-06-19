@@ -147,7 +147,7 @@ namespace LegendaryExplorer.SharedUI.Bases
             return false;
         }
 
-        public void HandleSaveStateChange(bool isSaving)
+        public virtual void HandleSaveStateChange(bool isSaving)
         {
             if (isSaving)
             {
