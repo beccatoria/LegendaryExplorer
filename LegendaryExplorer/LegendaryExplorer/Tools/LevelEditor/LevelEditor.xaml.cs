@@ -69,7 +69,6 @@ public class RecentViewState
     public bool HasUserEditedVisibleSets { get; set; }
     public int VisibleSetDistance { get; set; } = 5000;
     public List<string> VisibleActorKeys { get; set; } = [];
-    public List<string> KnownActorKeys { get; set; }
     public List<string> HiddenActorClasses { get; set; }
 
     public bool ShowLights { get; set; } = true;
@@ -365,7 +364,6 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
 
     private readonly HashSet<string> _visibleActorSet = [];
     private readonly HashSet<string> _explicitlyHiddenVisibleSetClasses = [];
-    private HashSet<string> _loadedVisibleSetKnownActorKeys = [];
     private bool _hasUserEditedVisibleSets;
     private bool _suppressDisplayFilterVisibleSetSync;
 
@@ -736,10 +734,6 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         openFile.Actors.AddRange(sorted);
         Actors.AddRange(sorted);
         RenderContext.LoadActors(sorted);
-        foreach (ActorProxy actor in sorted)
-        {
-            AddActorToVisibleSetByDefault(actor);
-        }
 
         if (isFirstFile)
         {
@@ -777,7 +771,6 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         Actors.Clear();
         _visibleActorSet.Clear();
         _explicitlyHiddenVisibleSetClasses.Clear();
-        _loadedVisibleSetKnownActorKeys.Clear();
         UseVisibleSetOnly = false;
         foreach (var file in OpenFiles)
         {
@@ -925,7 +918,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
     {
         if (Actors.Remove(actor))
         {
-            RemoveActorFromVisibilityTracking(actor);
+            _visibleActorSet.Remove(GetActorVisibilityKey(actor));
             actor.Detach();
             actor.OwningFile?.Actors.Remove(actor);
             RenderContext.RemoveActor(actor);
@@ -945,8 +938,6 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
             {
                 Actors.Sort(a => a.Export.UIndex);
             }
-
-            AddActorToVisibleSetByDefault(actor);
         }
     }
 
@@ -1441,63 +1432,6 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
     private static bool IsVisibleSetCandidate(ActorProxy actor)
     {
         return true;
-    }
-
-    private bool IsActorCategoryEnabled(ActorProxy actor)
-    {
-        if (actor.IsLight) return ShowLights;
-        if (actor.IsVolume) return ShowVolumes;
-        if (actor.IsVolumetricMesh) return ShowVolumetrics;
-        if (actor.IsEmitter) return ShowEmitters;
-        if (actor.IsLocationActor) return ShowLocationActors;
-        if (actor.IsAmbientSound) return ShowSoundPositions;
-        if (actor.IsCinematicActor) return ShowCinematicActors;
-        if (actor.IsDecalActor) return ShowDecalActors;
-        return true;
-    }
-
-    private void AddActorToVisibleSetByDefault(ActorProxy actor)
-    {
-        if (actor is null || !IsVisibleSetCandidate(actor))
-        {
-            return;
-        }
-
-        string key = GetActorVisibilityKey(actor);
-        if (_visibleActorSet.Contains(key) || _loadedVisibleSetKnownActorKeys.Contains(key))
-        {
-            return;
-        }
-
-        if (!IsActorCategoryEnabled(actor)
-            || _explicitlyHiddenVisibleSetClasses.Contains(actor.Export.ClassName))
-        {
-            _loadedVisibleSetKnownActorKeys.Add(key);
-            return;
-        }
-
-        _visibleActorSet.Add(key);
-        _loadedVisibleSetKnownActorKeys.Add(key);
-    }
-
-    private void RemoveActorFromVisibilityTracking(ActorProxy actor)
-    {
-        if (actor is null)
-        {
-            return;
-        }
-
-        string key = GetActorVisibilityKey(actor);
-        _visibleActorSet.Remove(key);
-        _loadedVisibleSetKnownActorKeys.Remove(key);
-    }
-
-    private void ApplyDefaultVisibilityForNewActors()
-    {
-        foreach (ActorProxy actor in Actors)
-        {
-            AddActorToVisibleSetByDefault(actor);
-        }
     }
 
     private void SyncCategoryWithVisibleSetWhenActive(bool isEnabled, Func<ActorProxy, bool> predicate)
@@ -2845,7 +2779,6 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
             HasUserEditedVisibleSets = _hasUserEditedVisibleSets,
             VisibleSetDistance = VisibleSetDistance,
             VisibleActorKeys = _visibleActorSet.ToList(),
-            KnownActorKeys = Actors.Where(IsVisibleSetCandidate).Select(GetActorVisibilityKey).ToList(),
             HiddenActorClasses = _explicitlyHiddenVisibleSetClasses.ToList(),
             ShowLights = ShowLights,
             LightRenderDistance = LightRenderDistance,
@@ -2880,9 +2813,6 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
 
         VisibleSetDistance = viewState.VisibleSetDistance;
         _hasUserEditedVisibleSets = viewState.HasUserEditedVisibleSets;
-        _loadedVisibleSetKnownActorKeys = viewState.KnownActorKeys is null
-            ? Actors.Where(IsVisibleSetCandidate).Select(GetActorVisibilityKey).ToHashSet()
-            : viewState.KnownActorKeys.ToHashSet();
         _explicitlyHiddenVisibleSetClasses.Clear();
         if (viewState.HiddenActorClasses is { Count: > 0 })
         {
@@ -2893,8 +2823,6 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         {
             _visibleActorSet.UnionWith(viewState.VisibleActorKeys);
         }
-
-        ApplyDefaultVisibilityForNewActors();
 
         ObjectRenderMode = viewState.ObjectRenderMode;
         UseVisibleSetOnly = viewState.UseVisibleSetOnly;
