@@ -1438,6 +1438,11 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
 
     private void SyncCategoryWithVisibleSetWhenActive(bool isEnabled, Func<ActorProxy, bool> predicate)
     {
+        if (_suppressDisplayFilterVisibleSetSync)
+        {
+            return;
+        }
+
         if (!(UseVisibleSetOnly || ObjectRenderMode is ObjectRenderMode.VisibleSetOnly))
         {
             return;
@@ -2061,7 +2066,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
             int reselectUIndex = 0;
             (Vector3, float, float) savedCamPOV = default;
             Vector3 savedActorPos = default;
-            List<ExportEntry> collectionActorsToUpdate = [];
+            HashSet<int> collectionActorUIndexesToUpdate = [];
             for (int i = file.Actors.Count - 1; i >= 0; i--)
             {
                 ActorProxy alteredActor = file.Actors[i];
@@ -2081,7 +2086,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
                     }
                     if (alteredActor is CollectionActorComponentProxy cacp)
                     {
-                        collectionActorsToUpdate.Add(cacp.Export);
+                        collectionActorUIndexesToUpdate.Add(cacp.CollectionActorExport.UIndex);
                         continue;
                     }
                     RemoveActor(alteredActor);
@@ -2097,11 +2102,12 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
                     }
                 }
             }
-            foreach (var collectionActor in collectionActorsToUpdate)
+            foreach (int collectionActorUIndex in collectionActorUIndexesToUpdate)
             {
                 for (int i = file.Actors.Count - 1; i >= 0; i--)
                 {
-                    if (file.Actors[i] is CollectionActorComponentProxy)
+                    if (file.Actors[i] is CollectionActorComponentProxy cacp
+                        && cacp.CollectionActorExport.UIndex == collectionActorUIndex)
                     {
                         string actorVisibilityKey = GetActorVisibilityKey(file.Actors[i]);
                         if (_visibleActorSet.Contains(actorVisibilityKey))
@@ -2111,7 +2117,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
                         RemoveActor(file.Actors[i]);
                     }
                 }
-                if (file.Package.GetEntry(collectionActor.UIndex) is ExportEntry newCollectionActor)
+                if (file.Package.GetEntry(collectionActorUIndex) is ExportEntry newCollectionActor)
                 {
                     string className = newCollectionActor.ClassName;
                     if (className is "StaticMeshCollectionActor")
@@ -2125,6 +2131,24 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
                                 smcActor.OwningFile = file;
                                 AddActor(smcActor, false);
                                 string actorVisibilityKey = GetActorVisibilityKey(smcActor);
+                                if (preservedVisibleActorKeys.Contains(actorVisibilityKey))
+                                {
+                                    _visibleActorSet.Add(actorVisibilityKey);
+                                }
+                            }
+                        }
+                    }
+                    else if (className is "StaticLightCollectionActor")
+                    {
+                        var slca = newCollectionActor.GetBinaryData<StaticLightCollectionActor>();
+                        for (int i = 0; i < slca.Components.Count; i++)
+                        {
+                            if (file.Package.TryGetUExport(slca.Components[i], out ExportEntry lightComponentExport))
+                            {
+                                var lightActor = new StaticLightComponentActorProxy(this, lightComponentExport, slca, i);
+                                lightActor.OwningFile = file;
+                                AddActor(lightActor, false);
+                                string actorVisibilityKey = GetActorVisibilityKey(lightActor);
                                 if (preservedVisibleActorKeys.Contains(actorVisibilityKey))
                                 {
                                     _visibleActorSet.Add(actorVisibilityKey);
@@ -2157,6 +2181,10 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         (Vector3, float, float) savedCamPOV = default;
         Vector3 savedActorPos = default;
         int reselectUIndex = 0;
+        HashSet<string> existingFileActorKeys = file.Actors.Select(GetActorVisibilityKey).ToHashSet();
+        HashSet<string> preservedVisibleActorKeys = existingFileActorKeys
+            .Where(_visibleActorSet.Contains)
+            .ToHashSet();
         if (SelectedActor is not null && file.Actors.Contains(SelectedActor))
         {
             savedCamPOV = (RenderContext.Camera.Position, RenderContext.Camera.Pitch, RenderContext.Camera.Yaw);
@@ -2181,6 +2209,16 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         Actors.AddRange(sorted);
         RenderContext.LoadActors(sorted);
 
+        _visibleActorSet.ExceptWith(existingFileActorKeys);
+        foreach (var actor in sorted)
+        {
+            string actorVisibilityKey = GetActorVisibilityKey(actor);
+            if (preservedVisibleActorKeys.Contains(actorVisibilityKey))
+            {
+                _visibleActorSet.Add(actorVisibilityKey);
+            }
+        }
+
         if (reselectUIndex is not 0)
         {
             var reselect = Actors.FirstOrDefault(a => a.Export.UIndex == reselectUIndex && a.Export.FileRef == file.Package);
@@ -2193,6 +2231,11 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         }
 
         file.IsDirty = false;
+
+        if (UseVisibleSetOnly || ObjectRenderMode is ObjectRenderMode.VisibleSetOnly)
+        {
+            SyncDisplayFiltersWithVisibleSet();
+        }
     }
 
     #endregion
