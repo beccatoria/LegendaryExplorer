@@ -1528,6 +1528,27 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         }
     }
 
+    private void RefreshVisibleSetDisplay(bool ensureVisibleSetOnly)
+    {
+        if (ensureVisibleSetOnly)
+        {
+            if (ObjectRenderMode is not ObjectRenderMode.VisibleSetOnly)
+            {
+                ObjectRenderMode = ObjectRenderMode.VisibleSetOnly;
+            }
+            else
+            {
+                UseVisibleSetOnly = true;
+            }
+        }
+
+        if (UseVisibleSetOnly || ObjectRenderMode is ObjectRenderMode.VisibleSetOnly)
+        {
+            SceneViewer.SetShouldRender(false);
+            SceneViewer.SetShouldRender(true);
+        }
+    }
+
     private void SyncDisplayFiltersWithVisibleSet()
     {
         bool IsVisible(ActorProxy actor) => _visibleActorSet.Contains(GetActorVisibilityKey(actor));
@@ -1573,7 +1594,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         _hasUserEditedVisibleSets = true;
         _visibleActorSet.Add(GetActorVisibilityKey(SelectedActor));
         EnableDisplayFilterForActorType(SelectedActor);
-        ObjectRenderMode = ObjectRenderMode.VisibleSetOnly;
+        RefreshVisibleSetDisplay(ensureVisibleSetOnly: true);
     }
 
     private void RemoveSelectedFromVisibleSet()
@@ -1582,6 +1603,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         EnsureVisibleSetInitializedForPreModeRemoval();
         _hasUserEditedVisibleSets = true;
         _visibleActorSet.Remove(GetActorVisibilityKey(SelectedActor));
+        RefreshVisibleSetDisplay(ensureVisibleSetOnly: false);
     }
 
     private void ShowOnlySelected()
@@ -1602,7 +1624,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         {
             ShowVolumetrics = true;
         }
-        ObjectRenderMode = ObjectRenderMode.VisibleSetOnly;
+        RefreshVisibleSetDisplay(ensureVisibleSetOnly: true);
     }
 
     private void AddSelectedClassToVisibleSet()
@@ -1624,7 +1646,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         {
             ShowVolumetrics = true;
         }
-        ObjectRenderMode = ObjectRenderMode.VisibleSetOnly;
+        RefreshVisibleSetDisplay(ensureVisibleSetOnly: true);
     }
 
     private void RemoveSelectedClassFromVisibleSet()
@@ -1638,6 +1660,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         {
             _visibleActorSet.Remove(GetActorVisibilityKey(actor));
         }
+        RefreshVisibleSetDisplay(ensureVisibleSetOnly: false);
     }
 
     private void EnsureVisibleSetInitializedForPreModeRemoval()
@@ -1662,7 +1685,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         float maxDistanceSq = VisibleSetDistance * VisibleSetDistance;
         AddActorsToVisibleSet(Actors.Where(actor => IsMeshFilterCandidate(actor)
                                                      && Vector3.DistanceSquared(actor.Location, cameraPosition) <= maxDistanceSq));
-        ObjectRenderMode = ObjectRenderMode.VisibleSetOnly;
+        RefreshVisibleSetDisplay(ensureVisibleSetOnly: true);
     }
 
     private void ShowOnlyNearby()
@@ -1678,7 +1701,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         float maxDistanceSq = VisibleSetDistance * VisibleSetDistance;
         AddActorsToVisibleSet(Actors.Where(actor => IsMeshFilterCandidate(actor)
                                                      && Vector3.DistanceSquared(actor.Location, cameraPosition) <= maxDistanceSq));
-        UseVisibleSetOnly = true;
+        RefreshVisibleSetDisplay(ensureVisibleSetOnly: true);
     }
 
     private void InitializeVisibleSetToAll()
@@ -1761,8 +1784,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         }
 
         SyncDisplayFiltersWithVisibleSet();
-
-        ObjectRenderMode = ObjectRenderMode.VisibleSetOnly;
+        RefreshVisibleSetDisplay(ensureVisibleSetOnly: true);
     }
 
     private void ClearVisibleSet()
@@ -1770,6 +1792,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         _hasUserEditedVisibleSets = true;
         _visibleActorSet.Clear();
         SyncDisplayFiltersWithVisibleSet();
+        RefreshVisibleSetDisplay(ensureVisibleSetOnly: false);
     }
 
     private void ShowAllMeshes()
@@ -1779,6 +1802,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         _explicitlyHiddenVisibleSetClasses.Clear();
         AddActorsToVisibleSet(Actors.Where(IsVisibleSetCandidate));
         SyncDisplayFiltersWithVisibleSet();
+        RefreshVisibleSetDisplay(ensureVisibleSetOnly: false);
     }
 
     #endregion
