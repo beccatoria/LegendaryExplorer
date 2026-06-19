@@ -66,6 +66,7 @@
         <KeyBinding Key="S" Modifiers="Control+Shift" Command="{Binding SaveAsCommand}"/>
         <KeyBinding Key="Z" Modifiers="Control" Command="{Binding UndoCommand}"/>
         <KeyBinding Key="Y" Modifiers="Control" Command="{Binding RedoCommand}"/>
+        <KeyBinding Key="V" Modifiers="Control" Command="{Binding ToggleSelectedActorVisibilityCommand}"/>
         <KeyBinding Key="G" Modifiers="Control" Command="{Binding GroupSelectedActorsCommand}"/>
         <KeyBinding Key="G" Modifiers="Control+Shift" Command="{Binding UngroupActorsCommand}"/>
     </Window.InputBindings>
@@ -323,8 +324,8 @@
                                 <MenuItem Header="Open in Package Editor" Command="{Binding Data.OpenInPackageEditorCommand, Source={StaticResource bindingProxy}}"/>
                                 <Separator/>
                                 <MenuItem Header="Show Only This Actor" Command="{Binding Data.ShowOnlySelectedCommand, Source={StaticResource bindingProxy}}"/>
-                                <MenuItem Header="Add This Actor to Visible Set" Command="{Binding Data.AddSelectedToVisibleSetCommand, Source={StaticResource bindingProxy}}"/>
-                                <MenuItem Header="Remove This Actor from Visible Set" Command="{Binding Data.RemoveSelectedFromVisibleSetCommand, Source={StaticResource bindingProxy}}"/>
+                                <MenuItem Header="Add This Actor to Visible Set" Command="{Binding Data.AddSelectedToVisibleSetCommand, Source={StaticResource bindingProxy}}" InputGestureText="Ctrl+V (Toggle)" ToolTip="Adds selected actor to the visible set. Ctrl+V toggles add/remove based on current state."/>
+                                <MenuItem Header="Remove This Actor from Visible Set" Command="{Binding Data.RemoveSelectedFromVisibleSetCommand, Source={StaticResource bindingProxy}}" InputGestureText="Ctrl+V (Toggle)" ToolTip="Removes selected actor from the visible set. Ctrl+V toggles add/remove based on current state."/>
                                 <Separator/>
                                 <MenuItem Header="Show Only This Class" Command="{Binding Data.ShowOnlySelectedClassCommand, Source={StaticResource bindingProxy}}"/>
                                 <MenuItem Header="Add This Class to Visible Set" Command="{Binding Data.AddSelectedClassToVisibleSetCommand, Source={StaticResource bindingProxy}}"/>

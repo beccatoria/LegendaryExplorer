@@ -966,6 +966,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
     public ICommand RedoCommand { get; set; }
     public ICommand ToggleOrthoViewCommand { get; set; }
     public ICommand ToggleVisibleSetOnlyCommand { get; set; }
+    public ICommand ToggleSelectedActorVisibilityCommand { get; set; }
     public ICommand AddSelectedToVisibleSetCommand { get; set; }
     public ICommand RemoveSelectedFromVisibleSetCommand { get; set; }
     public ICommand ShowOnlySelectedCommand { get; set; }
@@ -1020,6 +1021,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         RedoCommand = new GenericCommand(Redo, () => UndoHistory.CanRedo);
         ToggleOrthoViewCommand = new GenericCommand(() => IsOrthographicView = !IsOrthographicView, CanUseSingleKeyShortcut);
         ToggleVisibleSetOnlyCommand = new GenericCommand(() => UseVisibleSetOnly = !UseVisibleSetOnly, PackageIsLoaded);
+        ToggleSelectedActorVisibilityCommand = new GenericCommand(ToggleSelectedActorVisibility, () => PackageIsLoaded() && SelectedActor is not null && CanUseSingleKeyShortcut());
         AddSelectedToVisibleSetCommand = new GenericCommand(AddSelectedToVisibleSet, () => PackageIsLoaded() && SelectedActor is not null);
         RemoveSelectedFromVisibleSetCommand = new GenericCommand(RemoveSelectedFromVisibleSet, () => PackageIsLoaded() && SelectedActor is not null);
         ShowOnlySelectedCommand = new GenericCommand(ShowOnlySelected, () => PackageIsLoaded() && SelectedActor is not null);
@@ -1531,6 +1533,24 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         RefreshVisibleSetDisplay(ensureVisibleSetOnly: true);
     }
 
+    private void ToggleSelectedActorVisibility()
+    {
+        if (SelectedActor is null)
+        {
+            return;
+        }
+
+        string selectedActorVisibilityKey = GetActorVisibilityKey(SelectedActor);
+        if (_visibleActorSet.Contains(selectedActorVisibilityKey))
+        {
+            RemoveSelectedFromVisibleSet();
+        }
+        else
+        {
+            AddSelectedToVisibleSet();
+        }
+    }
+
     private void RemoveSelectedFromVisibleSet()
     {
         if (SelectedActor is null) return;
@@ -2030,6 +2050,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
 
         IEnumerable<PackageUpdate> relevantUpdates = updates.Where(x => x.Change.Has(PackageChange.Export));
         HashSet<int> updatedExports = relevantUpdates.Select(x => x.Index).ToHashSet();
+        HashSet<string> preservedVisibleActorKeys = [];
         if (updatedExports.Contains(file.LevelExport.UIndex))
         {
             ReloadFile(file);
@@ -2047,6 +2068,11 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
                 if (alteredActor.TestUIndexes(updatedExports))
                 {
                     updated = true;
+                    string actorVisibilityKey = GetActorVisibilityKey(alteredActor);
+                    if (_visibleActorSet.Contains(actorVisibilityKey))
+                    {
+                        preservedVisibleActorKeys.Add(actorVisibilityKey);
+                    }
                     if (alteredActor == SelectedActor)
                     {
                         reselectUIndex = alteredActor.Export.UIndex;
@@ -2064,6 +2090,10 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
                     {
                         actorProxy.OwningFile = file;
                         AddActor(actorProxy);
+                        if (preservedVisibleActorKeys.Contains(actorVisibilityKey))
+                        {
+                            _visibleActorSet.Add(actorVisibilityKey);
+                        }
                     }
                 }
             }
@@ -2073,6 +2103,11 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
                 {
                     if (file.Actors[i] is CollectionActorComponentProxy)
                     {
+                        string actorVisibilityKey = GetActorVisibilityKey(file.Actors[i]);
+                        if (_visibleActorSet.Contains(actorVisibilityKey))
+                        {
+                            preservedVisibleActorKeys.Add(actorVisibilityKey);
+                        }
                         RemoveActor(file.Actors[i]);
                     }
                 }
@@ -2089,6 +2124,11 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
                                 var smcActor = new StaticMeshComponentActorProxy(this, smcExport, smca, i);
                                 smcActor.OwningFile = file;
                                 AddActor(smcActor, false);
+                                string actorVisibilityKey = GetActorVisibilityKey(smcActor);
+                                if (preservedVisibleActorKeys.Contains(actorVisibilityKey))
+                                {
+                                    _visibleActorSet.Add(actorVisibilityKey);
+                                }
                             }
                         }
                     }
