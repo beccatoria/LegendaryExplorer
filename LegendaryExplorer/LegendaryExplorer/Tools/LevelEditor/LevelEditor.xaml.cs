@@ -122,7 +122,14 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
     public bool HasAnyFileOpen
     {
         get => _hasAnyFileOpen;
-        private set => SetProperty(ref _hasAnyFileOpen, value);
+        private set
+        {
+            if (SetProperty(ref _hasAnyFileOpen, value))
+            {
+                OnPropertyChanged(nameof(CanGroupSelectedActors));
+                OnPropertyChanged(nameof(CanReselectGroup));
+            }
+        }
     }
 
     private MEGame _game = MEGame.Unknown;
@@ -134,10 +141,11 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
 
     private ActorProxy selectedActor;
     private bool _suppressSelectionFocus;
+    private int _selectionFocusSuppressionDepth;
     private bool _isApplyingGroupMove;
     private bool _isUpdatingGroupSelection;
+    private int _groupableSelectionCount;
     private ActorTransformGroup _activeTransformGroup;
-    private Vector3 _groupOffset;
 
     public ActorTransformGroup ActiveTransformGroup
     {
@@ -148,42 +156,56 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
             {
                 OnPropertyChanged(nameof(HasActiveTransformGroup));
                 OnPropertyChanged(nameof(ActiveTransformGroupSummary));
+                OnPropertyChanged(nameof(CanReselectGroup));
                 CommandManager.InvalidateRequerySuggested();
             }
         }
     }
 
     public bool HasActiveTransformGroup => ActiveTransformGroup is not null;
+    public bool CanReselectGroup => PackageIsLoaded() && HasActiveTransformGroup;
+    public bool CanGroupSelectedActors => PackageIsLoaded() && _groupableSelectionCount >= 2;
 
-    public string ActiveTransformGroupSummary => ActiveTransformGroup is null
-        ? "No active group"
-        : $"{ActiveTransformGroup.Name}: {ActiveTransformGroup.Members.Count} actors (Lead: {ActiveTransformGroup.LeadActor.Export.ObjectName.Instanced})";
-
-    public float GroupOffsetX
+    public string ActiveTransformGroupSummary
     {
-        get => _groupOffset.X;
-        set => SetGroupOffsetComponent(value, 0);
+        get
+        {
+            if (ActiveTransformGroup is null)
+            {
+                return "No active group";
+            }
+
+            string header = $"{ActiveTransformGroup.Name}: {ActiveTransformGroup.Members.Count} actors (Lead: [{ActiveTransformGroup.LeadActor.Export.UIndex}] {ActiveTransformGroup.LeadActor.Export.ObjectName.Instanced})";
+            string members = string.Join("\n", ActiveTransformGroup.Members
+                .Where(actor => actor is not null)
+                .Where(actor => !ReferenceEquals(actor, ActiveTransformGroup.LeadActor))
+                .Select(actor => $"  [{actor.Export.UIndex}] {actor.Export.ObjectName.Instanced}"));
+
+            return string.IsNullOrEmpty(members) ? header : $"{header}\n{members}";
+        }
     }
 
-    public float GroupOffsetY
-    {
-        get => _groupOffset.Y;
-        set => SetGroupOffsetComponent(value, 1);
-    }
-
-    public float GroupOffsetZ
-    {
-        get => _groupOffset.Z;
-        set => SetGroupOffsetComponent(value, 2);
-    }
     public ActorProxy SelectedActor
     {
         get => selectedActor;
         set
         {
-            bool shouldFocus = !_suppressSelectionFocus;
+            bool shouldFocus = false;
             _suppressSelectionFocus = false;
             SelectActor(value, shouldFocus);
+        }
+    }
+
+    private void RunWithoutSelectionFocus(Action action)
+    {
+        _selectionFocusSuppressionDepth++;
+        try
+        {
+            action();
+        }
+        finally
+        {
+            _selectionFocusSuppressionDepth--;
         }
     }
 
@@ -594,8 +616,73 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
 
     private void ViewportActorSelect(ActorProxy actor)
     {
-        SelectActor(actor, false);
-        MeshExportsList.ScrollIntoView(selectedActor);
+        if (actor is null)
+        {
+            return;
+        }
+
+        bool addToSelection = RenderContext.LastActorSelectionWasAdditive;
+
+        if (MeshExportsList is null)
+        {
+            SelectActor(actor, false);
+            return;
+        }
+
+        RunWithoutSelectionFocus(() =>
+        {
+            List<ActorProxy> selectedActors = MeshExportsList.SelectedItems.OfType<ActorProxy>().ToList();
+
+            if (addToSelection)
+            {
+                if (selectedActors.Contains(actor))
+                {
+                    selectedActors.Remove(actor);
+                }
+                else
+                {
+                    selectedActors.Add(actor);
+                }
+            }
+            else
+            {
+                selectedActors.Clear();
+                selectedActors.Add(actor);
+            }
+
+            ActorProxy nextSelectedActor;
+            if (!addToSelection)
+            {
+                nextSelectedActor = actor;
+            }
+            else if (selectedActors.Count is 0)
+            {
+                nextSelectedActor = null;
+            }
+            else if (selectedActors.Contains(actor))
+            {
+                nextSelectedActor = actor;
+            }
+            else
+            {
+                nextSelectedActor = selectedActors.Last();
+            }
+
+            MeshExportsList.SelectedItems.Clear();
+            foreach (ActorProxy selected in selectedActors)
+            {
+                MeshExportsList.SelectedItems.Add(selected);
+            }
+
+            SelectedActor = nextSelectedActor;
+            if (nextSelectedActor is not null)
+            {
+                MeshExportsList.ScrollIntoView(nextSelectedActor);
+            }
+
+            UpdateGroupableSelectionCount();
+            InvalidateSelectionCommands();
+        });
     }
 
     private void SelectActor(ActorProxy actor, bool focus)
@@ -980,7 +1067,6 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
     public ICommand OpenVisibleSetsManagerCommand { get; set; }
     public ICommand GroupSelectedActorsCommand { get; set; }
     public ICommand UngroupActorsCommand { get; set; }
-    public ICommand ApplyGroupOffsetCommand { get; set; }
     public ICommand ReselectGroupCommand { get; set; }
     private void LoadCommands()
     {
@@ -1035,8 +1121,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         OpenVisibleSetsManagerCommand = new GenericCommand(OpenVisibleSetsManager, PackageIsLoaded);
         GroupSelectedActorsCommand = new GenericCommand(CreateActorGroupFromSelection, () => PackageIsLoaded() && GetGroupableSelectedActors().Count >= 2);
         UngroupActorsCommand = new GenericCommand(UngroupActors, () => PackageIsLoaded() && HasActiveTransformGroup);
-        ApplyGroupOffsetCommand = new GenericCommand(ApplyGroupOffset, () => PackageIsLoaded() && HasActiveTransformGroup && _groupOffset != Vector3.Zero);
-        ReselectGroupCommand = new GenericCommand(ReselectActiveGroup, () => PackageIsLoaded() && HasActiveTransformGroup && MeshExportsList is not null);
+        ReselectGroupCommand = new GenericCommand(ReselectActiveGroup, () => PackageIsLoaded() && HasActiveTransformGroup);
     }
 
     #endregion
@@ -1120,25 +1205,6 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         return null;
     }
 
-    private void SetGroupOffsetComponent(float value, int componentIndex)
-    {
-        Vector3 next = componentIndex switch
-        {
-            0 => _groupOffset with { X = value },
-            1 => _groupOffset with { Y = value },
-            2 => _groupOffset with { Z = value },
-            _ => _groupOffset
-        };
-
-        if (SetProperty(ref _groupOffset, next))
-        {
-            OnPropertyChanged(nameof(GroupOffsetX));
-            OnPropertyChanged(nameof(GroupOffsetY));
-            OnPropertyChanged(nameof(GroupOffsetZ));
-            CommandManager.InvalidateRequerySuggested();
-        }
-    }
-
     private List<ActorProxy> GetGroupableSelectedActors()
     {
         if (MeshExportsList is null)
@@ -1151,6 +1217,23 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
             .Where(actor => !actor.IsReadOnly)
             .Distinct()
             .ToList();
+    }
+
+    private void UpdateGroupableSelectionCount()
+    {
+        _groupableSelectionCount = GetGroupableSelectedActors().Count;
+        OnPropertyChanged(nameof(CanGroupSelectedActors));
+    }
+
+    private void InvalidateSelectionCommands()
+    {
+        if (Dispatcher.CheckAccess())
+        {
+            CommandManager.InvalidateRequerySuggested();
+            return;
+        }
+
+        Dispatcher.BeginInvoke((Action)CommandManager.InvalidateRequerySuggested);
     }
 
     private void CreateActorGroupFromSelection()
@@ -1167,9 +1250,6 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
             : members[0];
 
         ActiveTransformGroup = new ActorTransformGroup($"Group {DateTime.Now:HHmmss}", lead, members);
-        SetGroupOffsetComponent(0, 0);
-        SetGroupOffsetComponent(0, 1);
-        SetGroupOffsetComponent(0, 2);
         _suppressSelectionFocus = true;
         SelectedActor = lead;
         RenderContext.TransformWidget.Attach = lead;
@@ -1178,9 +1258,6 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
     private void UngroupActors()
     {
         ActiveTransformGroup = null;
-        SetGroupOffsetComponent(0, 0);
-        SetGroupOffsetComponent(0, 1);
-        SetGroupOffsetComponent(0, 2);
     }
 
     private void ReselectActiveGroup()
@@ -1247,61 +1324,6 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         else
         {
             OnPropertyChanged(nameof(ActiveTransformGroupSummary));
-        }
-    }
-
-    private void ApplyGroupOffset()
-    {
-        if (ActiveTransformGroup is null || _groupOffset == Vector3.Zero)
-        {
-            return;
-        }
-
-        ApplyGroupLocationDelta(_groupOffset, "Move grouped actors");
-        SetGroupOffsetComponent(0, 0);
-        SetGroupOffsetComponent(0, 1);
-        SetGroupOffsetComponent(0, 2);
-    }
-
-    private void ApplyGroupLocationDelta(Vector3 delta, string description)
-    {
-        if (ActiveTransformGroup is null || delta == Vector3.Zero)
-        {
-            return;
-        }
-
-        var entries = new List<(ActorProxy Actor, TransformSnapshot Before, TransformSnapshot After)>();
-        try
-        {
-            _isApplyingGroupMove = true;
-            foreach (var actor in ActiveTransformGroup.Members)
-            {
-                if (actor is null || actor.IsReadOnly || !Actors.Contains(actor))
-                {
-                    continue;
-                }
-
-                TransformSnapshot before = actor.SnapshotTransform();
-                actor.Location = before.Location + delta;
-                TransformSnapshot after = actor.SnapshotTransform();
-                if (!before.Equals(after))
-                {
-                    entries.Add((actor, before, after));
-                }
-            }
-        }
-        finally
-        {
-            _isApplyingGroupMove = false;
-        }
-
-        if (entries.Count > 0)
-        {
-            UndoHistory.Push(new TransformBatchAction(entries, description));
-            if (SelectedActor is not null)
-            {
-                _preEditSnapshot = SelectedActor.SnapshotTransform();
-            }
         }
     }
 
@@ -2377,9 +2399,40 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
 
     private void MeshExportsList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
+        if (sender is ListBox listBox)
+        {
+            List<ActorProxy> selectedActors = listBox.SelectedItems.OfType<ActorProxy>().ToList();
+            ActorProxy primarySelection = selectedActors.LastOrDefault();
+            if (primarySelection is null && listBox.SelectedItem is ActorProxy fallbackSelection)
+            {
+                primarySelection = fallbackSelection;
+            }
+
+            if (!ReferenceEquals(SelectedActor, primarySelection))
+            {
+                _suppressSelectionFocus = true;
+                SelectedActor = primarySelection;
+            }
+        }
+
+        UpdateGroupableSelectionCount();
+
         if (_isUpdatingGroupSelection)
         {
             return;
+        }
+
+        if (ActiveTransformGroup is not null)
+        {
+            List<ActorProxy> selectedGroupableActors = GetGroupableSelectedActors();
+            if (selectedGroupableActors.Count >= 2)
+            {
+                ActorProxy leadActor = SelectedActor is not null && selectedGroupableActors.Contains(SelectedActor)
+                    ? SelectedActor
+                    : selectedGroupableActors[0];
+                ActiveTransformGroup = new ActorTransformGroup(ActiveTransformGroup.Name, leadActor, selectedGroupableActors);
+                RenderContext.TransformWidget.Attach = leadActor;
+            }
         }
 
         ReevaluateActiveGroup();
@@ -2392,7 +2445,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
             RenderContext.TransformWidget.Attach = SelectedActor;
         }
 
-        CommandManager.InvalidateRequerySuggested();
+        InvalidateSelectionCommands();
     }
 
     private void MeshExportsList_MouseDoubleClick(object sender, MouseButtonEventArgs e)

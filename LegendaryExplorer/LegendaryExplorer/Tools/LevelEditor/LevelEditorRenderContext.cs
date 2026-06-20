@@ -21,6 +21,7 @@ namespace LegendaryExplorer.Tools.LevelEditor;
 public class LevelEditorRenderContext : MeshRenderContext
 {
     public event Action<ActorProxy> SelectActor;
+    public bool LastActorSelectionWasAdditive { get; private set; }
     public List<ActorProxy> DrawList_3D = [];
     public List<UIElement> DrawList_UI = [];
 
@@ -40,6 +41,7 @@ public class LevelEditorRenderContext : MeshRenderContext
     public bool ShowDecalActors;
 
     private bool IsReadOnly;
+    private bool _ctrlSelectionLatched;
 
     public LevelEditorRenderContext(bool readOnly = false) : base()
     {
@@ -68,20 +70,29 @@ public class LevelEditorRenderContext : MeshRenderContext
             switch (selected)
             {
                 case ActorProxy actor:
+                    LastActorSelectionWasAdditive = button is MouseButtons.Left && _ctrlSelectionLatched;
                     SelectActor?.Invoke(actor);
                     TransformWidget.Attach = actor;
                     break;
                 case AxisHitProxy axisProxy:
+                    LastActorSelectionWasAdditive = false;
                     TransformWidget.CurrentAxis = axisProxy.Axis;
+                    break;
+                default:
+                    LastActorSelectionWasAdditive = false;
                     break;
             }
         }
+
+        _ctrlSelectionLatched = false;
 
         return false;
     }
 
     public override bool MouseDown(MouseButtons button, int x, int y)
     {
+        _ctrlSelectionLatched = button is MouseButtons.Left && IsCtrlSelectionModifierDown();
+
         if (TransformWidget.IsDragging)
         {
             //failsafe if mouseup event was not captured
@@ -104,6 +115,16 @@ public class LevelEditorRenderContext : MeshRenderContext
             }
         }
         return base.MouseDown(button, x, y);
+    }
+
+    private static bool IsCtrlSelectionModifierDown()
+    {
+        if (Keyboard.IsKeyDown(Key.LeftCtrl) || Keyboard.IsKeyDown(Key.RightCtrl))
+        {
+            return true;
+        }
+
+        return (System.Windows.Forms.Control.ModifierKeys & System.Windows.Forms.Keys.Control) != 0;
     }
 
     public override bool MouseMove(int x, int y)
