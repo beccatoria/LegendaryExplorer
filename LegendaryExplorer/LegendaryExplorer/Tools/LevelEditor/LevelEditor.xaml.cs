@@ -1327,12 +1327,6 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         }
     }
 
-    private static Rotator AddRotator(Rotator left, Rotator right)
-        => new(left.Pitch + right.Pitch, left.Yaw + right.Yaw, left.Roll + right.Roll);
-
-    private static Rotator SubtractRotator(Rotator left, Rotator right)
-        => new(left.Pitch - right.Pitch, left.Yaw - right.Yaw, left.Roll - right.Roll);
-
     private static float ApplyScaleDelta(float memberValue, float leadBefore, float leadAfter)
     {
         if (leadBefore != 0f)
@@ -1370,8 +1364,16 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         bool drawScale3DChanged = before.DrawScale3D != after.DrawScale3D;
 
         Vector3 locationDelta = after.Location - before.Location;
-        Rotator rotationDelta = SubtractRotator(after.Rotation, before.Rotation);
-        System.Numerics.Quaternion rotationDeltaQuat = rotationChanged ? rotationDelta.ToQuaternion() : System.Numerics.Quaternion.Identity;
+        Matrix4x4 rotationDeltaMatrix = Matrix4x4.Identity;
+        if (rotationChanged)
+        {
+            Matrix4x4 beforeRotationMatrix = before.Rotation.ToRotationMatrix();
+            Matrix4x4 afterRotationMatrix = after.Rotation.ToRotationMatrix();
+            if (Matrix4x4.Invert(beforeRotationMatrix, out Matrix4x4 beforeRotationInverse))
+            {
+                rotationDeltaMatrix = beforeRotationInverse * afterRotationMatrix;
+            }
+        }
 
         var entries = new List<(ActorProxy Actor, TransformSnapshot Before, TransformSnapshot After)>
         {
@@ -1398,7 +1400,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
                     if (rotationChanged)
                     {
                         Vector3 relativeToLead = memberBefore.Location - before.Location;
-                        memberLocation = before.Location + Vector3.Transform(relativeToLead, rotationDeltaQuat);
+                        memberLocation = before.Location + Vector3.Transform(relativeToLead, rotationDeltaMatrix);
                     }
 
                     if (locationChanged)
@@ -1411,7 +1413,8 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
 
                 if (rotationChanged)
                 {
-                    member.Rotation = AddRotator(memberBefore.Rotation, rotationDelta);
+                    Matrix4x4 memberRotationMatrix = memberBefore.Rotation.ToRotationMatrix();
+                    member.Rotation = (memberRotationMatrix * rotationDeltaMatrix).GetRotator();
                 }
 
                 if (drawScaleChanged)
