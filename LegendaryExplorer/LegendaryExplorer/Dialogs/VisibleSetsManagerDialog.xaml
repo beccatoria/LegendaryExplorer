@@ -14,6 +14,9 @@
                 <ToggleButton Content="Add All" Click="AddAll_Click" Padding="10,3" Margin="0,0,6,0" ToolTip="Move all classes to visible"/>
                 <ToggleButton Content="Clear All" Click="ClearAll_Click" Padding="10,3" ToolTip="Move all classes to hidden"/>
             </StackPanel>
+            <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                <ToggleButton Content="Clear Actor Level Settings" Click="ClearActorLevelSettings_Click" Padding="10,3" ToolTip="Remove per-actor visibility overrides and use class-level visibility only"/>
+            </StackPanel>
         </StackPanel>
         <StackPanel Orientation="Horizontal" DockPanel.Dock="Bottom" HorizontalAlignment="Right" Margin="0,8,0,0">
             <Button Content="OK" Click="OK_Click" IsDefault="True" Padding="20,4" Margin="0,0,5,0"/>

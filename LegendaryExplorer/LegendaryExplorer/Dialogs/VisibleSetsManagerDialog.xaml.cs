@@ -12,6 +12,7 @@ public partial class VisibleSetsManagerDialog : TrackingNotifyPropertyChangedWin
 {
     public ObservableCollectionExtended<string> VisibleClasses { get; } = [];
     public ObservableCollectionExtended<string> HiddenClasses { get; } = [];
+    public bool ClearActorLevelSettingsRequested { get; private set; }
 
     public ObservableCollectionExtended<string> FilteredVisibleClasses { get; } = [];
     public ObservableCollectionExtended<string> FilteredHiddenClasses { get; } = [];
@@ -70,6 +71,16 @@ public partial class VisibleSetsManagerDialog : TrackingNotifyPropertyChangedWin
         VisibleClasses.Sort(x => x);
         RefreshVisibleFilter();
         RefreshHiddenFilter();
+
+        if (sender is ToggleButton toggleButton)
+        {
+            toggleButton.IsChecked = false;
+        }
+    }
+
+    private void ClearActorLevelSettings_Click(object sender, RoutedEventArgs e)
+    {
+        ClearActorLevelSettingsRequested = true;
 
         if (sender is ToggleButton toggleButton)
         {

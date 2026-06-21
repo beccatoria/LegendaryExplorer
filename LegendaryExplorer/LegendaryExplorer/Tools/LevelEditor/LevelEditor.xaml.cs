@@ -1753,17 +1753,20 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
             }
         }
 
-        foreach (ActorProxy actor in Actors)
+        if (!dialog.ClearActorLevelSettingsRequested)
         {
-            string key = GetActorVisibilityKey(actor);
-            bool classIsVisible = desiredVisibleClasses.Contains(actor.Export.ClassName);
-            if (classIsVisible && explicitlyHiddenActorKeys.Contains(key))
+            foreach (ActorProxy actor in Actors)
             {
-                _visibleActorSet.Remove(key);
-            }
-            else if (!classIsVisible && explicitlyVisibleActorKeys.Contains(key))
-            {
-                _visibleActorSet.Add(key);
+                string key = GetActorVisibilityKey(actor);
+                bool classIsVisible = desiredVisibleClasses.Contains(actor.Export.ClassName);
+                if (classIsVisible && explicitlyHiddenActorKeys.Contains(key))
+                {
+                    _visibleActorSet.Remove(key);
+                }
+                else if (!classIsVisible && explicitlyVisibleActorKeys.Contains(key))
+                {
+                    _visibleActorSet.Add(key);
+                }
             }
         }
 
