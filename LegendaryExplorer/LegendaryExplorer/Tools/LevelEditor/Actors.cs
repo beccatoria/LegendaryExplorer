@@ -416,6 +416,7 @@ public class ActorProxy : NotifyPropertyChangedBase, IDisposable, IHitProxy
         "AmbientSound",
         "WwiseMicPosOrient",
         "CameraActor",
+        "SceneCapture2DActor",
         "SceneCaptureReflectActor",
         "ScreenCaptureReflectActor",
         "DecalActor",
@@ -526,6 +527,11 @@ public class ActorProxy : NotifyPropertyChangedBase, IDisposable, IHitProxy
         if (GlobalUnrealObjectInfo.IsA(className, "CameraActor", actorExport.Game))
         {
             return new IconActorProxy(context, actorExport, IconActorCategory.Camera);
+        }
+        if (actorExport.IsA("SceneCapture2DActor")
+            || className.Contains("SceneCapture2DActor", StringComparison.OrdinalIgnoreCase))
+        {
+            return new IconActorProxy(context, actorExport, IconActorCategory.SceneCapture2D);
         }
         if (actorExport.IsA("SceneCaptureReflectActor")
             || actorExport.IsA("ScreenCaptureReflectActor")
@@ -1183,6 +1189,7 @@ public enum IconActorCategory
     AmbientSound,
     WwiseMic,
     Camera,
+    SceneCapture2D,
     Decal,
     MaterialInstance,
     LensFlareLight,
@@ -1222,6 +1229,10 @@ public class IconActorProxy : ActorProxy
                 IsCameraActor = true;
                 IsCinematicActor = true;
                 break;
+            case IconActorCategory.SceneCapture2D:
+                IsCameraActor = true;
+                IsCinematicActor = true;
+                break;
             case IconActorCategory.ScreenCaptureReflect:
                 IsCameraActor = true;
                 IsCinematicActor = true;
@@ -1252,6 +1263,7 @@ public class IconActorProxy : ActorProxy
             IconActorCategory.AmbientSound => new Vector4(0.25f, 0.88f, 1.0f, 1f),
             IconActorCategory.WwiseMic => new Vector4(0.36f, 0.62f, 1.0f, 1f),
             IconActorCategory.Camera => new Vector4(1.0f, 0.92f, 0.18f, 1f),
+            IconActorCategory.SceneCapture2D => new Vector4(0.78f, 0.42f, 1.0f, 1f),
             IconActorCategory.ScreenCaptureReflect => new Vector4(0.32f, 0.78f, 1.0f, 1f),
             IconActorCategory.Decal => new Vector4(0.92f, 0.38f, 1.0f, 1f),
             IconActorCategory.MaterialInstance => new Vector4(0.55f, 0.30f, 1.0f, 1f),
@@ -1269,6 +1281,7 @@ public class IconActorProxy : ActorProxy
             IconActorCategory.Decal => 1.05f,
             IconActorCategory.MaterialInstance => 1.05f,
             IconActorCategory.Camera => 1.12f,
+            IconActorCategory.SceneCapture2D => 1.16f,
             IconActorCategory.ScreenCaptureReflect => 1.14f,
             _ => 1f
         };
@@ -1281,6 +1294,7 @@ public class IconActorProxy : ActorProxy
         }
 
         Matrix4x4 iconTransform = IconCategory == IconActorCategory.ScreenCaptureReflect
+            || IconCategory == IconActorCategory.SceneCapture2D
             ? ActorUtils.ComposeLocalToWorld(Location, Rotation, Vector3.One)
             : Matrix4x4.CreateTranslation(LocalToWorld.Translation);
 
@@ -1308,6 +1322,11 @@ public class IconActorProxy : ActorProxy
             case IconActorCategory.Camera:
                 RenderFilmCameraSilhouette(mesh, radius);
                 break;
+            case IconActorCategory.SceneCapture2D:
+                RenderFilmCameraSilhouette(mesh, radius * 0.92f);
+                var captureFrustumMesh = context.Primitives.BuildMesh(new Vector4(0.70f, 0.45f, 1.0f, 0.34f), HitID, iconTransform);
+                RenderSceneCapture2DFrustum(captureFrustumMesh, radius);
+                break;
             case IconActorCategory.ScreenCaptureReflect:
                 RenderFilmCameraSilhouette(mesh, radius);
                 var coneMesh = context.Primitives.BuildMesh(new Vector4(0.24f, 0.70f, 1.0f, 0.38f), HitID, iconTransform);
@@ -1317,6 +1336,177 @@ public class IconActorProxy : ActorProxy
                 RenderOrb(mesh, radius);
                 break;
         }
+    }
+
+    private void RenderSceneCapture2DFrustum(BatchedPrimitives.MeshBuilder mesh, float radius)
+    {
+        var sourceProps = GetSceneCapture2DSourceProperties();
+
+        float fovDegrees = ReadFloatProperty(sourceProps, "FOVAngle", 90f);
+        float aspect = ReadFloatProperty(sourceProps, "AspectRatio", 1.777f);
+        float nearPlane = ReadFloatProperty(sourceProps, "NearPlane", 10f);
+        float farPlane = ReadFloatProperty(sourceProps, "FarPlane", 2500f);
+        float orthoWidth = ReadFloatProperty(sourceProps, "OrthoWidth", 1024f);
+
+        bool isOrtho = false;
+        if (sourceProps.GetProp<EnumProperty>("ProjectionType") is { } projectionType)
+        {
+            isOrtho = projectionType.Value.Instanced.Contains("Ortho", StringComparison.OrdinalIgnoreCase);
+        }
+        else if (sourceProps.GetProp<BoolProperty>("bUseOrthoProjection") is { } useOrthoProjection)
+        {
+            isOrtho = useOrthoProjection.Value;
+        }
+
+        float clampedAspect = Math.Clamp(aspect, 0.55f, 2.4f);
+        float clampedFov = Math.Clamp(fovDegrees, 12f, 150f);
+
+        float depthScale = farPlane > nearPlane
+            ? Math.Clamp(MathF.Log10((farPlane - nearPlane) + 10f) / 3f, 0.7f, 2.4f)
+            : 1.2f;
+
+        float nearX = radius * 0.95f;
+        float farX = radius * (2.15f + (depthScale * 1.15f));
+        float lineHalfWidth = radius * 0.028f;
+
+        float nearHalfHeight;
+        float nearHalfWidth;
+        float farHalfHeight;
+        float farHalfWidth;
+
+        if (isOrtho)
+        {
+            float orthoScale = Math.Clamp(MathF.Log10(orthoWidth + 10f) / 2.7f, 0.55f, 2.2f);
+            nearHalfHeight = radius * 0.36f * orthoScale;
+            nearHalfWidth = nearHalfHeight * clampedAspect;
+            farHalfHeight = nearHalfHeight;
+            farHalfWidth = nearHalfWidth;
+        }
+        else
+        {
+            float tanHalfFov = MathF.Tan((clampedFov * (MathF.PI / 180f)) * 0.5f);
+            nearHalfHeight = nearX * tanHalfFov * 0.33f;
+            nearHalfWidth = nearHalfHeight * clampedAspect;
+            farHalfHeight = farX * tanHalfFov * 0.33f;
+            farHalfWidth = farHalfHeight * clampedAspect;
+        }
+
+        Vector3 n0 = new(nearX, -nearHalfWidth, -nearHalfHeight);
+        Vector3 n1 = new(nearX, nearHalfWidth, -nearHalfHeight);
+        Vector3 n2 = new(nearX, nearHalfWidth, nearHalfHeight);
+        Vector3 n3 = new(nearX, -nearHalfWidth, nearHalfHeight);
+
+        Vector3 f0 = new(farX, -farHalfWidth, -farHalfHeight);
+        Vector3 f1 = new(farX, farHalfWidth, -farHalfHeight);
+        Vector3 f2 = new(farX, farHalfWidth, farHalfHeight);
+        Vector3 f3 = new(farX, -farHalfWidth, farHalfHeight);
+
+        int v = 0;
+        AddLinePrism(mesh, ref v, n0, n1, lineHalfWidth);
+        AddLinePrism(mesh, ref v, n1, n2, lineHalfWidth);
+        AddLinePrism(mesh, ref v, n2, n3, lineHalfWidth);
+        AddLinePrism(mesh, ref v, n3, n0, lineHalfWidth);
+
+        AddLinePrism(mesh, ref v, f0, f1, lineHalfWidth);
+        AddLinePrism(mesh, ref v, f1, f2, lineHalfWidth);
+        AddLinePrism(mesh, ref v, f2, f3, lineHalfWidth);
+        AddLinePrism(mesh, ref v, f3, f0, lineHalfWidth);
+
+        AddLinePrism(mesh, ref v, n0, f0, lineHalfWidth);
+        AddLinePrism(mesh, ref v, n1, f1, lineHalfWidth);
+        AddLinePrism(mesh, ref v, n2, f2, lineHalfWidth);
+        AddLinePrism(mesh, ref v, n3, f3, lineHalfWidth);
+
+        AddLinePrism(mesh, ref v, new Vector3(radius * 0.70f, 0f, 0f), new Vector3(farX, 0f, 0f), lineHalfWidth * 0.80f);
+    }
+
+    private PropertyCollection GetSceneCapture2DSourceProperties()
+    {
+        if (Properties.GetProp<ObjectProperty>("CaptureComponent2D")?.ResolveToExport(Pcc, Editor?.PackageCache) is { } captureComponent2D)
+        {
+            return captureComponent2D.GetCondensedProperties();
+        }
+
+        if (Properties.GetProp<ObjectProperty>("SceneCapture")?.ResolveToExport(Pcc, Editor?.PackageCache) is { } sceneCaptureComponent)
+        {
+            return sceneCaptureComponent.GetCondensedProperties();
+        }
+
+        if (Properties.GetProp<ObjectProperty>("SceneCaptureComponent")?.ResolveToExport(Pcc, Editor?.PackageCache) is { } sceneCaptureComponent2)
+        {
+            return sceneCaptureComponent2.GetCondensedProperties();
+        }
+
+        if (Properties.GetProp<ArrayProperty<ObjectProperty>>("Components") is { } components)
+        {
+            foreach (IEntry entry in components.ResolveToEntries(Pcc))
+            {
+                if (entry is ExportEntry cmpExport
+                    && cmpExport.ClassName.Contains("SceneCapture2D", StringComparison.OrdinalIgnoreCase))
+                {
+                    return cmpExport.GetCondensedProperties();
+                }
+            }
+        }
+
+        return Properties;
+    }
+
+    private float ReadFloatProperty(PropertyCollection primarySource, string propName, float defaultValue)
+    {
+        if (primarySource.GetProp<FloatProperty>(propName) is { } floatProp)
+        {
+            return floatProp.Value;
+        }
+
+        if (primarySource.GetProp<IntProperty>(propName) is { } intProp)
+        {
+            return intProp.Value;
+        }
+
+        if (!ReferenceEquals(primarySource, Properties))
+        {
+            if (Properties.GetProp<FloatProperty>(propName) is { } actorFloatProp)
+            {
+                return actorFloatProp.Value;
+            }
+
+            if (Properties.GetProp<IntProperty>(propName) is { } actorIntProp)
+            {
+                return actorIntProp.Value;
+            }
+        }
+
+        return defaultValue;
+    }
+
+    private static void AddLinePrism(BatchedPrimitives.MeshBuilder mesh, ref int vertexCounter, Vector3 a, Vector3 b, float halfWidth)
+    {
+        Vector3 d = b - a;
+        if (d.LengthSquared() < 0.0001f)
+        {
+            return;
+        }
+
+        Vector3 forward = Vector3.Normalize(d);
+        Vector3 fallbackUp = MathF.Abs(Vector3.Dot(forward, Vector3.UnitZ)) > 0.92f ? Vector3.UnitY : Vector3.UnitZ;
+        Vector3 right = Vector3.Normalize(Vector3.Cross(fallbackUp, forward)) * halfWidth;
+        Vector3 up = Vector3.Normalize(Vector3.Cross(forward, right)) * halfWidth;
+
+        int a0 = AddIndexedVertex(mesh, ref vertexCounter, a.X + right.X + up.X, a.Y + right.Y + up.Y, a.Z + right.Z + up.Z);
+        int a1 = AddIndexedVertex(mesh, ref vertexCounter, a.X + right.X - up.X, a.Y + right.Y - up.Y, a.Z + right.Z - up.Z);
+        int a2 = AddIndexedVertex(mesh, ref vertexCounter, a.X - right.X - up.X, a.Y - right.Y - up.Y, a.Z - right.Z - up.Z);
+        int a3 = AddIndexedVertex(mesh, ref vertexCounter, a.X - right.X + up.X, a.Y - right.Y + up.Y, a.Z - right.Z + up.Z);
+
+        int b0 = AddIndexedVertex(mesh, ref vertexCounter, b.X + right.X + up.X, b.Y + right.Y + up.Y, b.Z + right.Z + up.Z);
+        int b1 = AddIndexedVertex(mesh, ref vertexCounter, b.X + right.X - up.X, b.Y + right.Y - up.Y, b.Z + right.Z - up.Z);
+        int b2 = AddIndexedVertex(mesh, ref vertexCounter, b.X - right.X - up.X, b.Y - right.Y - up.Y, b.Z - right.Z - up.Z);
+        int b3 = AddIndexedVertex(mesh, ref vertexCounter, b.X - right.X + up.X, b.Y - right.Y + up.Y, b.Z - right.Z + up.Z);
+
+        AddQuad(mesh, a0, b0, b1, a1);
+        AddQuad(mesh, a1, b1, b2, a2);
+        AddQuad(mesh, a2, b2, b3, a3);
+        AddQuad(mesh, a3, b3, b0, a0);
     }
 
     private static void RenderStartFlag(BatchedPrimitives.MeshBuilder mesh, float radius)
