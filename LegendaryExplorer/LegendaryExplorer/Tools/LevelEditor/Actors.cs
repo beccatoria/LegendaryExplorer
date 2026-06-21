@@ -416,6 +416,8 @@ public class ActorProxy : NotifyPropertyChangedBase, IDisposable, IHitProxy
         "AmbientSound",
         "WwiseMicPosOrient",
         "CameraActor",
+        "SceneCaptureReflectActor",
+        "ScreenCaptureReflectActor",
         "DecalActor",
         "MaterialInstanceActor",
         "LensFlareSource",
@@ -424,7 +426,11 @@ public class ActorProxy : NotifyPropertyChangedBase, IDisposable, IHitProxy
 
     public static bool CanCreate(ExportEntry actorExport)
     {
-        return actorExport.IsA(SupportedClasses) || actorExport.IsA("Light");
+        return actorExport.IsA(SupportedClasses)
+               || actorExport.IsA("Light")
+               || actorExport.IsA("SceneCaptureReflectActor")
+               || actorExport.IsA("ScreenCaptureReflectActor")
+               || actorExport.ClassName.Contains("CaptureReflectActor", StringComparison.OrdinalIgnoreCase);
     }
 
     //KEEP IN SYNC WITH CanCreate!
@@ -520,6 +526,12 @@ public class ActorProxy : NotifyPropertyChangedBase, IDisposable, IHitProxy
         if (GlobalUnrealObjectInfo.IsA(className, "CameraActor", actorExport.Game))
         {
             return new IconActorProxy(context, actorExport, IconActorCategory.Camera);
+        }
+        if (actorExport.IsA("SceneCaptureReflectActor")
+            || actorExport.IsA("ScreenCaptureReflectActor")
+            || className.Contains("CaptureReflectActor", StringComparison.OrdinalIgnoreCase))
+        {
+            return new IconActorProxy(context, actorExport, IconActorCategory.ScreenCaptureReflect);
         }
         if (GlobalUnrealObjectInfo.IsA(className, "BioStage", actorExport.Game))
         {
@@ -1173,7 +1185,8 @@ public enum IconActorCategory
     Camera,
     Decal,
     MaterialInstance,
-    LensFlareLight
+    LensFlareLight,
+    ScreenCaptureReflect
 }
 
 public class IconActorProxy : ActorProxy
@@ -1209,6 +1222,10 @@ public class IconActorProxy : ActorProxy
                 IsCameraActor = true;
                 IsCinematicActor = true;
                 break;
+            case IconActorCategory.ScreenCaptureReflect:
+                IsCameraActor = true;
+                IsCinematicActor = true;
+                break;
             case IconActorCategory.Decal:
             case IconActorCategory.MaterialInstance:
                 IsDecalActor = true;
@@ -1235,6 +1252,7 @@ public class IconActorProxy : ActorProxy
             IconActorCategory.AmbientSound => new Vector4(0.25f, 0.88f, 1.0f, 1f),
             IconActorCategory.WwiseMic => new Vector4(0.36f, 0.62f, 1.0f, 1f),
             IconActorCategory.Camera => new Vector4(1.0f, 0.92f, 0.18f, 1f),
+            IconActorCategory.ScreenCaptureReflect => new Vector4(0.32f, 0.78f, 1.0f, 1f),
             IconActorCategory.Decal => new Vector4(0.92f, 0.38f, 1.0f, 1f),
             IconActorCategory.MaterialInstance => new Vector4(0.55f, 0.30f, 1.0f, 1f),
             IconActorCategory.LensFlareLight => new Vector4(1.0f, 0.95f, 0.35f, 1f),
@@ -1251,6 +1269,7 @@ public class IconActorProxy : ActorProxy
             IconActorCategory.Decal => 1.05f,
             IconActorCategory.MaterialInstance => 1.05f,
             IconActorCategory.Camera => 1.12f,
+            IconActorCategory.ScreenCaptureReflect => 1.14f,
             _ => 1f
         };
 
@@ -1261,7 +1280,11 @@ public class IconActorProxy : ActorProxy
             radius = Math.Clamp((7f + (distance * 0.0042f)) * categoryScale, 7f, 24f);
         }
 
-        var mesh = context.Primitives.BuildMesh(color, HitID, Matrix4x4.CreateTranslation(LocalToWorld.Translation));
+        Matrix4x4 iconTransform = IconCategory == IconActorCategory.ScreenCaptureReflect
+            ? ActorUtils.ComposeLocalToWorld(Location, Rotation, Vector3.One)
+            : Matrix4x4.CreateTranslation(LocalToWorld.Translation);
+
+        var mesh = context.Primitives.BuildMesh(color, HitID, iconTransform);
         switch (IconCategory)
         {
             case IconActorCategory.StartPoint:
@@ -1284,6 +1307,11 @@ public class IconActorProxy : ActorProxy
                 break;
             case IconActorCategory.Camera:
                 RenderFilmCameraSilhouette(mesh, radius);
+                break;
+            case IconActorCategory.ScreenCaptureReflect:
+                RenderFilmCameraSilhouette(mesh, radius);
+                var coneMesh = context.Primitives.BuildMesh(new Vector4(0.24f, 0.70f, 1.0f, 0.38f), HitID, iconTransform);
+                RenderCaptureDirectionConeWire(coneMesh, radius);
                 break;
             default:
                 RenderOrb(mesh, radius);
@@ -1554,6 +1582,74 @@ public class IconActorProxy : ActorProxy
 
         AddReelCylinder(mesh, ref v, rearReelX, 0f, reelCenterZ, reelRadius, reelHalfThickness, reelSegments);
         AddReelCylinder(mesh, ref v, frontReelX, 0f, reelCenterZ, reelRadius, reelHalfThickness, reelSegments);
+    }
+
+    private static void RenderCaptureDirectionConeWire(BatchedPrimitives.MeshBuilder mesh, float radius)
+    {
+        int v = 0;
+
+        float tipX = radius * 0.84f;
+        float baseX = radius * 2.05f;
+        float baseRadius = radius * 0.92f;
+        float ringHalfDepth = radius * 0.018f;
+        float ringThickness = radius * 0.055f;
+
+        AddRingBandYZ(mesh, ref v, tipX + (baseX - tipX) * 0.38f, baseRadius * 0.38f, ringHalfDepth, ringThickness);
+        AddRingBandYZ(mesh, ref v, tipX + (baseX - tipX) * 0.68f, baseRadius * 0.68f, ringHalfDepth, ringThickness);
+        AddRingBandYZ(mesh, ref v, baseX, baseRadius, ringHalfDepth, ringThickness);
+
+        float ribHalfWidth = radius * 0.03f;
+        for (int i = 0; i < 4; i++)
+        {
+            float angle = MathF.PI * 0.5f * i;
+            float ca = MathF.Cos(angle);
+            float sa = MathF.Sin(angle);
+
+            float baseY = baseRadius * ca;
+            float baseZ = baseRadius * sa;
+
+            float offY = -sa * ribHalfWidth;
+            float offZ = ca * ribHalfWidth;
+
+            int a0 = AddIndexedVertex(mesh, ref v, tipX, offY, offZ);
+            int a1 = AddIndexedVertex(mesh, ref v, tipX, -offY, -offZ);
+            int b0 = AddIndexedVertex(mesh, ref v, baseX, baseY + offY, baseZ + offZ);
+            int b1 = AddIndexedVertex(mesh, ref v, baseX, baseY - offY, baseZ - offZ);
+            AddQuad(mesh, a0, b0, b1, a1);
+        }
+    }
+
+    private static void AddRingBandYZ(BatchedPrimitives.MeshBuilder mesh, ref int vertexCounter, float x, float radius, float halfDepth, float thickness)
+    {
+        const int segments = 16;
+        float innerR = MathF.Max(0.0001f, radius - thickness * 0.5f);
+        float outerR = radius + thickness * 0.5f;
+
+        for (int i = 0; i < segments; i++)
+        {
+            float t0 = MathF.PI * 2f * i / segments;
+            float t1 = MathF.PI * 2f * (i + 1) / segments;
+
+            float c0 = MathF.Cos(t0);
+            float s0 = MathF.Sin(t0);
+            float c1 = MathF.Cos(t1);
+            float s1 = MathF.Sin(t1);
+
+            int i0f = AddIndexedVertex(mesh, ref vertexCounter, x + halfDepth, innerR * c0, innerR * s0);
+            int i1f = AddIndexedVertex(mesh, ref vertexCounter, x + halfDepth, innerR * c1, innerR * s1);
+            int o1f = AddIndexedVertex(mesh, ref vertexCounter, x + halfDepth, outerR * c1, outerR * s1);
+            int o0f = AddIndexedVertex(mesh, ref vertexCounter, x + halfDepth, outerR * c0, outerR * s0);
+
+            int i0b = AddIndexedVertex(mesh, ref vertexCounter, x - halfDepth, innerR * c0, innerR * s0);
+            int i1b = AddIndexedVertex(mesh, ref vertexCounter, x - halfDepth, innerR * c1, innerR * s1);
+            int o1b = AddIndexedVertex(mesh, ref vertexCounter, x - halfDepth, outerR * c1, outerR * s1);
+            int o0b = AddIndexedVertex(mesh, ref vertexCounter, x - halfDepth, outerR * c0, outerR * s0);
+
+            AddQuad(mesh, i0f, i1f, o1f, o0f);
+            AddQuad(mesh, i0b, o0b, o1b, i1b);
+            AddQuad(mesh, i0f, i0b, i1b, i1f);
+            AddQuad(mesh, o0f, o1f, o1b, o0b);
+        }
     }
 
     private static void AddReelCylinder(BatchedPrimitives.MeshBuilder mesh, ref int vertexCounter,
