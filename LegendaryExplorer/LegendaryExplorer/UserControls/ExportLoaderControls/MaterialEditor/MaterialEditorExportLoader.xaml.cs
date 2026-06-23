@@ -344,7 +344,7 @@ namespace LegendaryExplorer.UserControls.ExportLoaderControls.MaterialEditor
             var hasModifiedParam = MatInfo.Expressions.OfType<ScalarParameterMatEd>().Any(x => !x.IsDefaultParameter);
             if (hasModifiedParam)
             {
-                foreach (var expr in MatInfo.Expressions.OfType<ScalarParameter>())
+                foreach (var expr in MatInfo.Expressions.OfType<ScalarParameterMatEd>().Where(x => !x.IsDefaultParameter))
                 {
                     scalarParameters.Add(expr.ToStruct());
                 }
@@ -354,7 +354,7 @@ namespace LegendaryExplorer.UserControls.ExportLoaderControls.MaterialEditor
             hasModifiedParam = MatInfo.Expressions.OfType<VectorParameterMatEd>().Any(x => !x.IsDefaultParameter);
             if (hasModifiedParam)
             {
-                foreach (var expr in MatInfo.Expressions.OfType<VectorParameter>())
+                foreach (var expr in MatInfo.Expressions.OfType<VectorParameterMatEd>().Where(x => !x.IsDefaultParameter))
                 {
                     vectorParameters.Add(expr.ToStruct());
                 }
@@ -364,9 +364,9 @@ namespace LegendaryExplorer.UserControls.ExportLoaderControls.MaterialEditor
             hasModifiedParam = MatInfo.Expressions.OfType<TextureParameterMatEd>().Any(x => !x.IsDefaultParameter);
             if (hasModifiedParam)
             {
-                foreach (var expr in MatInfo.Expressions.OfType<TextureParameterMatEd>())
+                foreach (var expr in MatInfo.Expressions.OfType<TextureParameterMatEd>().Where(x => !x.IsDefaultParameter))
                 {
-                    if (newTexturesPackage != null && !expr.IsDefaultParameter)
+                    if (newTexturesPackage != null)
                     {
                         // Move under new textures package
                         expr.TextureExp.idxLink = newTexturesPackage.UIndex;

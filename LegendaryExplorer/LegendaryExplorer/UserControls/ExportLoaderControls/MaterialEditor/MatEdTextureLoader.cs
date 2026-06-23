@@ -29,10 +29,15 @@ namespace LegendaryExplorer.UserControls.ExportLoaderControls.MaterialEditor
                 return;
             }
 
-            ExportEntry tex = null;
             if (texIdx < 0)
             {
-                mt.TextureImp = pcc.GetImport(texIdx);
+                if (!pcc.TryGetImport(texIdx, out var textureImport))
+                {
+                    mt.DisplayString = $"Invalid import reference ({texIdx})";
+                    return;
+                }
+
+                mt.TextureImp = textureImport;
                 if (mt.TextureImp.IsTexture() || mt.TextureImp.ClassName == "TextureCube")
                 {
                     var resolved = EntryImporter.ResolveImport(mt.TextureImp, cache, unsafeLoad: true, unsafeLoadDelegate: MaterialInfo.MaterialEdLoadOnlyUsefulExports);
@@ -49,7 +54,12 @@ namespace LegendaryExplorer.UserControls.ExportLoaderControls.MaterialEditor
             }
             else
             {
-                var texE = pcc.GetUExport(texIdx);
+                if (!pcc.TryGetUExport(texIdx, out var texE))
+                {
+                    mt.DisplayString = $"Invalid export reference ({texIdx})";
+                    return;
+                }
+
                 if (texE.IsTexture() || texE.ClassName.CaseInsensitiveEquals("TextureCube"))
                 {
                     mt.TextureExp = texE;
