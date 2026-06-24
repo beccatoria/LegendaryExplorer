@@ -100,7 +100,13 @@ namespace LegendaryExplorerCore.Packages
 
         public IEnumerable<IEntry> GetDirectChildrenOf(int uIndex)
         {
-            foreach (int i in this[uIndex])
+            EntryTreeNode node = this[uIndex];
+            if (node is null)
+            {
+                yield break;
+            }
+
+            foreach (int i in node.Children.ToArray())
             {
                 yield return this[i].Data;
             }

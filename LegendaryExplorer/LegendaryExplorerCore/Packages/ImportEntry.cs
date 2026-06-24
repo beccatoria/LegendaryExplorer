@@ -440,11 +440,11 @@ namespace LegendaryExplorerCore.Packages
             ImportEntry newImport = (ImportEntry)MemberwiseClone();
             if (newIndex >= 0)
             {
-                _header.ObjectNameIndex = newIndex;
+                newImport._header.ObjectNameIndex = newIndex;
             }
             if (newParentUIndex != int.MaxValue)
             {
-                _header.Link = newParentUIndex;
+                newImport._header.Link = newParentUIndex;
             }
             return newImport;
         }
