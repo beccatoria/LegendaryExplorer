@@ -413,6 +413,7 @@ public class ActorProxy : NotifyPropertyChangedBase, IDisposable, IHitProxy
         "Location",
         "TargetPoint",
         "SFXPointOfInterest",
+        "WwiseAmbientSound",
         "AmbientSound",
         "WwiseMicPosOrient",
         "CameraActor",
@@ -515,6 +516,10 @@ public class ActorProxy : NotifyPropertyChangedBase, IDisposable, IHitProxy
         if (GlobalUnrealObjectInfo.IsA(className, "SFXPointOfInterest", actorExport.Game))
         {
             return new IconActorProxy(context, actorExport, IconActorCategory.PointOfInterest);
+        }
+        if (GlobalUnrealObjectInfo.IsA(className, "WwiseAmbientSound", actorExport.Game))
+        {
+            return new IconActorProxy(context, actorExport, IconActorCategory.WwiseAmbientSound);
         }
         if (GlobalUnrealObjectInfo.IsA(className, "AmbientSound", actorExport.Game))
         {
@@ -1186,6 +1191,7 @@ public enum IconActorCategory
     StartPoint,
     TargetPoint,
     PointOfInterest,
+    WwiseAmbientSound,
     AmbientSound,
     WwiseMic,
     Camera,
@@ -1225,6 +1231,9 @@ public class IconActorProxy : ActorProxy
             case IconActorCategory.WwiseMic:
                 IsAmbientSound = true;
                 break;
+            case IconActorCategory.WwiseAmbientSound:
+                IsCinematicActor = true;
+                break;
             case IconActorCategory.Camera:
                 IsCameraActor = true;
                 IsCinematicActor = true;
@@ -1260,6 +1269,7 @@ public class IconActorProxy : ActorProxy
             IconActorCategory.StartPoint => new Vector4(0.18f, 1.0f, 0.32f, 1f),
             IconActorCategory.TargetPoint => new Vector4(1.0f, 0.22f, 0.22f, 1f),
             IconActorCategory.PointOfInterest => new Vector4(1.0f, 0.58f, 0.18f, 1f),
+            IconActorCategory.WwiseAmbientSound => new Vector4(0.72f, 0.54f, 1.0f, 1f),
             IconActorCategory.AmbientSound => new Vector4(0.25f, 0.88f, 1.0f, 1f),
             IconActorCategory.WwiseMic => new Vector4(0.36f, 0.62f, 1.0f, 1f),
             IconActorCategory.Camera => new Vector4(1.0f, 0.92f, 0.18f, 1f),
@@ -1276,6 +1286,7 @@ public class IconActorProxy : ActorProxy
             IconActorCategory.Emitter => 1.06f,
             IconActorCategory.StartPoint => 1.14f,
             IconActorCategory.TargetPoint => 1.1f,
+            IconActorCategory.WwiseAmbientSound => 1.08f,
             IconActorCategory.AmbientSound => 1.08f,
             IconActorCategory.WwiseMic => 1.08f,
             IconActorCategory.Decal => 1.05f,
@@ -1312,6 +1323,7 @@ public class IconActorProxy : ActorProxy
                 RenderEmitterConeBurst(mesh, radius);
                 break;
             case IconActorCategory.AmbientSound:
+            case IconActorCategory.WwiseAmbientSound:
             case IconActorCategory.WwiseMic:
                 RenderSoundSpeakerWaves(mesh, radius);
                 break;

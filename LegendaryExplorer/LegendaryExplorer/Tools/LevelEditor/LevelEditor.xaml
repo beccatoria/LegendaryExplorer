@@ -176,7 +176,7 @@
                         <ComboBoxItem>
                             <CheckBox Content="Show Cinematic Actors"
                                       IsChecked="{Binding ShowCinematicActors}"
-                                      ToolTip="Show cinematic actors (BioStage wireframes, CameraActor markers)"/>
+                                      ToolTip="Show cinematic actors (BioStage wireframes, CameraActor markers, WwiseAmbientSound markers)"/>
                         </ComboBoxItem>
                         <ComboBoxItem>
                             <CheckBox Content="Show Decal/Effect Actors"
