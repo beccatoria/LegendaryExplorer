@@ -247,6 +247,11 @@ public abstract class RenderContext
         return false;
     }
 
+    public virtual bool MouseDoubleClick(MouseButtons button, int x, int y)
+    {
+        return false;
+    }
+
     public virtual bool MouseMove(int x, int y)
     {
         return false;
@@ -568,7 +573,13 @@ public sealed class SceneRenderControl : ContentControl, IDisposable, INotifyPro
         else
             return;
         Point position = e.GetPosition(this);
-        e.Handled = Context.MouseUp(buttons, (int)position.X, (int)position.Y);
+        bool handled = Context.MouseUp(buttons, (int)position.X, (int)position.Y);
+        if (e.ClickCount == 2)
+        {
+            handled = Context.MouseDoubleClick(buttons, (int)position.X, (int)position.Y) || handled;
+        }
+
+        e.Handled = handled;
     }
 
     private void SceneRenderControlWPF_PreviewMouseMove(object sender, MouseEventArgs e)

@@ -21,6 +21,7 @@ namespace LegendaryExplorer.Tools.LevelEditor;
 public class LevelEditorRenderContext : MeshRenderContext
 {
     public event Action<ActorProxy> SelectActor;
+    public event Action<ActorProxy> FocusActor;
     public bool LastActorSelectionWasAdditive { get; private set; }
     public List<ActorProxy> DrawList_3D = [];
     public List<UIElement> DrawList_UI = [];
@@ -42,6 +43,10 @@ public class LevelEditorRenderContext : MeshRenderContext
 
     private bool IsReadOnly;
     private bool _ctrlSelectionLatched;
+    private ActorProxy _lastLeftClickedActor;
+    private int _lastLeftClickX;
+    private int _lastLeftClickY;
+    private long _lastLeftClickTimestamp;
 
     public LevelEditorRenderContext(bool readOnly = false) : base()
     {
@@ -70,16 +75,34 @@ public class LevelEditorRenderContext : MeshRenderContext
             switch (selected)
             {
                 case ActorProxy actor:
+                    bool shouldFocusActor = button is MouseButtons.Left && IsSecondClickOnSameActor(actor, x, y);
                     LastActorSelectionWasAdditive = button is MouseButtons.Left && _ctrlSelectionLatched;
                     SelectActor?.Invoke(actor);
                     TransformWidget.Attach = actor;
+                    if (shouldFocusActor)
+                    {
+                        FocusActor?.Invoke(actor);
+                    }
+
+                    if (button is MouseButtons.Left)
+                    {
+                        RecordLeftClick(actor, x, y);
+                    }
                     break;
                 case AxisHitProxy axisProxy:
                     LastActorSelectionWasAdditive = false;
                     TransformWidget.CurrentAxis = axisProxy.Axis;
+                    if (button is MouseButtons.Left)
+                    {
+                        ClearLeftClickHistory();
+                    }
                     break;
                 default:
                     LastActorSelectionWasAdditive = false;
+                    if (button is MouseButtons.Left)
+                    {
+                        ClearLeftClickHistory();
+                    }
                     break;
             }
         }
@@ -87,6 +110,38 @@ public class LevelEditorRenderContext : MeshRenderContext
         _ctrlSelectionLatched = false;
 
         return false;
+    }
+
+    private bool IsSecondClickOnSameActor(ActorProxy actor, int x, int y)
+    {
+        if (!ReferenceEquals(_lastLeftClickedActor, actor))
+        {
+            return false;
+        }
+
+        long elapsed = Environment.TickCount64 - _lastLeftClickTimestamp;
+        if (elapsed < 0 || elapsed > System.Windows.Forms.SystemInformation.DoubleClickTime)
+        {
+            return false;
+        }
+
+        System.Drawing.Size maxDistance = System.Windows.Forms.SystemInformation.DoubleClickSize;
+        return Math.Abs(x - _lastLeftClickX) <= maxDistance.Width
+            && Math.Abs(y - _lastLeftClickY) <= maxDistance.Height;
+    }
+
+    private void RecordLeftClick(ActorProxy actor, int x, int y)
+    {
+        _lastLeftClickedActor = actor;
+        _lastLeftClickX = x;
+        _lastLeftClickY = y;
+        _lastLeftClickTimestamp = Environment.TickCount64;
+    }
+
+    private void ClearLeftClickHistory()
+    {
+        _lastLeftClickedActor = null;
+        _lastLeftClickTimestamp = 0;
     }
 
     public override bool MouseDown(MouseButtons button, int x, int y)
@@ -154,6 +209,11 @@ public class LevelEditorRenderContext : MeshRenderContext
                     break;
             }
         }
+        return false;
+    }
+
+    public override bool MouseDoubleClick(MouseButtons button, int x, int y)
+    {
         return false;
     }
 

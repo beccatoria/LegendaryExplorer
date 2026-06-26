@@ -685,6 +685,17 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         });
     }
 
+    private void ViewportActorFocus(ActorProxy actor)
+    {
+        if (actor is null)
+        {
+            return;
+        }
+
+        ViewportActorSelect(actor);
+        FocusOnBounds(actor.GetBounds());
+    }
+
     private void SelectActor(ActorProxy actor, bool focus)
     {
         var prev = selectedActor;
@@ -696,16 +707,17 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
             }
             if (selectedActor is not null)
             {
+                RenderContext.TransformWidget.Attach = selectedActor;
                 if (focus)
                 {
                     FocusOnBounds(selectedActor.GetBounds());
-                    RenderContext.TransformWidget.Attach = selectedActor;
                 }
                 selectedActor.PropertyChanged += OnActorPropertyChanged;
                 _preEditSnapshot = selectedActor.SnapshotTransform();
             }
             else
             {
+                RenderContext.TransformWidget.Attach = null;
                 _preEditSnapshot = null;
             }
         }
@@ -2772,6 +2784,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         RenderContext.UpdateScene -= UpdateScene;
         RenderContext.RenderScene -= RenderScene;
         RenderContext.SelectActor -= ViewportActorSelect;
+        RenderContext.FocusActor -= ViewportActorFocus;
 
         UndoHistory.PropertyChanged -= UndoHistory_PropertyChanged;
         UndoHistory.Clear();
@@ -2784,6 +2797,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         RenderContext.UpdateScene += UpdateScene;
         RenderContext.RenderScene += RenderScene;
         RenderContext.SelectActor += ViewportActorSelect;
+        RenderContext.FocusActor += ViewportActorFocus;
 
         if (!string.IsNullOrEmpty(FileQueuedForLoad))
         {
