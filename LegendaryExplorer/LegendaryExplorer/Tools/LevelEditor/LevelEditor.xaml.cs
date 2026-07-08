@@ -530,11 +530,17 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
     void DoRenderPass(RenderPass pass)
     {
         float lightRenderDistanceSq = LightRenderDistance * LightRenderDistance;
+        float visibleSetDistanceSq = (float)VisibleSetDistance * VisibleSetDistance;
         Vector3 cameraPosition = RenderContext.Camera.Position;
+        bool isOrthographicCamera = RenderContext.Camera.IsOrthographic;
         bool baseWireframe = RenderContext.Wireframe;
         for (int i = 0; i < RenderContext.DrawList_3D.Count; i++)
         {
             ActorProxy actor = RenderContext.DrawList_3D[i];
+            Vector3 actorDeltaFromCamera = actor.Location - cameraPosition;
+            float actorVisibleSetDistanceSq = isOrthographicCamera
+                ? (actorDeltaFromCamera.X * actorDeltaFromCamera.X) + (actorDeltaFromCamera.Y * actorDeltaFromCamera.Y)
+                : Vector3.Dot(actorDeltaFromCamera, actorDeltaFromCamera);
             if (actor.IsLight && !ShowLights) continue;
             if (actor.IsLight && Vector3.DistanceSquared(actor.Location, cameraPosition) > lightRenderDistanceSq) continue;
             if (actor.IsVolume && !ShowVolumes) continue;
@@ -548,7 +554,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
                 && pass is RenderPass.Base or RenderPass.Hair
                 && !actor.IsVolumetricMesh
                 && (!_visibleActorSet.Contains(GetActorVisibilityKey(actor))
-                    || Vector3.DistanceSquared(actor.Location, cameraPosition) > VisibleSetDistance * VisibleSetDistance))
+                    || actorVisibleSetDistanceSq > visibleSetDistanceSq))
             {
                 continue;
             }
@@ -556,14 +562,14 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
                 && pass is RenderPass.Base or RenderPass.Hair
                 && actor.IsVolumetricMesh
                 && (!_visibleActorSet.Contains(GetActorVisibilityKey(actor))
-                    || Vector3.DistanceSquared(actor.Location, cameraPosition) > VisibleSetDistance * VisibleSetDistance))
+                    || actorVisibleSetDistanceSq > visibleSetDistanceSq))
             {
                 continue;
             }
             if ((UseVisibleSetOnly || ObjectRenderMode is ObjectRenderMode.VisibleSetOnly)
                 && pass is RenderPass.Collision
                 && !actor.IsVolumetricMesh
-                && Vector3.DistanceSquared(actor.Location, cameraPosition) > VisibleSetDistance * VisibleSetDistance)
+                && actorVisibleSetDistanceSq > visibleSetDistanceSq)
             {
                 continue;
             }
@@ -583,7 +589,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
             if ((UseVisibleSetOnly || ObjectRenderMode is ObjectRenderMode.VisibleSetOnly)
                 && pass is RenderPass.Base or RenderPass.Hair
                 && actor.IsAmbientSound
-                && Vector3.DistanceSquared(actor.Location, cameraPosition) > VisibleSetDistance * VisibleSetDistance)
+                && actorVisibleSetDistanceSq > visibleSetDistanceSq)
             {
                 continue;
             }
