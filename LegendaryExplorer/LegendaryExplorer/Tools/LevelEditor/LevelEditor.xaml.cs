@@ -2331,7 +2331,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
     {
         if (string.IsNullOrEmpty(_actorFilterText)) return true;
         return obj is ActorProxy actor &&
-               actor.Export.ObjectName.Instanced.Contains(_actorFilterText, StringComparison.OrdinalIgnoreCase);
+               actor.DisplayText.Contains(_actorFilterText, StringComparison.OrdinalIgnoreCase);
     }
 
     private void ActorFilter_TextBox_KeyUp(object sender, KeyEventArgs e)
