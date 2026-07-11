@@ -1,6 +1,8 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
+using System.Windows.Input;
 using LegendaryExplorer.SharedUI.Bases;
 using LegendaryExplorerCore.Misc;
 
@@ -16,6 +18,7 @@ public class CheckedListItem
 public partial class CheckedListDialog : TrackingNotifyPropertyChangedWindowBase
 {
     public ObservableCollectionExtended<CheckedListItem> Items { get; } = [];
+    public Action<CheckedListItem> DoubleClickItemHandler { get; set; }
 
     private string topText;
     public string TopText
@@ -24,11 +27,19 @@ public partial class CheckedListDialog : TrackingNotifyPropertyChangedWindowBase
         set => SetProperty(ref topText, value);
     }
 
-    public CheckedListDialog(IEnumerable<CheckedListItem> items, string title, string message, Window owner)
+    private string primaryButtonText = "OK";
+    public string PrimaryButtonText
+    {
+        get => primaryButtonText;
+        set => SetProperty(ref primaryButtonText, value);
+    }
+
+    public CheckedListDialog(IEnumerable<CheckedListItem> items, string title, string message, Window owner, string primaryButtonText = "OK")
         : base("Checked List Dialog", false)
     {
         DataContext = this;
         TopText = message;
+        PrimaryButtonText = primaryButtonText;
         Items.AddRange(items);
         InitializeComponent();
         Title = title;
@@ -61,5 +72,19 @@ public partial class CheckedListDialog : TrackingNotifyPropertyChangedWindowBase
         foreach (var item in Items) item.IsSelected = false;
         CheckList.ItemsSource = null;
         CheckList.ItemsSource = Items;
+    }
+
+    private void CheckList_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        if (DoubleClickItemHandler is null)
+        {
+            return;
+        }
+
+        var dataContext = (e.OriginalSource as FrameworkElement)?.DataContext;
+        if (dataContext is CheckedListItem listItem)
+        {
+            DoubleClickItemHandler.Invoke(listItem);
+        }
     }
 }

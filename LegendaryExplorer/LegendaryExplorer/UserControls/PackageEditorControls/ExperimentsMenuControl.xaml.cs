@@ -1728,14 +1728,14 @@ namespace LegendaryExplorer.UserControls.PackageEditorControls
             PackageEditorExperimentsO.FindClosestLights(GetPEWindow());
         }
 
-        private void FindCorruptedSmallMips_Click(object sender, RoutedEventArgs e)
+        private void ScanAndRegenerateCorruptedSmallMips_Click(object sender, RoutedEventArgs e)
         {
-            PackageEditorExperimentsO.FindCorruptedSmallBlockCompressedMips(GetPEWindow());
+            PackageEditorExperimentsO.ScanAndRegenerateCorruptedSmallBlockCompressedMips(GetPEWindow());
         }
 
-        private void RegenerateCorruptedSmallMips_Click(object sender, RoutedEventArgs e)
+        private void ScanFolderForCorruptedSmallMips_Click(object sender, RoutedEventArgs e)
         {
-            PackageEditorExperimentsO.RegenerateCorruptedSmallBlockCompressedMips(GetPEWindow());
+            PackageEditorExperimentsO.ScanFolderForCorruptedSmallBlockCompressedMips(GetPEWindow());
         }
 
         private void ExportLevelToT3D_Click(object sender, RoutedEventArgs e)

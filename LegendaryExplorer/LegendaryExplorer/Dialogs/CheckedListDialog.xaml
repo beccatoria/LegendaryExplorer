@@ -13,9 +13,9 @@
         <StackPanel Orientation="Horizontal" DockPanel.Dock="Bottom" HorizontalAlignment="Right" Margin="0,8,0,0">
             <Button Content="Select All" Click="SelectAll_Click" Padding="8,4" Margin="0,0,5,0"/>
             <Button Content="Select None" Click="SelectNone_Click" Padding="8,4" Margin="0,0,15,0"/>
-            <Button Content="OK" Click="OK_Click" IsDefault="True" Padding="20,4" Margin="0,0,5,0"/>
+            <Button Content="{Binding PrimaryButtonText}" Click="OK_Click" IsDefault="True" Padding="20,4" Margin="0,0,5,0"/>
             <Button Content="Cancel" Click="Cancel_Click" IsCancel="True" Padding="20,4"/>
         </StackPanel>
-        <xctk:CheckListBox x:Name="CheckList" ItemsSource="{Binding Items}" DisplayMemberPath="DisplayName" SelectedMemberPath="IsSelected"/>
+        <xctk:CheckListBox x:Name="CheckList" ItemsSource="{Binding Items}" DisplayMemberPath="DisplayName" SelectedMemberPath="IsSelected" MouseDoubleClick="CheckList_MouseDoubleClick"/>
     </DockPanel>
 </bases:TrackingNotifyPropertyChangedWindowBase>

@@ -22,6 +22,7 @@ using System.Linq;
 using System.Numerics;
 using System.Reactive;
 using System.Windows;
+using Microsoft.WindowsAPICodePack.Dialogs;
 using static LegendaryExplorer.Misc.ExperimentsTools.PackageAutomations;
 using static LegendaryExplorer.Misc.ExperimentsTools.SequenceAutomations;
 using static LegendaryExplorer.Misc.ExperimentsTools.SharedMethods;
@@ -86,42 +87,7 @@ namespace LegendaryExplorer.Tools.PackageEditor.Experiments
             dlg.Show();
         }
 
-        public static void FindCorruptedSmallBlockCompressedMips(PackageEditorWindow pew)
-        {
-            if (pew?.Pcc is null)
-            {
-                return;
-            }
-
-            List<CorruptedSmallMipIssue> corruptedMipIssues = FindCorruptedSmallMipIssues(pew.Pcc, out int scannedTextures);
-            List<EntryStringPair> corruptedMips = corruptedMipIssues.Select(issue => issue.ToEntryStringPair()).ToList();
-
-            if (!corruptedMips.Any())
-            {
-                MessageBox.Show(pew,
-                    $"Scanned {scannedTextures} block-compressed textures. No corrupted 2x2/1x1 mips were detected.",
-                    "Small Mip Corruption Scan", MessageBoxButton.OK, MessageBoxImage.Information);
-                return;
-            }
-
-            ListDialog dlg = new(corruptedMips,
-                "Potentially Corrupted Small Mips",
-                $"Found {corruptedMips.Count} potentially corrupted 2x2/1x1 block-compressed mips.",
-                pew, 1200, 500)
-            {
-                DoubleClickEntryHandler = entryItem =>
-                {
-                    if (entryItem?.Entry is IEntry entryToSelect)
-                    {
-                        pew.GoToNumber(entryToSelect.UIndex);
-                        pew.Activate();
-                    }
-                }
-            };
-            dlg.Show();
-        }
-
-        public static void RegenerateCorruptedSmallBlockCompressedMips(PackageEditorWindow pew)
+        public static void ScanAndRegenerateCorruptedSmallBlockCompressedMips(PackageEditorWindow pew)
         {
             if (pew?.Pcc is null)
             {
@@ -135,15 +101,48 @@ namespace LegendaryExplorer.Tools.PackageEditor.Experiments
             {
                 MessageBox.Show(pew,
                     $"Scanned {scannedTextures} block-compressed textures. No corrupted 2x2/1x1 mips were detected.",
-                    "Regenerate Corrupted Small Mips", MessageBoxButton.OK, MessageBoxImage.Information);
+                    "Small Mip Corruption Scan", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
 
-            MessageBoxResult userChoice = MessageBox.Show(pew,
-                $"Found {detectedIssues.Count} corrupted small-mip issue(s) across {textureIdsToRepair.Count} texture(s).\n\nRegenerate only the 2x2 and 1x1 mips for these textures now?",
-                "Regenerate Corrupted Small Mips", MessageBoxButton.YesNo, MessageBoxImage.Question);
-            if (userChoice != MessageBoxResult.Yes)
+            List<CheckedListItem> dialogItems = detectedIssues.Select(issue => new CheckedListItem
             {
+                DisplayName = issue.ToEntryStringPair().Message,
+                IsSelected = true,
+                Tag = issue
+            }).ToList();
+
+            var dialog = new CheckedListDialog(
+                dialogItems,
+                "Potentially Corrupted Small Mips",
+                $"Found {detectedIssues.Count} potentially corrupted 2x2/1x1 block-compressed mips.\n\nDouble-click an item to jump to the export. Uncheck any items you do not want to repair.",
+                pew,
+                "Regenerate Mips");
+            dialog.DoubleClickItemHandler = item =>
+            {
+                if (item?.Tag is CorruptedSmallMipIssue issue)
+                {
+                    pew.GoToNumber(issue.TextureExport.UIndex);
+                    pew.Activate();
+                }
+            };
+
+            if (dialog.ShowDialog() != true)
+            {
+                return;
+            }
+
+            textureIdsToRepair = dialog.GetSelectedItems()
+                .Select(i => i.Tag as CorruptedSmallMipIssue)
+                .Where(i => i is not null)
+                .Select(i => i.TextureExport.UIndex)
+                .ToHashSet();
+
+            if (textureIdsToRepair.Count == 0)
+            {
+                MessageBox.Show(pew,
+                    "No items were selected for regeneration.",
+                    "Regenerate Corrupted Small Mips", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
 
@@ -195,6 +194,86 @@ namespace LegendaryExplorer.Tools.PackageEditor.Experiments
                 }
             };
             resultDialog.Show();
+        }
+
+        public static void ScanFolderForCorruptedSmallBlockCompressedMips(PackageEditorWindow pew)
+        {
+            if (pew is null)
+            {
+                return;
+            }
+
+            var folderDialog = new CommonOpenFileDialog("Select folder to scan")
+            {
+                IsFolderPicker = true,
+                EnsurePathExists = true,
+                Multiselect = false
+            };
+
+            if (folderDialog.ShowDialog(pew) != CommonFileDialogResult.Ok || string.IsNullOrWhiteSpace(folderDialog.FileName))
+            {
+                return;
+            }
+
+            string rootPath = folderDialog.FileName;
+            HashSet<string> packageExtensions = new(StringComparer.OrdinalIgnoreCase)
+            {
+                ".pcc", ".upk", ".sfm", ".u", ".udk"
+            };
+
+            List<string> packageFiles = Directory
+                .EnumerateFiles(rootPath, "*", SearchOption.AllDirectories)
+                .Where(path => packageExtensions.Contains(Path.GetExtension(path)))
+                .ToList();
+
+            if (!packageFiles.Any())
+            {
+                MessageBox.Show(pew,
+                    "No package files were found in the selected folder.",
+                    "Scan Folder for Corrupted Small Mips", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            int scannedPackages = 0;
+            int filesWithCorruption = 0;
+            int skippedFiles = 0;
+            List<string> affectedFiles = [];
+
+            foreach (string filePath in packageFiles)
+            {
+                try
+                {
+                    using IMEPackage package = MEPackageHandler.OpenMEPackage(filePath, forceLoadFromDisk: true);
+                    List<CorruptedSmallMipIssue> issues = FindCorruptedSmallMipIssues(package, out _);
+                    scannedPackages++;
+                    if (!issues.Any())
+                    {
+                        continue;
+                    }
+
+                    filesWithCorruption++;
+                    string firstReason = issues[0].Details;
+                    affectedFiles.Add($"{issues.Count,4} issue(s) | {filePath} | {firstReason}");
+                }
+                catch
+                {
+                    skippedFiles++;
+                }
+            }
+
+            if (!affectedFiles.Any())
+            {
+                MessageBox.Show(pew,
+                    $"Scanned {scannedPackages} package files. No corrupted 2x2/1x1 mips were detected. Skipped {skippedFiles} file(s).",
+                    "Scan Folder for Corrupted Small Mips", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            ListDialog dialog = new(affectedFiles,
+                "Files With Corrupted Small Mips",
+                $"Found {filesWithCorruption} file(s) with corrupted 2x2/1x1 mips out of {scannedPackages} scanned package file(s). Skipped {skippedFiles} file(s).",
+                pew, 1400, 600);
+            dialog.Show();
         }
 
         private static List<CorruptedSmallMipIssue> FindCorruptedSmallMipIssues(IMEPackage package, out int scannedTextures)
