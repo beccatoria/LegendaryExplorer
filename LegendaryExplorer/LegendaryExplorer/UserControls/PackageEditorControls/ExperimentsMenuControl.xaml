@@ -243,6 +243,8 @@
         </MenuItem>
     </MenuItem>
     <MenuItem Header="Other people's box of Legos">
+        <MenuItem Header="Scan block-compressed textures for corrupted 2x2/1x1 mips" Click="FindCorruptedSmallMips_Click" ToolTip="Checks package and external texture mips for invalid 2x2 or 1x1 block-compressed mip data."/>
+        <MenuItem Header="Scan + regenerate corrupted 2x2/1x1 block-compressed mips" Click="RegenerateCorruptedSmallMips_Click" ToolTip="Finds textures with corrupted 2x2/1x1 block-compressed mips and regenerates mip chains from the best available source mip."/>
         <MenuItem Header="Light Finder" Click="FindClosestLights_Click" ToolTip="Lists the closest placed lights to a set of world coordinates in the current package."/>
         <MenuItem Header="Export level to T3D" Click="ExportLevelToT3D_Click"/>
         <MenuItem Header="Add Preset Director InterpGroup" Click="AddPresetDirectorGroup_Click" ToolTip="Add an InterpGroupDirector along with Director and DOF tracks."/>

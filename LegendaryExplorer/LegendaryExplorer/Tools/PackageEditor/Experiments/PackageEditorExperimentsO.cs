@@ -10,6 +10,7 @@ using LegendaryExplorerCore.Matinee;
 using LegendaryExplorerCore.Packages;
 using LegendaryExplorerCore.Packages.CloningImportingAndRelinking;
 using LegendaryExplorerCore.SharpDX;
+using LegendaryExplorerCore.Textures;
 using LegendaryExplorerCore.TLK.ME1;
 using LegendaryExplorerCore.Unreal;
 using LegendaryExplorerCore.Unreal.BinaryConverters;
@@ -24,6 +25,8 @@ using System.Windows;
 using static LegendaryExplorer.Misc.ExperimentsTools.PackageAutomations;
 using static LegendaryExplorer.Misc.ExperimentsTools.SequenceAutomations;
 using static LegendaryExplorer.Misc.ExperimentsTools.SharedMethods;
+using UnrealTexture2D = LegendaryExplorerCore.Unreal.Classes.Texture2D;
+using UnrealTexture2DMipInfo = LegendaryExplorerCore.Unreal.Classes.Texture2DMipInfo;
 
 namespace LegendaryExplorer.Tools.PackageEditor.Experiments
 {
@@ -81,6 +84,220 @@ namespace LegendaryExplorer.Tools.PackageEditor.Experiments
                 }
             };
             dlg.Show();
+        }
+
+        public static void FindCorruptedSmallBlockCompressedMips(PackageEditorWindow pew)
+        {
+            if (pew?.Pcc is null)
+            {
+                return;
+            }
+
+            List<CorruptedSmallMipIssue> corruptedMipIssues = FindCorruptedSmallMipIssues(pew.Pcc, out int scannedTextures);
+            List<EntryStringPair> corruptedMips = corruptedMipIssues.Select(issue => issue.ToEntryStringPair()).ToList();
+
+            if (!corruptedMips.Any())
+            {
+                MessageBox.Show(pew,
+                    $"Scanned {scannedTextures} block-compressed textures. No corrupted 2x2/1x1 mips were detected.",
+                    "Small Mip Corruption Scan", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            ListDialog dlg = new(corruptedMips,
+                "Potentially Corrupted Small Mips",
+                $"Found {corruptedMips.Count} potentially corrupted 2x2/1x1 block-compressed mips.",
+                pew, 1200, 500)
+            {
+                DoubleClickEntryHandler = entryItem =>
+                {
+                    if (entryItem?.Entry is IEntry entryToSelect)
+                    {
+                        pew.GoToNumber(entryToSelect.UIndex);
+                        pew.Activate();
+                    }
+                }
+            };
+            dlg.Show();
+        }
+
+        public static void RegenerateCorruptedSmallBlockCompressedMips(PackageEditorWindow pew)
+        {
+            if (pew?.Pcc is null)
+            {
+                return;
+            }
+
+            List<CorruptedSmallMipIssue> detectedIssues = FindCorruptedSmallMipIssues(pew.Pcc, out int scannedTextures);
+            HashSet<int> textureIdsToRepair = detectedIssues.Select(x => x.TextureExport.UIndex).ToHashSet();
+
+            if (textureIdsToRepair.Count == 0)
+            {
+                MessageBox.Show(pew,
+                    $"Scanned {scannedTextures} block-compressed textures. No corrupted 2x2/1x1 mips were detected.",
+                    "Regenerate Corrupted Small Mips", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            MessageBoxResult userChoice = MessageBox.Show(pew,
+                $"Found {detectedIssues.Count} corrupted small-mip issue(s) across {textureIdsToRepair.Count} texture(s).\n\nRegenerate only the 2x2 and 1x1 mips for these textures now?",
+                "Regenerate Corrupted Small Mips", MessageBoxButton.YesNo, MessageBoxImage.Question);
+            if (userChoice != MessageBoxResult.Yes)
+            {
+                return;
+            }
+
+            int repairedTextures = 0;
+            List<EntryStringPair> failures = [];
+            foreach (ExportEntry textureExport in pew.Pcc.Exports.Where(x => textureIdsToRepair.Contains(x.UIndex)))
+            {
+                try
+                {
+                    RegenerateOnlySmallMips(textureExport);
+                    repairedTextures++;
+                }
+                catch (Exception ex)
+                {
+                    string firstLine = ex.Message?.Split('\n').FirstOrDefault() ?? ex.GetType().Name;
+                    failures.Add(new EntryStringPair(textureExport,
+                        $"#{textureExport.UIndex,-6} {textureExport.InstancedFullPath}: Failed to regenerate mips ({firstLine})"));
+                }
+            }
+
+            List<CorruptedSmallMipIssue> remainingIssues = FindCorruptedSmallMipIssues(pew.Pcc, out _)
+                .Where(issue => textureIdsToRepair.Contains(issue.TextureExport.UIndex))
+                .ToList();
+
+            if (!failures.Any() && !remainingIssues.Any())
+            {
+                MessageBox.Show(pew,
+                    $"Regenerated mip chains for {repairedTextures} texture(s). No corrupted 2x2/1x1 block-compressed mips remain in those textures.",
+                    "Regenerate Corrupted Small Mips", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            List<EntryStringPair> resultEntries = [];
+            resultEntries.AddRange(failures);
+            resultEntries.AddRange(remainingIssues.Select(issue => issue.ToEntryStringPair("Still corrupted after regeneration")));
+
+            ListDialog resultDialog = new(resultEntries,
+                "Regenerate Corrupted Small Mips Results",
+                $"Repaired {repairedTextures}/{textureIdsToRepair.Count} textures. {remainingIssues.Count} issue(s) remain and {failures.Count} texture(s) failed to regenerate.",
+                pew, 1200, 500)
+            {
+                DoubleClickEntryHandler = entryItem =>
+                {
+                    if (entryItem?.Entry is IEntry entryToSelect)
+                    {
+                        pew.GoToNumber(entryToSelect.UIndex);
+                        pew.Activate();
+                    }
+                }
+            };
+            resultDialog.Show();
+        }
+
+        private static List<CorruptedSmallMipIssue> FindCorruptedSmallMipIssues(IMEPackage package, out int scannedTextures)
+        {
+            scannedTextures = 0;
+            List<CorruptedSmallMipIssue> issues = [];
+
+            foreach (ExportEntry textureExport in package.Exports.Where(x => !x.IsDefaultObject && x.IsTexture()))
+            {
+                UnrealTexture2D texture;
+                try
+                {
+                    texture = new UnrealTexture2D(textureExport);
+                }
+                catch
+                {
+                    continue;
+                }
+
+                if (string.IsNullOrWhiteSpace(texture.TextureFormat))
+                {
+                    continue;
+                }
+
+                PixelFormat pixelFormat;
+                try
+                {
+                    pixelFormat = Image.getPixelFormatType(texture.TextureFormat);
+                }
+                catch
+                {
+                    continue;
+                }
+
+                if (!IsBlockCompressedFormat(pixelFormat))
+                {
+                    continue;
+                }
+
+                scannedTextures++;
+
+                foreach (UnrealTexture2DMipInfo mip in texture.Mips.Where(m => m.storageType != StorageTypes.empty && IsSmallMip(m.width, m.height)))
+                {
+                    int expectedSize = GetExpectedBlockCompressedMipSize(mip.width, mip.height, pixelFormat);
+                    if (mip.uncompressedSize <= 0 || mip.compressedSize <= 0)
+                    {
+                        issues.Add(new CorruptedSmallMipIssue(textureExport,
+                            $"{mip.width}x{mip.height} {mip.storageType}: Null/empty mip metadata (UncompressedSize={mip.uncompressedSize}, CompressedSize={mip.compressedSize})"));
+                        continue;
+                    }
+
+                    if (mip.uncompressedSize != expectedSize)
+                    {
+                        issues.Add(new CorruptedSmallMipIssue(textureExport,
+                            $"{mip.width}x{mip.height} {mip.storageType}: UncompressedSize={mip.uncompressedSize}, expected {expectedSize}"));
+                        continue;
+                    }
+
+                    try
+                    {
+                        byte[] mipData = UnrealTexture2D.GetTextureData(mip, textureExport.Game);
+                        if (mipData is null || mipData.Length != expectedSize)
+                        {
+                            issues.Add(new CorruptedSmallMipIssue(textureExport,
+                                $"{mip.width}x{mip.height} {mip.storageType}: Loaded {mipData?.Length ?? 0} bytes, expected {expectedSize}"));
+                            continue;
+                        }
+
+                        if (mipData.All(b => b == 0))
+                        {
+                            issues.Add(new CorruptedSmallMipIssue(textureExport,
+                                $"{mip.width}x{mip.height} {mip.storageType}: Mip payload is blank/all zeroes"));
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        string firstLine = ex.Message?.Split('\n').FirstOrDefault() ?? ex.GetType().Name;
+                        issues.Add(new CorruptedSmallMipIssue(textureExport,
+                            $"{mip.width}x{mip.height} {mip.storageType}: Failed to read mip ({firstLine})"));
+                    }
+                }
+            }
+
+            return issues;
+        }
+
+        private sealed class CorruptedSmallMipIssue
+        {
+            public CorruptedSmallMipIssue(ExportEntry textureExport, string details)
+            {
+                TextureExport = textureExport;
+                Details = details;
+            }
+
+            public ExportEntry TextureExport { get; }
+            public string Details { get; }
+
+            public EntryStringPair ToEntryStringPair(string prefix = null)
+            {
+                string messagePrefix = string.IsNullOrWhiteSpace(prefix) ? string.Empty : $"{prefix}: ";
+                return new EntryStringPair(TextureExport,
+                    $"#{TextureExport.UIndex,-6} {TextureExport.InstancedFullPath} | {messagePrefix}{Details}");
+            }
         }
 
         public static void DumpPackageToT3D(IMEPackage package)
@@ -304,6 +521,163 @@ namespace LegendaryExplorer.Tools.PackageEditor.Experiments
 
             position = Vector3.Zero;
             return false;
+        }
+
+        private static bool IsSmallMip(int width, int height)
+        {
+            return (width == 2 && height == 2) || (width == 1 && height == 1);
+        }
+
+        private static void RegenerateOnlySmallMips(ExportEntry textureExport)
+        {
+            UnrealTexture2D texture = new UnrealTexture2D(textureExport);
+            if (string.IsNullOrWhiteSpace(texture.TextureFormat))
+            {
+                throw new Exception("Texture has no format property");
+            }
+
+            PixelFormat format = Image.getPixelFormatType(texture.TextureFormat);
+            if (!IsBlockCompressedFormat(format))
+            {
+                throw new Exception("Texture format is not block-compressed");
+            }
+
+            UnrealTexture2DMipInfo topMip = texture.GetTopMip() ?? throw new Exception("Texture has no non-empty mips");
+            byte[] topMipData = UnrealTexture2D.GetTextureData(topMip, textureExport.Game);
+            Image regenerated = new(new List<MipMap> { new(topMipData, topMip.width, topMip.height, format) }, format);
+            regenerated.correctMips(format);
+
+            UTexture2D textureBinary = textureExport.GetBinaryData<UTexture2D>();
+            bool storeExternally = ((StorageFlags)topMip.storageType).Has(StorageFlags.externalFile);
+            string textureCacheName = topMip.TextureCacheName;
+            Guid tfcGuid = Guid.Empty;
+            string tfcPath = null;
+
+            if (storeExternally)
+            {
+                if (string.IsNullOrWhiteSpace(textureCacheName))
+                {
+                    throw new Exception("Top mip is external but TextureCacheName is missing");
+                }
+
+                if (textureExport.Game == MEGame.ME1)
+                {
+                    throw new Exception("External small-mip regeneration is not supported for ME1 textures");
+                }
+
+                tfcPath = ResolveTextureCachePathForWrite(textureExport, textureCacheName);
+                using FileStream tfcStream = new(tfcPath, FileMode.OpenOrCreate, FileAccess.ReadWrite);
+                if (tfcStream.Length >= 16)
+                {
+                    tfcGuid = tfcStream.ReadGuid();
+                }
+                else
+                {
+                    tfcGuid = Guid.NewGuid();
+                    tfcStream.WriteGuid(tfcGuid);
+                }
+            }
+
+            bool modified = false;
+
+            foreach (UnrealTexture2DMipInfo existingMipInfo in texture.Mips.Where(m => m.storageType != StorageTypes.empty && IsSmallMip(m.width, m.height)))
+            {
+                MipMap regeneratedMip = regenerated.mipMaps.FirstOrDefault(m => m.origWidth == existingMipInfo.width && m.origHeight == existingMipInfo.height);
+                if (regeneratedMip is null)
+                {
+                    continue;
+                }
+
+                int binaryMipIndex = textureBinary.Mips.Count - existingMipInfo.index;
+                if (binaryMipIndex < 0 || binaryMipIndex >= textureBinary.Mips.Count)
+                {
+                    continue;
+                }
+
+                UTexture2D.Texture2DMipMap binaryMip = textureBinary.Mips[binaryMipIndex];
+                binaryMip.StorageType = topMip.storageType;
+                binaryMip.UncompressedSize = regeneratedMip.data.Length;
+
+                if (!storeExternally)
+                {
+                    if (binaryMip.StorageType is StorageTypes.pccLZO or StorageTypes.pccZlib or StorageTypes.pccOodle)
+                    {
+                        byte[] compressedMip = TextureCompression.CompressTexture(regeneratedMip.data, binaryMip.StorageType);
+                        binaryMip.CompressedSize = compressedMip.Length;
+                        binaryMip.Mip = compressedMip;
+                    }
+                    else
+                    {
+                        binaryMip.CompressedSize = regeneratedMip.data.Length;
+                        binaryMip.Mip = regeneratedMip.data;
+                    }
+                }
+                else
+                {
+                    byte[] externalPayload = binaryMip.StorageType switch
+                    {
+                        StorageTypes.extLZO or StorageTypes.extZlib or StorageTypes.extOodle => TextureCompression.CompressTexture(regeneratedMip.data, binaryMip.StorageType),
+                        _ => regeneratedMip.data
+                    };
+
+                    using FileStream tfcStream = new(tfcPath, FileMode.Open, FileAccess.ReadWrite);
+                    tfcStream.Seek(0, SeekOrigin.End);
+                    binaryMip.DataOffset = (int)tfcStream.Position;
+                    binaryMip.CompressedSize = externalPayload.Length;
+                    tfcStream.Write(externalPayload, 0, externalPayload.Length);
+
+                    // External mip payload is not serialized in the package binary.
+                    binaryMip.Mip = [];
+                }
+
+                textureBinary.Mips[binaryMipIndex] = binaryMip;
+                modified = true;
+            }
+
+            if (!modified)
+            {
+                throw new Exception("No eligible 2x2/1x1 mips were found to replace");
+            }
+
+            PropertyCollection props = textureExport.GetProperties();
+            if (storeExternally)
+            {
+                props.AddOrReplaceProp(new NameProperty(textureCacheName, "TextureFileCacheName"));
+                props.AddOrReplaceProp(tfcGuid.ToGuidStructProp("TFCFileGuid"));
+                textureExport.WriteProperties(props);
+            }
+
+            textureExport.WriteBinary(textureBinary);
+        }
+
+        private static string ResolveTextureCachePathForWrite(ExportEntry textureExport, string textureCacheName)
+        {
+            string tfcArchiveName = textureCacheName + ".tfc";
+            string localDirectoryTfcPath = Path.Combine(Path.GetDirectoryName(textureExport.FileRef.FilePath), tfcArchiveName);
+            if (File.Exists(localDirectoryTfcPath))
+            {
+                return localDirectoryTfcPath;
+            }
+
+            var gameFiles = MELoadedFiles.GetFilesLoadedInGame(textureExport.Game, includeTFCs: true);
+            if (gameFiles.TryGetValue(tfcArchiveName, out string archivePath))
+            {
+                return archivePath;
+            }
+
+            return localDirectoryTfcPath;
+        }
+
+        private static bool IsBlockCompressedFormat(PixelFormat format)
+        {
+            return format is PixelFormat.DXT1 or PixelFormat.DXT3 or PixelFormat.DXT5 or PixelFormat.ATI2 or PixelFormat.BC5 or PixelFormat.BC7;
+        }
+
+        private static int GetExpectedBlockCompressedMipSize(int width, int height, PixelFormat format)
+        {
+            int paddedWidth = Math.Max(width, 4);
+            int paddedHeight = Math.Max(height, 4);
+            return MipMap.getBufferSize(paddedWidth, paddedHeight, format);
         }
 
         public static void ExportT3D(StaticMesh staticMesh, string Filename, Matrix4x4 m, Vector3 IncScale3D)
@@ -872,8 +1246,8 @@ namespace LegendaryExplorer.Tools.PackageEditor.Experiments
 
             ExportEntry targetMorph = (ExportEntry)pew.SelectedItem.Entry;
 
-            BioMorphFace modelMorphFace = ObjectBinary.From<BioMorphFace>(modelMorph);
-            BioMorphFace targetMorphFace = ObjectBinary.From<BioMorphFace>(targetMorph);
+            LegendaryExplorerCore.Unreal.BinaryConverters.BioMorphFace modelMorphFace = ObjectBinary.From<LegendaryExplorerCore.Unreal.BinaryConverters.BioMorphFace>(modelMorph);
+            LegendaryExplorerCore.Unreal.BinaryConverters.BioMorphFace targetMorphFace = ObjectBinary.From<LegendaryExplorerCore.Unreal.BinaryConverters.BioMorphFace>(targetMorph);
 
             if (modelMorphFace.LODs[0].Length != targetMorphFace.LODs[0].Length)
             {
