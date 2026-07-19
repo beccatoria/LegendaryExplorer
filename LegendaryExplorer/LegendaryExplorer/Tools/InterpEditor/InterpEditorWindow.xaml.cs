@@ -25,21 +25,70 @@ namespace LegendaryExplorer.Tools.InterpEditor
     /// </summary>
     public partial class InterpEditorWindow : WPFBase, IRecents
     {
+        private GridLength _savedVisualizationPanelWidth = new(420);
+        private GridLength _savedVisualizationSplitterWidth = new(5);
+
         public InterpEditorWindow() : base("Interp Editor")
         {
             LoadCommands();
             DataContext = this;
             StatusText = "Select package file to load";
             InitializeComponent();
+            UpdateVisualizationPanelLayout(IsVisualizationEnabled);
             RecentsController.InitRecentControl(Toolname, Recents_MenuItem, LoadFile);
+            InterpVisualizationControl.ScrubRequested += InterpVisualizationControlOnScrubRequested;
 
             TimelineControl.SelectionChanged += TimelineControlOnSelectionChanged;
             TimelineControl.SetGroupActorRequested += OnSetGroupActorRequested;
         }
 
+        private void InterpVisualizationControlOnScrubRequested(float time)
+        {
+            if (!IsVisualizationEnabled || TimelineControl.InterpData is null)
+            {
+                return;
+            }
+
+            Scrub(time);
+        }
+
+        private void UpdateVisualizationPanelLayout(bool enabled)
+        {
+            if (TimelineAndVisualizationGrid?.ColumnDefinitions is null || TimelineAndVisualizationGrid.ColumnDefinitions.Count < 3)
+            {
+                return;
+            }
+
+            var visualizationSplitterColumn = TimelineAndVisualizationGrid.ColumnDefinitions[1];
+            var visualizationPanelColumn = TimelineAndVisualizationGrid.ColumnDefinitions[2];
+
+            if (enabled)
+            {
+                visualizationSplitterColumn.Width = _savedVisualizationSplitterWidth;
+                visualizationPanelColumn.Width = _savedVisualizationPanelWidth;
+                return;
+            }
+
+            if (visualizationPanelColumn.Width.Value > 0)
+            {
+                _savedVisualizationPanelWidth = visualizationPanelColumn.Width;
+            }
+            if (visualizationSplitterColumn.Width.Value > 0)
+            {
+                _savedVisualizationSplitterWidth = visualizationSplitterColumn.Width;
+            }
+
+            visualizationSplitterColumn.Width = new GridLength(0);
+            visualizationPanelColumn.Width = new GridLength(0);
+        }
+
         private void TimelineControlOnSelectionChanged(ExportEntry export)
         {
             Properties_InterpreterWPF.LoadExport(export);
+            if (IsVisualizationEnabled)
+            {
+                InterpVisualizationControl.SetSelectedExport(export);
+            }
             OnPropertyChanged(nameof(LoadedExportIsCurve));
             if (CurveTab_CurveEditor.CanParse(export))
             {
@@ -89,19 +138,58 @@ namespace LegendaryExplorer.Tools.InterpEditor
         public float CurrentTime
         {
             get => _currentTime;
-            set { SetProperty(ref _currentTime, value); UpdatePlayhead(); }
+            set
+            {
+                SetProperty(ref _currentTime, value);
+                UpdatePlayhead();
+                if (IsVisualizationEnabled)
+                {
+                    InterpVisualizationControl.SetCurrentTime(_currentTime);
+                }
+            }
         }
 
         public float Duration
         {
             get => _duration;
-            set => SetProperty(ref _duration, value);
+            set
+            {
+                SetProperty(ref _duration, value);
+                if (IsVisualizationEnabled)
+                {
+                    InterpVisualizationControl.SetDuration(_duration);
+                }
+            }
         }
 
         public bool IsPlaying
         {
             get => _isPlaying;
             set => SetProperty(ref _isPlaying, value);
+        }
+
+        private bool _isVisualizationEnabled;
+        public bool IsVisualizationEnabled
+        {
+            get => _isVisualizationEnabled;
+            set
+            {
+                if (SetProperty(ref _isVisualizationEnabled, value) && InterpVisualizationControl is not null)
+                {
+                    UpdateVisualizationPanelLayout(value);
+                    if (value)
+                    {
+                        InterpVisualizationControl.EnsureInitialized();
+                        InterpVisualizationControl.SetDuration(Duration);
+                        SyncVisualizationData();
+                        InterpVisualizationControl.SetCurrentTime(CurrentTime);
+                    }
+                    else
+                    {
+                        InterpVisualizationControl.Clear();
+                    }
+                }
+            }
         }
 
         public string ConnectedLevelEditorText =>
@@ -265,6 +353,7 @@ namespace LegendaryExplorer.Tools.InterpEditor
             TimelineControl.LoadExport(value);
             Properties_InterpreterWPF.LoadExport(value);
             OnPropertyChanged(nameof(LoadedExportIsCurve));
+            SyncVisualizationData();
         }
 
         #region Playback
@@ -392,6 +481,18 @@ namespace LegendaryExplorer.Tools.InterpEditor
             TimelineControl.SetPlayheadTime(_currentTime);
         }
 
+        private void SyncVisualizationData()
+        {
+            if (!IsVisualizationEnabled || InterpVisualizationControl is null)
+            {
+                return;
+            }
+
+            InterpVisualizationControl.SetDuration(Duration);
+            InterpVisualizationControl.SetInterpData(TimelineControl.InterpData);
+            InterpVisualizationControl.SetSelectedExport(Properties_InterpreterWPF?.CurrentLoadedExport);
+        }
+
         #endregion Playback
 
         public override void HandleUpdate(List<PackageUpdate> updates)
@@ -446,6 +547,10 @@ namespace LegendaryExplorer.Tools.InterpEditor
             Properties_InterpreterWPF?.Dispose();
             CurveTab_CurveEditor?.Dispose();
             RecentsController?.Dispose();
+            if (InterpVisualizationControl is not null)
+            {
+                InterpVisualizationControl.ScrubRequested -= InterpVisualizationControlOnScrubRequested;
+            }
         }
 
         public void PropogateRecentsChange(string propogationSource, IEnumerable<RecentsControl.RecentItem> newRecents)
