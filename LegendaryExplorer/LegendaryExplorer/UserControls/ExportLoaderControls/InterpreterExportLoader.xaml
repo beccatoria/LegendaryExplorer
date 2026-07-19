@@ -75,6 +75,10 @@
                     Command="{Binding MoveArrayElementDownCommand}" >
                     <fa:FontAwesome Icon="Solid_ArrowDown" />
                 </Button>
+                <Button Name="ArrayElement_Invert_Button" ToolTip="Invert the selected array (reverse element order)" VerticalAlignment="Center" Width="22"
+                    Command="{Binding InvertArrayCommand}">
+                    <TextBlock Text="⇅" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                </Button>
             </ToolBar>
             <ToolBar ToolBarTray.IsLocked="True" OverflowMode="Never" Band="2">
                 <TextBox Width="80" Name="Value_TextBox" VerticalAlignment="Center" ToolTip="Value for this property" KeyDown="ValueTextBox_KeyDown" TextChanged="Value_TextBox_TextChanged" 
@@ -315,6 +319,7 @@
                         <MenuItem Header="Array sorting: By descending parsed value" ToolTip="Sorts an array property by its parsed value, in descending order." Command="{Binding SortParsedArrayDescendingCommand}" SharedUI:Bindings.VisibilityToEnabled="True"/>
                         <MenuItem Header="Array sorting: By ascending value" ToolTip="Sorts an array property by its value, in ascending order." Command="{Binding SortValueArrayAscendingCommand}" SharedUI:Bindings.VisibilityToEnabled="True"/>
                         <MenuItem Header="Array sorting: By descending value" ToolTip="Sorts an array property by its value, in descending order." Command="{Binding SortValueArrayDescendingCommand}" SharedUI:Bindings.VisibilityToEnabled="True"/>
+                        <MenuItem Header="Invert Array" ToolTip="Reverses the order of array elements. For arrays with embedded key times, timeline order is preserved." Command="{Binding InvertArrayCommand}" SharedUI:Bindings.VisibilityToEnabled="True"/>
                         <MenuItem Header="Clear Array" ToolTip="Removes all values from the array." Command="{Binding ClearArrayCommand}" SharedUI:Bindings.VisibilityToEnabled="True"/>
 
                         <MenuItem Header="View referenced object in pop out Properties window" ToolTip="Opens a new Properties window displaying the referenced object value" Command="{Binding PopoutInterpreterForObjectValueCommand}" SharedUI:Bindings.VisibilityToEnabled="True"/>

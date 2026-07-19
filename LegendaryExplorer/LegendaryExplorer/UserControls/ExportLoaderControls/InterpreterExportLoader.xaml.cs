@@ -233,6 +233,7 @@ namespace LegendaryExplorer.UserControls.ExportLoaderControls
         public ICommand SortParsedArrayDescendingCommand { get; set; } //obj, name only
         public ICommand SortValueArrayAscendingCommand { get; set; }
         public ICommand SortValueArrayDescendingCommand { get; set; }
+        public ICommand InvertArrayCommand { get; set; }
         public ICommand PopoutInterpreterForObjectValueCommand { get; set; }
         public ICommand MoveArrayElementUpCommand { get; set; }
         public ICommand MoveArrayElementDownCommand { get; set; }
@@ -261,6 +262,7 @@ namespace LegendaryExplorer.UserControls.ExportLoaderControls
             SortParsedArrayDescendingCommand = new GenericCommand(SortParsedArrayDescending, CanSortArrayPropByParsedValue);
             SortValueArrayAscendingCommand = new GenericCommand(SortValueArrayAscending, CanSortArrayPropByValue);
             SortValueArrayDescendingCommand = new GenericCommand(SortValueArrayDescending, CanSortArrayPropByValue);
+            InvertArrayCommand = new GenericCommand(InvertArray, CanInvertArray);
             ClearArrayCommand = new GenericCommand(ClearArray, CanClearArray);
             PopoutInterpreterForObjectValueCommand = new GenericCommand(PopoutInterpreterForObj, ObjectPropertyExportIsSelected);
             OpenInMeshplorerCommand = new GenericCommand(OpenReferenceInMeshplorer, CanOpenInMeshplorer);
@@ -483,6 +485,51 @@ namespace LegendaryExplorer.UserControls.ExportLoaderControls
         }
 
         private bool CanClearArray() => SelectedItem?.Property is ArrayPropertyBase && !SelectedItem.HasTooManyChildrenToDisplay;
+
+        private static readonly string[] EmbeddedTimePropertyCandidates = ["fTime", "Time", "StartTime", "InVal", "TimeIndex"];
+
+        private void InvertArray()
+        {
+            if (SelectedItem?.Property is not ArrayPropertyBase arrayProperty || SelectedItem.HasTooManyChildrenToDisplay || arrayProperty.Count < 2)
+            {
+                return;
+            }
+
+            List<float> originalTimes = null;
+            string embeddedTimePropertyName = null;
+            if (arrayProperty is ArrayProperty<StructProperty> structArray && TryGetCommonEmbeddedTimePropertyName(structArray, out var timePropName))
+            {
+                embeddedTimePropertyName = timePropName;
+                originalTimes = structArray.Select(x => x.GetProp<FloatProperty>(embeddedTimePropertyName).Value).ToList();
+            }
+
+            for (int i = 0, j = arrayProperty.Count - 1; i < j; i++, j--)
+            {
+                arrayProperty.SwapElements(i, j);
+            }
+
+            if (originalTimes is not null && arrayProperty is ArrayProperty<StructProperty> timeStructArray)
+            {
+                for (int i = 0; i < timeStructArray.Count; i++)
+                {
+                    timeStructArray[i].GetProp<FloatProperty>(embeddedTimePropertyName).Value = originalTimes[i];
+                }
+            }
+
+            CurrentLoadedExport.WriteProperties(CurrentLoadedProperties);
+        }
+
+        private static bool TryGetCommonEmbeddedTimePropertyName(ArrayProperty<StructProperty> structArray, out string timePropertyName)
+        {
+            timePropertyName = EmbeddedTimePropertyCandidates.FirstOrDefault(candidate =>
+                structArray.Count > 0 && structArray.All(s => s.GetProp<FloatProperty>(candidate) is not null));
+            return timePropertyName is not null;
+        }
+
+        private bool CanInvertArray() =>
+            SelectedItem?.Property is ArrayPropertyBase arrayProperty
+            && !SelectedItem.HasTooManyChildrenToDisplay
+            && arrayProperty.Count > 1;
 
         private bool ArrayPropertyIsSelected() => SelectedItem?.Property is ArrayPropertyBase;
 
