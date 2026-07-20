@@ -52,17 +52,6 @@
                     <MenuItem Header="Goto #" Command="{Binding GotoCommand}" InputGestureText="Ctrl+G" />
                     <MenuItem Header="Rename Track" Command="{Binding RenameTrackCommand}" InputGestureText="F2" />
                     <Separator />
-                    <MenuItem Header="Enable Visualization Viewer"
-                              IsCheckable="True"
-                              IsChecked="{Binding IsVisualizationEnabled, Mode=TwoWay}"
-                              IsEnabled="{Binding Pcc, Converter={StaticResource NullEnabledConverter}}" />
-                    <MenuItem Header="Set Visualization Context Package..."
-                              Command="{Binding SetVisualizationContextPackageCommand}"
-                              IsEnabled="{Binding Pcc, Converter={StaticResource NullEnabledConverter}}" />
-                    <MenuItem Header="Clear Visualization Context Package Override"
-                              Command="{Binding ClearVisualizationContextPackageCommand}"
-                              IsEnabled="{Binding Pcc, Converter={StaticResource NullEnabledConverter}}" />
-                    <Separator />
                     <MenuItem Header="Insert Key at Time..." Command="{Binding InsertKeyCommand}" ToolTip="Inserts a key with default values at a specified time on the selected track." />
                     <MenuItem Header="Add Preset Group">
                         <MenuItem Header="Director Group" Command="{Binding AddPresetDirectorGroupCommand}" ToolTip="Add an InterpGroupDirector with Director and DOF tracks." />
@@ -115,24 +104,7 @@
                     <RowDefinition Height="5" />
                     <RowDefinition Height="1*" />
                 </Grid.RowDefinitions>
-                <Grid Grid.Row="0" x:Name="TimelineAndVisualizationGrid">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="5" />
-                        <ColumnDefinition Width="420" />
-                    </Grid.ColumnDefinitions>
-                    <exportLoaderControls:Timeline x:Name="TimelineControl" Grid.Column="0" />
-                    <GridSplitter Grid.Column="1"
-                                  Width="5"
-                                  HorizontalAlignment="Stretch"
-                                  Visibility="{Binding IsVisualizationEnabled, Converter={StaticResource BoolToVisibilityConverter}}" />
-                    <Border Grid.Column="2"
-                            BorderBrush="DarkGray"
-                            BorderThickness="1,0,0,0"
-                            Visibility="{Binding IsVisualizationEnabled, Converter={StaticResource BoolToVisibilityConverter}}">
-                        <interpEditor:InterpVisualizationControl x:Name="InterpVisualizationControl" />
-                    </Border>
-                </Grid>
+                <exportLoaderControls:Timeline x:Name="TimelineControl" Grid.Row="0" />
                 <GridSplitter Grid.Row="1" Height="5" HorizontalAlignment="Stretch" Grid.Column="0" />
                 <Grid Column="0" Row="2">
                     <Grid.RowDefinitions>
