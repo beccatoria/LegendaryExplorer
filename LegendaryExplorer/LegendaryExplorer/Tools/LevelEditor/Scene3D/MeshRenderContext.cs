@@ -135,7 +135,6 @@ public class MeshRenderContext : RenderContext
     private const float OrbitRotationSensitivity = 0.014f;
     private const float MouseZoomSensitivity = 0.015f;
     private const float ScrollZoomExponent = 0.16f;
-    private const float MinThirdPersonFocusDepth = 0.001f;
     public float Time { get; private set; }
     public uint NumFrames { get; private set; }
 
@@ -714,8 +713,8 @@ public class MeshRenderContext : RenderContext
                     break;
                 //zooming
                 case MouseButtons.Right:
-                    Camera.FocusDepth += yDiff * MathF.Max(Camera.FocusDepth, 1f) * MouseZoomSensitivity;
-                    if (Camera.FocusDepth < MinThirdPersonFocusDepth) Camera.FocusDepth = MinThirdPersonFocusDepth;
+                    Camera.FocusDepth += yDiff * Camera.FocusDepth * MouseZoomSensitivity;
+                    if (Camera.FocusDepth < 0.1) Camera.FocusDepth = 0.1f;
                     handled = true;
                     break;
             }
@@ -739,13 +738,7 @@ public class MeshRenderContext : RenderContext
         }
         else
         {
-            float signedSteps = scrollSteps * zoomSpeedMultiplier;
-            float focusDepth = Camera.FocusDepth;
-            float depthDelta = signedSteps * MathF.Max(focusDepth * 0.22f, 0.2f);
-            focusDepth -= depthDelta;
-
-            if (focusDepth < MinThirdPersonFocusDepth) focusDepth = MinThirdPersonFocusDepth;
-            Camera.FocusDepth = focusDepth;
+            Camera.FocusDepth *= MathF.Pow(1.2f, -scrollSteps * zoomSpeedMultiplier * ScrollZoomExponent * 6f);
         }
         return true;
     }
