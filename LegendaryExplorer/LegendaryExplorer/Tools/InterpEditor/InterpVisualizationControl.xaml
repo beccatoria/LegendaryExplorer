@@ -4,6 +4,7 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:misc="clr-namespace:LegendaryExplorer.Misc"
+        xmlns:levelScene3D="clr-namespace:LegendaryExplorer.Tools.LevelEditor.Scene3D"
         mc:Ignorable="d"
         d:DesignHeight="400" d:DesignWidth="420">
     <Grid>
@@ -32,6 +33,8 @@
             <CheckBox Content="Markers" IsChecked="{Binding ShowMarkers}" VerticalAlignment="Center" Margin="0,0,8,0" />
             <CheckBox Content="Keys" IsChecked="{Binding ShowKeyframes}" VerticalAlignment="Center" Margin="0,0,8,0" />
             <CheckBox Content="Labels" IsChecked="{Binding ShowKeyLabels}" VerticalAlignment="Center" Margin="0,0,8,0" />
+            <CheckBox Content="Context" IsChecked="{Binding ShowContextOverlays}" VerticalAlignment="Center" Margin="0,0,8,0" ToolTip="Show anchor/BioStage/world context overlays in the current 2D plane." />
+            <CheckBox Content="3D" IsChecked="{Binding Show3DViewer}" VerticalAlignment="Center" Margin="0,0,8,0" ToolTip="Enable 3D viewer MVP for path and marker review." />
             <CheckBox Content="Camera" IsChecked="{Binding ShowCameraOverlays}" VerticalAlignment="Center" Margin="0,0,8,0" ToolTip="Show camera path emphasis and camera marker overlays when camera tracks are detected." />
             <CheckBox Content="Aim" IsChecked="{Binding ShowCameraAim}" VerticalAlignment="Center" Margin="0,0,8,0" ToolTip="Show current camera aim/forward vector." />
             <CheckBox Content="Frustum" IsChecked="{Binding ShowCameraFrustum}" VerticalAlignment="Center" Margin="0,0,8,0" ToolTip="Show 2D camera frustum wedge (uses FOV track when available)." />
@@ -41,14 +44,25 @@
                     ToolTip="Reframe the viewport to include all visible track data."
                     Padding="6,2"
                     Margin="0,0,4,0" />
+            <Button Content="Focus Path"
+                    Command="{Binding FocusPath3DCommand}"
+                    ToolTip="In 3D mode, focus camera bounds on move path only."
+                    Padding="6,2"
+                    Margin="0,0,4,0" />
+            <Button Content="Focus Context"
+                    Command="{Binding FocusContext3DCommand}"
+                    ToolTip="In 3D mode, focus camera bounds on BioStage/context only."
+                    Padding="6,2"
+                    Margin="0,0,4,0" />
             <Button Content="Reset"
                     Command="{Binding ResetViewCommand}"
                     ToolTip="Restore default options (XY, paths/markers/keys/camera overlays on, labels off) and then fit view."
                     Padding="6,2" />
         </WrapPanel>
 
-        <Border Grid.Row="2" Margin="8,4,8,4" BorderBrush="#444" BorderThickness="1" Background="#111">
-            <Grid>
+        <Grid Grid.Row="2" Margin="8,4,8,4">
+            <Border x:Name="TwoDPreviewBorder" BorderBrush="#444" BorderThickness="1" Background="#111">
+                <Grid>
                 <Canvas x:Name="PreviewCanvas"
                         MinHeight="180"
                         Background="Transparent"
@@ -59,19 +73,23 @@
                         MouseRightButtonUp="PreviewCanvas_OnMouseRightButtonUp"
                         MouseMove="PreviewCanvas_OnMouseMove" />
 
-                <Border HorizontalAlignment="Left"
-                        VerticalAlignment="Top"
-                        Margin="8"
-                        Padding="6,4"
-                        CornerRadius="3"
-                        Background="#B0101010"
-                        BorderBrush="#55333333"
-                        BorderThickness="1"
-                        IsHitTestVisible="False">
-                    <TextBlock Text="{Binding OverlayTipText}" Foreground="#FFEFEFEF" FontSize="11" />
-                </Border>
-            </Grid>
-        </Border>
+                </Grid>
+            </Border>
+
+            <levelScene3D:SceneRenderControl x:Name="SceneViewer" Visibility="Collapsed" />
+
+            <Border HorizontalAlignment="Left"
+                    VerticalAlignment="Top"
+                    Margin="8"
+                    Padding="6,4"
+                    CornerRadius="3"
+                    Background="#B0101010"
+                    BorderBrush="#55333333"
+                    BorderThickness="1"
+                    IsHitTestVisible="False">
+                <TextBlock Text="{Binding OverlayTipText}" Foreground="#FFEFEFEF" FontSize="11" />
+            </Border>
+        </Grid>
 
         <Slider Grid.Row="3"
                 Margin="8,4,8,0"

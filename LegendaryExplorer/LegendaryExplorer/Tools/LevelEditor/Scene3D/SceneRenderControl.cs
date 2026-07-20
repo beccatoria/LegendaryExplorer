@@ -558,7 +558,14 @@ public sealed class SceneRenderControl : ContentControl, IDisposable, INotifyPro
         else
             return;
         Point position = e.GetPosition(this);
-        e.Handled = Context.MouseDown(buttons, (int)position.X, (int)position.Y);
+        bool handled = Context.MouseDown(buttons, (int)position.X, (int)position.Y);
+        if (buttons is MouseButtons.Middle or MouseButtons.Right)
+        {
+            Mouse.Capture(this);
+            handled = true;
+        }
+
+        e.Handled = handled;
     }
 
     private void SceneRenderControlWPF_PreviewMouseUp(object sender, MouseButtonEventArgs e)
@@ -577,6 +584,11 @@ public sealed class SceneRenderControl : ContentControl, IDisposable, INotifyPro
         if (e.ClickCount == 2)
         {
             handled = Context.MouseDoubleClick(buttons, (int)position.X, (int)position.Y) || handled;
+        }
+
+        if (Mouse.Captured == this)
+        {
+            Mouse.Capture(null);
         }
 
         e.Handled = handled;

@@ -16,6 +16,7 @@ using LegendaryExplorerCore.Kismet;
 using LegendaryExplorerCore.Misc;
 using LegendaryExplorerCore.Packages;
 using Microsoft.Win32;
+using System.IO;
 using Path = System.IO.Path;
 
 namespace LegendaryExplorer.Tools.InterpEditor
@@ -27,6 +28,8 @@ namespace LegendaryExplorer.Tools.InterpEditor
     {
         private GridLength _savedVisualizationPanelWidth = new(420);
         private GridLength _savedVisualizationSplitterWidth = new(5);
+        private string _manualContextPackagePath;
+        private bool _declineContextPromptForCurrentInterp;
 
         public InterpEditorWindow() : base("Interp Editor")
         {
@@ -120,6 +123,8 @@ namespace LegendaryExplorer.Tools.InterpEditor
         public ICommand AddPresetDirectorGroupCommand { get; set; }
         public ICommand AddPresetCameraGroupCommand { get; set; }
         public ICommand AddPresetActorGroupCommand { get; set; }
+        public ICommand SetVisualizationContextPackageCommand { get; set; }
+        public ICommand ClearVisualizationContextPackageCommand { get; set; }
 
         // Playback commands
         public ICommand PlayCommand { get; set; }
@@ -207,6 +212,8 @@ namespace LegendaryExplorer.Tools.InterpEditor
             AddPresetDirectorGroupCommand = new GenericCommand(() => InterpEditorExperimentsE.AddPresetGroup("Director", this), PackageIsLoaded);
             AddPresetCameraGroupCommand = new GenericCommand(() => InterpEditorExperimentsE.AddPresetGroup("Camera", this), PackageIsLoaded);
             AddPresetActorGroupCommand = new GenericCommand(() => InterpEditorExperimentsE.AddPresetGroup("Actor", this), PackageIsLoaded);
+            SetVisualizationContextPackageCommand = new GenericCommand(SetVisualizationContextPackage, PackageIsLoaded);
+            ClearVisualizationContextPackageCommand = new GenericCommand(ClearVisualizationContextPackage, () => !string.IsNullOrWhiteSpace(_manualContextPackagePath));
 
             PlayCommand = new GenericCommand(Play, () => !_isPlaying && PackageIsLoaded());
             PauseCommand = new GenericCommand(Pause, () => _isPlaying);
@@ -333,6 +340,7 @@ namespace LegendaryExplorer.Tools.InterpEditor
         public void LoadFile(string fileName)
         {
             Stop();
+            _declineContextPromptForCurrentInterp = false;
             Properties_InterpreterWPF?.UnloadExport();
             InterpDataExports.ClearEx();
             Animations.ClearEx();
@@ -353,7 +361,135 @@ namespace LegendaryExplorer.Tools.InterpEditor
             TimelineControl.LoadExport(value);
             Properties_InterpreterWPF.LoadExport(value);
             OnPropertyChanged(nameof(LoadedExportIsCurve));
+            ApplyVisualizationContextPackage();
             SyncVisualizationData();
+        }
+
+        private void SetVisualizationContextPackage()
+        {
+            var d = AppDirectories.GetOpenPackageDialog();
+            if (d.ShowDialog() != true)
+            {
+                return;
+            }
+
+            _manualContextPackagePath = d.FileName;
+            _declineContextPromptForCurrentInterp = false;
+            ApplyVisualizationContextPackage();
+        }
+
+        private void ClearVisualizationContextPackage()
+        {
+            _manualContextPackagePath = null;
+            _declineContextPromptForCurrentInterp = false;
+            ApplyVisualizationContextPackage();
+            CommandManager.InvalidateRequerySuggested();
+        }
+
+        private void ApplyVisualizationContextPackage()
+        {
+            if (InterpVisualizationControl is null || SelectedInterpData is null)
+            {
+                return;
+            }
+
+            if (TryResolveContextPackageForInterp(SelectedInterpData, out IMEPackage contextPackage, out string sourceDescription))
+            {
+                InterpVisualizationControl.SetContextPackage(contextPackage, sourceDescription);
+            }
+            else
+            {
+                InterpVisualizationControl.SetContextPackage(Pcc, "interp package");
+            }
+        }
+
+        private bool TryResolveContextPackageForInterp(ExportEntry interpDataExport, out IMEPackage contextPackage, out string sourceDescription)
+        {
+            contextPackage = Pcc;
+            sourceDescription = "interp package";
+
+            if (!string.IsNullOrWhiteSpace(_manualContextPackagePath) && File.Exists(_manualContextPackagePath))
+            {
+                try
+                {
+                    contextPackage = MEPackageHandler.OpenMEPackage(_manualContextPackagePath);
+                    sourceDescription = $"manual: {Path.GetFileName(_manualContextPackagePath)}";
+                    return true;
+                }
+                catch
+                {
+                    // ignore and continue fallback flow
+                }
+            }
+
+            string currentPath = Pcc?.FilePath;
+            if (string.IsNullOrWhiteSpace(currentPath))
+            {
+                return false;
+            }
+
+            string directory = Path.GetDirectoryName(currentPath);
+            string fileName = Path.GetFileNameWithoutExtension(currentPath);
+            string extension = Path.GetExtension(currentPath);
+            const string locToken = "_LOC_";
+            int locIndex = fileName.LastIndexOf(locToken, StringComparison.OrdinalIgnoreCase);
+            if (locIndex < 0)
+            {
+                return false;
+            }
+
+            string nonLocName = fileName[..locIndex] + extension;
+            string nonLocPath = Path.Combine(directory ?? string.Empty, nonLocName);
+            if (File.Exists(nonLocPath))
+            {
+                try
+                {
+                    contextPackage = MEPackageHandler.OpenMEPackage(nonLocPath);
+                    sourceDescription = $"auto non-LOC: {Path.GetFileName(nonLocPath)}";
+                    return true;
+                }
+                catch
+                {
+                    // continue to prompt fallback
+                }
+            }
+
+            if (_declineContextPromptForCurrentInterp)
+            {
+                return false;
+            }
+
+            var result = MessageBox.Show(
+                "Could not auto-resolve non-LOC context package for this InterpData.\n\nWould you like to choose a context package now?\n\nChoose No to keep world fallback.",
+                "Context Package Not Found",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question);
+
+            if (result != MessageBoxResult.Yes)
+            {
+                _declineContextPromptForCurrentInterp = true;
+                return false;
+            }
+
+            var d = AppDirectories.GetOpenPackageDialog();
+            if (d.ShowDialog() != true)
+            {
+                _declineContextPromptForCurrentInterp = true;
+                return false;
+            }
+
+            _manualContextPackagePath = d.FileName;
+            try
+            {
+                contextPackage = MEPackageHandler.OpenMEPackage(_manualContextPackagePath);
+                sourceDescription = $"manual: {Path.GetFileName(_manualContextPackagePath)}";
+                return true;
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Unable to open selected context package:\n{ex.Message}", "Context Package Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                return false;
+            }
         }
 
         #region Playback

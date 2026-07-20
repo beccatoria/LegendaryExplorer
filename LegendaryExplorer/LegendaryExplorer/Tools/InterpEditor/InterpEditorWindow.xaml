@@ -56,6 +56,12 @@
                               IsCheckable="True"
                               IsChecked="{Binding IsVisualizationEnabled, Mode=TwoWay}"
                               IsEnabled="{Binding Pcc, Converter={StaticResource NullEnabledConverter}}" />
+                    <MenuItem Header="Set Visualization Context Package..."
+                              Command="{Binding SetVisualizationContextPackageCommand}"
+                              IsEnabled="{Binding Pcc, Converter={StaticResource NullEnabledConverter}}" />
+                    <MenuItem Header="Clear Visualization Context Package Override"
+                              Command="{Binding ClearVisualizationContextPackageCommand}"
+                              IsEnabled="{Binding Pcc, Converter={StaticResource NullEnabledConverter}}" />
                     <Separator />
                     <MenuItem Header="Insert Key at Time..." Command="{Binding InsertKeyCommand}" ToolTip="Inserts a key with default values at a specified time on the selected track." />
                     <MenuItem Header="Add Preset Group">

@@ -10,6 +10,8 @@ using System.Windows.Media;
 using System.Windows.Shapes;
 using LegendaryExplorer.Misc;
 using LegendaryExplorer.SharedUI;
+using LegendaryExplorer.Tools.LevelEditor;
+using LegendaryExplorer.Tools.LevelEditor.Scene3D;
 using LegendaryExplorerCore.Helpers;
 using LegendaryExplorerCore.Packages;
 using LegendaryExplorerCore.Unreal;
@@ -21,6 +23,7 @@ namespace LegendaryExplorer.Tools.InterpEditor
     {
         private const double CanvasPadding = 18d;
         private const double MarkerSize = 8d;
+        private const float ContextAxisLengthWorld = 120f;
         private const float CameraAimLengthWorld = 140f;
         private const float CameraFrustumLengthWorld = 220f;
         private const float DefaultCameraFov = 60f;
@@ -83,15 +86,36 @@ namespace LegendaryExplorer.Tools.InterpEditor
             public Polygon FrustumPolygon { get; init; }
         }
 
+        private sealed class ContextOverlayData
+        {
+            public bool HasAnchorContext { get; set; }
+            public bool HasBioStageContext { get; set; }
+            public Vector3 AnchorOrWorldPivot { get; set; }
+            public string BioStageName { get; set; }
+            public Vector3 BioStagePivot { get; set; }
+            public float BioStageYawDegrees { get; set; }
+            public List<Vector3> BioStageNodePoints { get; init; } = [];
+            public List<Vector3> BioStageHullPoints { get; init; } = [];
+            public int ExtractedBioStageNodeCount { get; set; }
+            public string BioStageNodeSource { get; set; }
+        }
+
         private bool _isInitialized;
         private bool _isProgrammaticScrubUpdate;
         private bool _isPanning;
         private InterpData _interpData;
+        private IMEPackage _contextPackage;
+        private string _contextPackageSource = "interp package";
         private ExportEntry _selectedExport;
         private float _currentTime;
         private Point _lastPanMousePoint;
         private readonly List<MoveTrackPath> _movePaths = [];
         private readonly List<CameraOverlay> _cameraOverlays = [];
+        private ContextOverlayData _contextOverlayData;
+        private readonly LevelEditorRenderContext _renderContext = new(readOnly: true);
+        private bool _sceneHooksInitialized;
+        private bool _needs3DCameraFocus = true;
+        private string _lastBioStageNodeSource = "none";
 
         private float _dataMinA;
         private float _dataMaxA;
@@ -125,6 +149,8 @@ namespace LegendaryExplorer.Tools.InterpEditor
             set => SetProperty(ref _overlayTipText, value);
         }
 
+        private string _contextStatusText = "Context: World fallback";
+
         public ObservableCollection<string> PlaneOptions { get; } = ["XY", "XZ", "YZ"];
 
         private string _selectedPlane = "XY";
@@ -136,6 +162,37 @@ namespace LegendaryExplorer.Tools.InterpEditor
                 if (SetProperty(ref _selectedPlane, value))
                 {
                     _hasViewport = false;
+                    RefreshVisualization();
+                }
+            }
+        }
+
+        private bool _show3DViewer;
+        public bool Show3DViewer
+        {
+            get => _show3DViewer;
+            set
+            {
+                if (SetProperty(ref _show3DViewer, value))
+                {
+                    if (value)
+                    {
+                        _needs3DCameraFocus = true;
+                    }
+                    UpdateViewerMode();
+                    RefreshVisualization();
+                }
+            }
+        }
+
+        private bool _showContextOverlays = true;
+        public bool ShowContextOverlays
+        {
+            get => _showContextOverlays;
+            set
+            {
+                if (SetProperty(ref _showContextOverlays, value))
+                {
                     RefreshVisualization();
                 }
             }
@@ -234,6 +291,8 @@ namespace LegendaryExplorer.Tools.InterpEditor
 
         public ICommand FitToViewCommand { get; }
         public ICommand ResetViewCommand { get; }
+        public ICommand FocusPath3DCommand { get; }
+        public ICommand FocusContext3DCommand { get; }
 
         private double _scrubValue;
         public double ScrubValue
@@ -267,6 +326,12 @@ namespace LegendaryExplorer.Tools.InterpEditor
         {
             FitToViewCommand = new GenericCommand(() =>
             {
+                if (Show3DViewer)
+                {
+                    Focus3DCameraOnBounds(includePath: true, includeContext: ShowContextOverlays);
+                    return;
+                }
+
                 FitToDataBounds();
                 RefreshVisualization();
             });
@@ -277,15 +342,42 @@ namespace LegendaryExplorer.Tools.InterpEditor
                 ShowMarkers = true;
                 ShowKeyframes = true;
                 ShowKeyLabels = false;
+                ShowContextOverlays = true;
                 ShowCameraOverlays = true;
                 ShowCameraAim = true;
                 ShowCameraFrustum = true;
-                FitToDataBounds();
-                RefreshVisualization();
+                if (Show3DViewer)
+                {
+                    Focus3DCameraOnBounds(includePath: true, includeContext: ShowContextOverlays);
+                }
+                else
+                {
+                    FitToDataBounds();
+                    RefreshVisualization();
+                }
+            });
+            FocusPath3DCommand = new GenericCommand(() =>
+            {
+                if (!Show3DViewer)
+                {
+                    return;
+                }
+
+                Focus3DCameraOnBounds(includePath: true, includeContext: false);
+            });
+            FocusContext3DCommand = new GenericCommand(() =>
+            {
+                if (!Show3DViewer)
+                {
+                    return;
+                }
+
+                Focus3DCameraOnBounds(includePath: false, includeContext: true);
             });
 
             DataContext = this;
             InitializeComponent();
+            Initialize3DViewer();
             PreviewCanvas.SizeChanged += (_, _) =>
             {
                 if (_isInitialized && _interpData is not null)
@@ -293,6 +385,33 @@ namespace LegendaryExplorer.Tools.InterpEditor
                     RefreshVisualization();
                 }
             };
+        }
+
+        private void Initialize3DViewer()
+        {
+            if (_sceneHooksInitialized || SceneViewer is null)
+            {
+                return;
+            }
+
+            SceneViewer.Context = _renderContext;
+            _renderContext.Camera.FirstPerson = false;
+            _renderContext.UpdateScene += On3DUpdateScene;
+            _renderContext.RenderScene += On3DRenderScene;
+            _sceneHooksInitialized = true;
+            UpdateViewerMode();
+        }
+
+        private void UpdateViewerMode()
+        {
+            if (SceneViewer is null || TwoDPreviewBorder is null)
+            {
+                return;
+            }
+
+            SceneViewer.Visibility = Show3DViewer ? Visibility.Visible : Visibility.Collapsed;
+            TwoDPreviewBorder.Visibility = Show3DViewer ? Visibility.Collapsed : Visibility.Visible;
+            SceneViewer.SetShouldRender(Show3DViewer);
         }
 
         public void EnsureInitialized()
@@ -309,6 +428,15 @@ namespace LegendaryExplorer.Tools.InterpEditor
         public void SetInterpData(InterpData interpData)
         {
             _interpData = interpData;
+            _needs3DCameraFocus = true;
+            RefreshVisualization();
+        }
+
+        public void SetContextPackage(IMEPackage contextPackage, string sourceDescription)
+        {
+            _contextPackage = contextPackage;
+            _contextPackageSource = string.IsNullOrWhiteSpace(sourceDescription) ? "interp package" : sourceDescription;
+            _needs3DCameraFocus = true;
             RefreshVisualization();
         }
 
@@ -346,7 +474,11 @@ namespace LegendaryExplorer.Tools.InterpEditor
             PreviewCanvas.Children.Clear();
             _movePaths.Clear();
             _cameraOverlays.Clear();
+            _contextOverlayData = null;
             SummaryText = "No InterpData loaded";
+            _contextPackage = null;
+            _contextPackageSource = "interp package";
+            _contextStatusText = "Context: World fallback";
             UpdateOverlayTipText(0);
             CurrentTimeText = "Time: 0.00s";
             ScrubMax = 0;
@@ -365,10 +497,12 @@ namespace LegendaryExplorer.Tools.InterpEditor
             PreviewCanvas.Children.Clear();
             _movePaths.Clear();
             _cameraOverlays.Clear();
+            _contextOverlayData = null;
 
             if (_interpData is null)
             {
                 SummaryText = "No InterpData loaded";
+                _contextStatusText = "Context: World fallback";
                 UpdateOverlayTipText(0);
                 return;
             }
@@ -380,11 +514,16 @@ namespace LegendaryExplorer.Tools.InterpEditor
             if (moveTrackPoints.Count == 0)
             {
                 SummaryText = $"Groups: {groupCount} | Tracks: {trackCount} | Move tracks: 0";
+                _contextStatusText = "Context: World fallback (no move tracks)";
                 UpdateOverlayTipText(0);
                 return;
             }
 
+            _contextStatusText = ResolveContextStatus(moveTrackPoints);
+            _contextOverlayData = BuildContextOverlayData(moveTrackPoints);
+
             ComputeDataBounds(moveTrackPoints);
+            ExpandBoundsWithContext(_contextOverlayData);
             if (!_hasViewport)
             {
                 FitToDataBounds();
@@ -482,13 +621,411 @@ namespace LegendaryExplorer.Tools.InterpEditor
             }
 
             UpdateMarkers();
-            UpdateCameraOverlays();
+            if (Show3DViewer)
+            {
+                Update3DScene();
+            }
+            else
+            {
+                RenderContextOverlays();
+                UpdateCameraOverlays();
+            }
             UpdateOverlayTipText(cameraCount);
-            SummaryText = $"Groups: {groupCount} | Tracks: {trackCount} | Move tracks: {_movePaths.Count} | Cameras: {cameraCount}";
+            SummaryText = $"Groups: {groupCount} | Tracks: {trackCount} | Move tracks: {_movePaths.Count} | Cameras: {cameraCount} | Mode: {(Show3DViewer ? "3D" : "2D")}";
+        }
+
+        private void On3DUpdateScene(object sender, float deltaTime)
+        {
+            // Render context camera updates internally; scene is regenerated from current scrubbed state.
+        }
+
+        private void On3DRenderScene(object sender, EventArgs e)
+        {
+            if (!Show3DViewer)
+            {
+                return;
+            }
+
+            Update3DScene();
+            _renderContext.Primitives.Render(_renderContext);
+            _renderContext.DrawUI();
+        }
+
+        private void Update3DScene()
+        {
+            bool hasSelection = _selectedExport is not null;
+            foreach (var path in _movePaths)
+            {
+                bool isSelectedPath = IsSelectedTrack(path.TrackExport);
+                float selectedDim = hasSelection && !isSelectedPath ? 0.2f : 1f;
+                var baseColor = isSelectedPath
+                    ? new Vector4(0.2f, 0.9f, 1f, 1f)
+                    : new Vector4(0.55f, 0.55f, 0.6f, 1f);
+                var color = ScaleColor(baseColor, selectedDim);
+                for (int i = 1; i < path.Points.Count; i++)
+                {
+                    var prev = path.Points[i - 1];
+                    var next = path.Points[i];
+                    _renderContext.Primitives.AddLine(new Vector3(prev.X, prev.Y, prev.Z), new Vector3(next.X, next.Y, next.Z), color, 0);
+                }
+
+                var current = GetPositionAtTime(path.Points, _currentTime);
+                float markerSize = 14f;
+                var currentPos = new Vector3(current.X, current.Y, current.Z);
+                var markerColor = ScaleColor(new Vector4(1f, 1f, 1f, 1f), selectedDim);
+                _renderContext.Primitives.AddLine(currentPos + new Vector3(-markerSize, 0, 0), currentPos + new Vector3(markerSize, 0, 0), markerColor, 0);
+                _renderContext.Primitives.AddLine(currentPos + new Vector3(0, -markerSize, 0), currentPos + new Vector3(0, markerSize, 0), markerColor, 0);
+                _renderContext.Primitives.AddLine(currentPos + new Vector3(0, 0, -markerSize), currentPos + new Vector3(0, 0, markerSize), markerColor, 0);
+            }
+
+            if (_contextOverlayData is not null)
+            {
+                Add3DContextPrimitives(_contextOverlayData);
+            }
+
+            Focus3DCameraIfNeeded();
+        }
+
+        private static Vector4 ScaleColor(Vector4 color, float factor)
+        {
+            factor = Math.Clamp(factor, 0f, 1f);
+            return new Vector4(color.X * factor, color.Y * factor, color.Z * factor, color.W);
+        }
+
+        private void Add3DContextPrimitives(ContextOverlayData context)
+        {
+            var origin = context.AnchorOrWorldPivot;
+            _renderContext.Primitives.AddLine(origin, origin + new Vector3(ContextAxisLengthWorld, 0, 0), new Vector4(0.35f, 0.65f, 1f, 1f), 0);
+            _renderContext.Primitives.AddLine(origin, origin + new Vector3(0, ContextAxisLengthWorld, 0), new Vector4(0.3f, 0.85f, 0.4f, 1f), 0);
+            _renderContext.Primitives.AddLine(origin, origin + new Vector3(0, 0, ContextAxisLengthWorld), new Vector4(1f, 0.5f, 0.25f, 1f), 0);
+
+            foreach (var node in context.BioStageNodePoints)
+            {
+                float s = 10f;
+                _renderContext.Primitives.AddLine(node + new Vector3(-s, 0, 0), node + new Vector3(s, 0, 0), new Vector4(1f, 1f, 0.2f, 1f), 0);
+                _renderContext.Primitives.AddLine(node + new Vector3(0, -s, 0), node + new Vector3(0, s, 0), new Vector4(1f, 1f, 0.2f, 1f), 0);
+                _renderContext.Primitives.AddLine(node + new Vector3(0, 0, -s), node + new Vector3(0, 0, s), new Vector4(1f, 1f, 0.2f, 1f), 0);
+            }
+
+            bool drawSequentialNodeLinks = !string.Equals(context.BioStageNodeSource, "skeletalmesh-bones", StringComparison.OrdinalIgnoreCase);
+            if (drawSequentialNodeLinks && context.BioStageNodePoints.Count >= 2)
+            {
+                for (int i = 1; i < context.BioStageNodePoints.Count; i++)
+                {
+                    var a = context.BioStageNodePoints[i - 1];
+                    var b = context.BioStageNodePoints[i];
+                    _renderContext.Primitives.AddLine(a, b, new Vector4(0.95f, 0.9f, 0.5f, 1f), 0);
+                }
+
+                if (context.BioStageNodePoints.Count >= 3)
+                {
+                    var first = context.BioStageNodePoints[0];
+                    var last = context.BioStageNodePoints[^1];
+                    _renderContext.Primitives.AddLine(last, first, new Vector4(0.95f, 0.9f, 0.5f, 1f), 0);
+                }
+            }
+
+            if (context.BioStageHullPoints.Count >= 3)
+            {
+                var hullFill = _renderContext.Primitives.BuildMesh(new Vector4(0.95f, 0.9f, 0.5f, 0.22f), 0, Matrix4x4.Identity);
+                foreach (var point in context.BioStageHullPoints)
+                {
+                    hullFill.AddVertex(point);
+                }
+
+                for (int i = 1; i < context.BioStageHullPoints.Count - 1; i++)
+                {
+                    hullFill.AddTriangle(0, i, i + 1);
+                    hullFill.AddTriangle(0, i + 1, i);
+                }
+
+                for (int i = 0; i < context.BioStageHullPoints.Count; i++)
+                {
+                    var a = context.BioStageHullPoints[i];
+                    var b = context.BioStageHullPoints[(i + 1) % context.BioStageHullPoints.Count];
+                    _renderContext.Primitives.AddLine(a, b, new Vector4(0.95f, 0.9f, 0.5f, 1f), 0);
+                }
+            }
+        }
+
+        private void Focus3DCameraIfNeeded()
+        {
+            if (!_needs3DCameraFocus || _movePaths.Count == 0)
+            {
+                return;
+            }
+
+            Focus3DCameraOnBounds(includePath: true, includeContext: ShowContextOverlays);
+            _needs3DCameraFocus = false;
+        }
+
+        private void Focus3DCameraOnBounds(bool includePath, bool includeContext)
+        {
+            if (_renderContext is null)
+            {
+                return;
+            }
+
+            var allPoints = _movePaths.SelectMany(p => p.Points)
+                .Select(p => new Vector3(p.X, p.Y, p.Z))
+                .ToList();
+
+            if (!includePath)
+            {
+                allPoints.Clear();
+            }
+
+            if (includeContext && _contextOverlayData is not null)
+            {
+                allPoints.Add(_contextOverlayData.AnchorOrWorldPivot);
+                if (_contextOverlayData.HasBioStageContext)
+                {
+                    allPoints.Add(_contextOverlayData.BioStagePivot);
+                    allPoints.AddRange(_contextOverlayData.BioStageNodePoints);
+                    allPoints.AddRange(_contextOverlayData.BioStageHullPoints);
+                }
+            }
+
+            if (allPoints.Count == 0)
+            {
+                return;
+            }
+
+            float minX = allPoints.Min(p => p.X);
+            float minY = allPoints.Min(p => p.Y);
+            float minZ = allPoints.Min(p => p.Z);
+            float maxX = allPoints.Max(p => p.X);
+            float maxY = allPoints.Max(p => p.Y);
+            float maxZ = allPoints.Max(p => p.Z);
+            var center = new Vector3((minX + maxX) * 0.5f, (minY + maxY) * 0.5f, (minZ + maxZ) * 0.5f);
+            var extents = new Vector3(Math.Abs(maxX - minX), Math.Abs(maxY - minY), Math.Abs(maxZ - minZ));
+            float minRadius = includePath ? 120f : 12f;
+            float radius = Math.Max(minRadius, Math.Max(extents.X, Math.Max(extents.Y, extents.Z)) * 1.1f);
+            _renderContext.Camera.Position = center + new Vector3(radius, -radius, radius * 0.55f);
+            _renderContext.Camera.OrientTowards(center);
+            _renderContext.Camera.FocusDepth = radius;
+            _needs3DCameraFocus = false;
+        }
+
+        private void RenderContextOverlays()
+        {
+            if (!ShowContextOverlays || _contextOverlayData is null)
+            {
+                return;
+            }
+
+            DrawContextAxes(_contextOverlayData.AnchorOrWorldPivot, Brushes.CornflowerBlue, Brushes.MediumSeaGreen);
+
+            if (_contextOverlayData.HasBioStageContext)
+            {
+                DrawBioStageOverlay(_contextOverlayData);
+            }
+
+            DrawContextLegend();
+        }
+
+        private void DrawContextAxes(Vector3 origin, Brush axisABrush, Brush axisBBrush)
+        {
+            var point = new PathPoint { X = origin.X, Y = origin.Y, Z = origin.Z };
+            (float originA, float originB) = ProjectToPlane(point);
+
+            string axisALabel;
+            string axisBLabel;
+
+            Vector3 axisAVector = SelectedPlane switch
+            {
+                "XZ" => new(ContextAxisLengthWorld, 0, 0),
+                "YZ" => new(0, ContextAxisLengthWorld, 0),
+                _ => new(ContextAxisLengthWorld, 0, 0)
+            };
+            Vector3 axisBVector = SelectedPlane switch
+            {
+                "XZ" => new(0, 0, ContextAxisLengthWorld),
+                "YZ" => new(0, 0, ContextAxisLengthWorld),
+                _ => new(0, ContextAxisLengthWorld, 0)
+            };
+
+            (axisALabel, axisBLabel) = SelectedPlane switch
+            {
+                "XZ" => ("X", "Z"),
+                "YZ" => ("Y", "Z"),
+                _ => ("X", "Y")
+            };
+
+            var axisAEnd = origin + axisAVector;
+            var axisBEnd = origin + axisBVector;
+
+            (float axisAEndA, float axisAEndB) = ProjectToPlane(new PathPoint { X = axisAEnd.X, Y = axisAEnd.Y, Z = axisAEnd.Z });
+            (float axisBEndA, float axisBEndB) = ProjectToPlane(new PathPoint { X = axisBEnd.X, Y = axisBEnd.Y, Z = axisBEnd.Z });
+
+            Point originCanvas = MapToCanvas(originA, originB);
+            Point axisACanvas = MapToCanvas(axisAEndA, axisAEndB);
+            Point axisBCanvas = MapToCanvas(axisBEndA, axisBEndB);
+
+            PreviewCanvas.Children.Add(new Line
+            {
+                X1 = originCanvas.X,
+                Y1 = originCanvas.Y,
+                X2 = axisACanvas.X,
+                Y2 = axisACanvas.Y,
+                Stroke = axisABrush,
+                StrokeThickness = 1.5,
+                Opacity = 0.75
+            });
+            PreviewCanvas.Children.Add(new Line
+            {
+                X1 = originCanvas.X,
+                Y1 = originCanvas.Y,
+                X2 = axisBCanvas.X,
+                Y2 = axisBCanvas.Y,
+                Stroke = axisBBrush,
+                StrokeThickness = 1.5,
+                Opacity = 0.75
+            });
+
+            var originMarker = new Ellipse
+            {
+                Width = 6,
+                Height = 6,
+                Fill = Brushes.White,
+                Stroke = Brushes.Black,
+                StrokeThickness = 1,
+                Opacity = 0.9
+            };
+            Canvas.SetLeft(originMarker, originCanvas.X - 3);
+            Canvas.SetTop(originMarker, originCanvas.Y - 3);
+            PreviewCanvas.Children.Add(originMarker);
+
+            var axisAText = new TextBlock
+            {
+                Text = axisALabel,
+                Foreground = axisABrush,
+                FontSize = 10,
+                FontWeight = FontWeights.Bold,
+                Opacity = 0.9
+            };
+            Canvas.SetLeft(axisAText, axisACanvas.X + 3);
+            Canvas.SetTop(axisAText, axisACanvas.Y - 8);
+            PreviewCanvas.Children.Add(axisAText);
+
+            var axisBText = new TextBlock
+            {
+                Text = axisBLabel,
+                Foreground = axisBBrush,
+                FontSize = 10,
+                FontWeight = FontWeights.Bold,
+                Opacity = 0.9
+            };
+            Canvas.SetLeft(axisBText, axisBCanvas.X + 3);
+            Canvas.SetTop(axisBText, axisBCanvas.Y - 8);
+            PreviewCanvas.Children.Add(axisBText);
+        }
+
+        private void DrawContextLegend()
+        {
+            string axisAName;
+            string axisBName;
+            (axisAName, axisBName) = SelectedPlane switch
+            {
+                "XZ" => ("X", "Z"),
+                "YZ" => ("Y", "Z"),
+                _ => ("X", "Y")
+            };
+
+            var legend = new TextBlock
+            {
+                Text = $"Legend\nBlue={axisAName} axis  Green={axisBName} axis\nWhite dot=Context pivot  Khaki=BioStage hull  Yellow=BioStage node",
+                Foreground = Brushes.Gainsboro,
+                FontSize = 10,
+                Opacity = 0.85,
+                Background = new SolidColorBrush(Color.FromArgb(120, 16, 16, 16)),
+                Padding = new Thickness(4, 2, 4, 2),
+                IsHitTestVisible = false
+            };
+
+            double left = Math.Max(8, PreviewCanvas.ActualWidth - 300);
+            Canvas.SetLeft(legend, left);
+            Canvas.SetTop(legend, 8);
+            PreviewCanvas.Children.Add(legend);
+        }
+
+        private void DrawBioStageOverlay(ContextOverlayData context)
+        {
+            if (context.BioStageHullPoints.Count >= 3)
+            {
+                var hull = new Polygon
+                {
+                    Stroke = Brushes.Khaki,
+                    Fill = new SolidColorBrush(Color.FromArgb(40, 255, 235, 140)),
+                    StrokeThickness = 1.0,
+                    Opacity = 0.65
+                };
+                foreach (var hullPoint in context.BioStageHullPoints)
+                {
+                    (float a, float b) = ProjectToPlane(new PathPoint { X = hullPoint.X, Y = hullPoint.Y, Z = hullPoint.Z });
+                    hull.Points.Add(MapToCanvas(a, b));
+                }
+                PreviewCanvas.Children.Add(hull);
+            }
+
+            foreach (var node in context.BioStageNodePoints)
+            {
+                (float a, float b) = ProjectToPlane(new PathPoint { X = node.X, Y = node.Y, Z = node.Z });
+                Point p = MapToCanvas(a, b);
+                var nodeMarker = new Ellipse
+                {
+                    Width = 4,
+                    Height = 4,
+                    Fill = Brushes.Yellow,
+                    Stroke = Brushes.Black,
+                    StrokeThickness = 0.5,
+                    Opacity = 0.8
+                };
+                Canvas.SetLeft(nodeMarker, p.X - 2);
+                Canvas.SetTop(nodeMarker, p.Y - 2);
+                PreviewCanvas.Children.Add(nodeMarker);
+            }
         }
 
         private void UpdateOverlayTipText(int cameraCount)
         {
+            if (Show3DViewer)
+            {
+                if (!ShowCameraOverlays || cameraCount <= 0)
+                {
+                    string cameraState = !ShowCameraOverlays ? "Camera overlays off" : "No camera tracks detected";
+                    string contextLegend = ShowContextOverlays
+                        ? (_contextOverlayData?.HasBioStageContext == true
+                            ? "Legend: cyan=move path, white cross=current time, yellow=BioStage nodes/links, RGB axes=context"
+                            : "Legend: cyan=move path, white cross=current time, RGB axes=context")
+                        : "Legend: cyan=move path, white cross=current time";
+                    string contextDebug = _contextOverlayData?.HasBioStageContext == true
+                        ? $"BioStage debug: {_contextOverlayData.BioStageName} | nodes={_contextOverlayData.ExtractedBioStageNodeCount} | hull={_contextOverlayData.BioStageHullPoints.Count} | src={_contextOverlayData.BioStageNodeSource ?? "none"}"
+                        : "BioStage debug: n/a";
+                    OverlayTipText = $"3D mode\n{cameraState}\n{_contextStatusText}\n{contextLegend}\n{contextDebug}";
+                    return;
+                }
+
+                CameraOverlay overlay3D = ResolveReadoutCameraOverlay(out string source3D);
+                var orientation3D = GetOrientationAtTime(overlay3D.OrientationPoints, _currentTime);
+                float fov3D = GetFloatAtTime(overlay3D.FovPoints, _currentTime, DefaultCameraFov);
+                string orientationText3D = orientation3D is null
+                    ? "Aim: n/a"
+                    : $"Yaw {orientation3D.Yaw:0.0}°  Pitch {orientation3D.Pitch:0.0}°";
+                string groupName3D = string.IsNullOrWhiteSpace(overlay3D.CameraGroupName) ? "(unnamed)" : overlay3D.CameraGroupName;
+                string contextLegend3D = ShowContextOverlays
+                    ? (_contextOverlayData?.HasBioStageContext == true
+                        ? "Legend: cyan=move path, white cross=current time, yellow=BioStage nodes/links, RGB axes=context"
+                        : "Legend: cyan=move path, white cross=current time, RGB axes=context")
+                    : "Legend: cyan=move path, white cross=current time";
+
+                string contextDebug3D = _contextOverlayData?.HasBioStageContext == true
+                    ? $"BioStage debug: {_contextOverlayData.BioStageName} | nodes={_contextOverlayData.ExtractedBioStageNodeCount} | hull={_contextOverlayData.BioStageHullPoints.Count} | src={_contextOverlayData.BioStageNodeSource ?? "none"}"
+                    : "BioStage debug: n/a";
+                OverlayTipText = $"3D mode\n{orientationText3D}  FOV {fov3D:0.0}°  [{source3D}: {groupName3D}] ({cameraCount} cam)\n{_contextStatusText}\n{contextLegend3D}\n{contextDebug3D}";
+                return;
+            }
+
             string planeGuide = SelectedPlane switch
             {
                 "XZ" => "Plane XZ (X horizontal, Z vertical)",
@@ -498,23 +1035,830 @@ namespace LegendaryExplorer.Tools.InterpEditor
 
             if (!ShowCameraOverlays)
             {
-                OverlayTipText = $"{planeGuide}\nCamera overlays off";
+                OverlayTipText = $"{planeGuide}\nCamera overlays off\n{_contextStatusText}";
                 return;
             }
 
             if (cameraCount <= 0)
             {
-                OverlayTipText = $"{planeGuide}\nNo camera tracks detected";
+                OverlayTipText = $"{planeGuide}\nNo camera tracks detected\n{_contextStatusText}";
                 return;
             }
 
-            var overlay = _cameraOverlays[0];
+            CameraOverlay overlay = ResolveReadoutCameraOverlay(out string source);
             var orientation = GetOrientationAtTime(overlay.OrientationPoints, _currentTime);
             float fov = GetFloatAtTime(overlay.FovPoints, _currentTime, DefaultCameraFov);
             string orientationText = orientation is null
                 ? "Aim: n/a"
                 : $"Yaw {orientation.Yaw:0.0}°  Pitch {orientation.Pitch:0.0}°";
-            OverlayTipText = $"{planeGuide}\n{orientationText}  FOV {fov:0.0}°  ({cameraCount} cam)";
+            string groupName = string.IsNullOrWhiteSpace(overlay.CameraGroupName) ? "(unnamed)" : overlay.CameraGroupName;
+            OverlayTipText = $"{planeGuide}\n{orientationText}  FOV {fov:0.0}°  [{source}: {groupName}] ({cameraCount} cam)\n{_contextStatusText}";
+        }
+
+        private CameraOverlay ResolveReadoutCameraOverlay(out string source)
+        {
+            string activeCameraGroup = GetActiveCameraGroupAtTime();
+            if (!string.IsNullOrWhiteSpace(activeCameraGroup))
+            {
+                var activeOverlay = _cameraOverlays.FirstOrDefault(overlay =>
+                    overlay.CameraGroupName.Equals(activeCameraGroup, StringComparison.OrdinalIgnoreCase));
+                if (activeOverlay is not null)
+                {
+                    source = "active";
+                    return activeOverlay;
+                }
+            }
+
+            if (_selectedExport is not null)
+            {
+                var selectedOverlay = _cameraOverlays.FirstOrDefault(overlay => IsSelectedTrack(overlay.TrackExport));
+                if (selectedOverlay is not null)
+                {
+                    source = "selected";
+                    return selectedOverlay;
+                }
+            }
+
+            source = "default";
+            return _cameraOverlays[0];
+        }
+
+        private string GetActiveCameraGroupAtTime()
+        {
+            if (_interpData is null)
+            {
+                return null;
+            }
+
+            string activeGroup = null;
+            float activeSwitchTime = float.MinValue;
+
+            foreach (var directorTrack in _interpData.Groups.SelectMany(g => g.Tracks).OfType<InterpTrackDirector>())
+            {
+                var cutTrack = directorTrack.Export.GetProperties().GetProp<ArrayProperty<StructProperty>>("CutTrack");
+                if (cutTrack is null)
+                {
+                    continue;
+                }
+
+                foreach (var cutKey in cutTrack)
+                {
+                    float switchTime = cutKey.GetProp<FloatProperty>("Time")?.Value ?? 0f;
+                    if (switchTime > _currentTime || switchTime < activeSwitchTime)
+                    {
+                        continue;
+                    }
+
+                    string targetGroup = cutKey.GetProp<NameProperty>("TargetCamGroup")?.Value.Instanced;
+                    if (string.IsNullOrWhiteSpace(targetGroup))
+                    {
+                        continue;
+                    }
+
+                    activeSwitchTime = switchTime;
+                    activeGroup = targetGroup;
+                }
+            }
+
+            return activeGroup;
+        }
+
+        private string ResolveContextStatus(List<MoveTrackData> moveTrackPoints)
+        {
+            int anchorRelativeCount = 0;
+            int taggedAnchorCount = 0;
+
+            foreach (var moveTrack in moveTrackPoints)
+            {
+                var groupProps = moveTrack.Track.Group?.Export?.GetProperties();
+                string moveFrame = moveTrack.Track.Export.GetProperty<EnumProperty>("MoveFrame")?.Value;
+                if (string.Equals(moveFrame, "IMF_AnchorObject", StringComparison.OrdinalIgnoreCase))
+                {
+                    anchorRelativeCount++;
+                }
+
+                if (groupProps?.GetProp<NameProperty>("m_nmSFXFindActor")?.Value is NameReference tag && tag != NameReference.None)
+                {
+                    taggedAnchorCount++;
+                }
+            }
+
+            if (anchorRelativeCount > 0)
+            {
+                if (taggedAnchorCount > 0)
+                {
+                    return $"Context: AnchorObject ({anchorRelativeCount} anchor-relative tracks, {taggedAnchorCount} tagged group actors)";
+                }
+
+                return $"Context: AnchorObject ({anchorRelativeCount} anchor-relative tracks)";
+            }
+
+            if (TryGetBioStagePivot(out Vector3 pivot, out string stageName))
+            {
+                return $"Context: BioStage ({stageName} @ {pivot.X:0.#}, {pivot.Y:0.#}, {pivot.Z:0.#}) [{_contextPackageSource}]";
+            }
+
+            return $"Context: World origin fallback (no anchor/BioStage context) [{_contextPackageSource}]";
+        }
+
+        private ContextOverlayData BuildContextOverlayData(List<MoveTrackData> moveTrackPoints)
+        {
+            var data = new ContextOverlayData();
+
+            int anchorRelativeCount = moveTrackPoints.Count(moveTrack =>
+                string.Equals(moveTrack.Track.Export.GetProperty<EnumProperty>("MoveFrame")?.Value, "IMF_AnchorObject", StringComparison.OrdinalIgnoreCase));
+
+            data.HasAnchorContext = anchorRelativeCount > 0;
+            data.AnchorOrWorldPivot = Vector3.Zero;
+
+            if (TryGetBioStageContext(out string stageName, out Vector3 stagePivot, out float stageYawDegrees, out List<Vector3> stageNodes))
+            {
+                data.HasBioStageContext = true;
+                data.BioStageName = stageName;
+                data.BioStagePivot = stagePivot;
+                data.BioStageYawDegrees = stageYawDegrees;
+                var resolvedNodes = ResolveBioStageNodeSpace(stageNodes, stagePivot, moveTrackPoints);
+                if (string.Equals(_lastBioStageNodeSource, "skeletalmesh-bones", StringComparison.OrdinalIgnoreCase))
+                {
+                    resolvedNodes = ReduceMeshDerivedNodeClutter(resolvedNodes, stagePivot);
+                }
+                data.BioStageNodePoints.AddRange(resolvedNodes);
+                data.ExtractedBioStageNodeCount = resolvedNodes.Count;
+                data.BioStageNodeSource = _lastBioStageNodeSource;
+                data.AnchorOrWorldPivot = stagePivot;
+                data.BioStageHullPoints.AddRange(BuildApproximateHullFromNodes(resolvedNodes, stagePivot, stageYawDegrees));
+            }
+
+            return data;
+        }
+
+        private static IEnumerable<Vector3> BuildApproximateHullFromNodes(List<Vector3> nodes, Vector3 pivot, float yawDegrees)
+        {
+            if (nodes.Count < 3)
+            {
+                return [];
+            }
+
+            var hull = ComputeConvexHull2D(nodes.Select(n => (n.X, n.Y)).ToList());
+            return hull.Select(p => new Vector3(p.X, p.Y, pivot.Z)).ToList();
+        }
+
+        private static List<Vector3> ResolveBioStageNodeSpace(List<Vector3> rawNodes, Vector3 stagePivot, List<MoveTrackData> moveTrackPoints)
+        {
+            if (rawNodes.Count == 0)
+            {
+                return [];
+            }
+
+            var pathPoints = moveTrackPoints.SelectMany(m => m.Points).ToList();
+            var target = pathPoints.Count > 0
+                ? new Vector3(pathPoints.Average(p => p.X), pathPoints.Average(p => p.Y), pathPoints.Average(p => p.Z))
+                : stagePivot;
+
+            var asWorld = rawNodes;
+            var plusPivot = rawNodes.Select(n => n + stagePivot).ToList();
+
+            static float Score(List<Vector3> nodes, Vector3 t)
+            {
+                if (nodes.Count == 0)
+                {
+                    return float.MaxValue;
+                }
+
+                return nodes.Average(n => Vector3.DistanceSquared(n, t));
+            }
+
+            return Score(plusPivot, target) < Score(asWorld, target)
+                ? plusPivot
+                : asWorld.ToList();
+        }
+
+        private static List<Vector3> ReduceMeshDerivedNodeClutter(List<Vector3> nodes, Vector3 stagePivot)
+        {
+            if (nodes.Count <= 8)
+            {
+                return nodes;
+            }
+
+            var hull = ComputeConvexHull2D(nodes.Select(n => (n.X, n.Y)).ToList());
+            if (hull.Count >= 3)
+            {
+                float z = nodes.Average(n => n.Z);
+                return hull.Select(p => new Vector3(p.X, p.Y, z)).ToList();
+            }
+
+            return nodes.Where((_, idx) => idx % Math.Max(1, nodes.Count / 8) == 0).ToList();
+        }
+
+        private static List<(float X, float Y)> ComputeConvexHull2D(List<(float X, float Y)> points)
+        {
+            if (points.Count <= 3)
+            {
+                return points.Distinct().ToList();
+            }
+
+            var sorted = points.Distinct().OrderBy(p => p.X).ThenBy(p => p.Y).ToList();
+            var lower = new List<(float X, float Y)>();
+            foreach (var p in sorted)
+            {
+                while (lower.Count >= 2 && Cross(lower[^2], lower[^1], p) <= 0f)
+                {
+                    lower.RemoveAt(lower.Count - 1);
+                }
+                lower.Add(p);
+            }
+
+            var upper = new List<(float X, float Y)>();
+            for (int i = sorted.Count - 1; i >= 0; i--)
+            {
+                var p = sorted[i];
+                while (upper.Count >= 2 && Cross(upper[^2], upper[^1], p) <= 0f)
+                {
+                    upper.RemoveAt(upper.Count - 1);
+                }
+                upper.Add(p);
+            }
+
+            lower.RemoveAt(lower.Count - 1);
+            upper.RemoveAt(upper.Count - 1);
+            lower.AddRange(upper);
+            return lower;
+        }
+
+        private static float Cross((float X, float Y) o, (float X, float Y) a, (float X, float Y) b)
+        {
+            return (a.X - o.X) * (b.Y - o.Y) - (a.Y - o.Y) * (b.X - o.X);
+        }
+
+        private bool TryGetBioStagePivot(out Vector3 pivot, out string stageName)
+        {
+            pivot = Vector3.Zero;
+            stageName = string.Empty;
+
+            var sourcePackage = _contextPackage ?? _interpData?.Export?.FileRef;
+            var exports = sourcePackage?.Exports;
+            if (exports is null)
+            {
+                return false;
+            }
+
+            foreach (var export in exports)
+            {
+                if (!string.Equals(export.ClassName, "BioStage", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var location = export.GetProperty<StructProperty>("Location") ?? export.GetProperty<StructProperty>("location");
+                if (location is null)
+                {
+                    continue;
+                }
+
+                pivot = CommonStructs.GetVector3(location);
+                stageName = export.ObjectName.Instanced;
+                return true;
+            }
+
+            return false;
+        }
+
+        private bool TryGetBioStageContext(out string stageName, out Vector3 pivot, out float yawDegrees, out List<Vector3> nodePoints)
+        {
+            stageName = string.Empty;
+            pivot = Vector3.Zero;
+            yawDegrees = 0f;
+            nodePoints = [];
+
+            var sourcePackage = _contextPackage ?? _interpData?.Export?.FileRef;
+            var exports = sourcePackage?.Exports;
+            if (exports is null)
+            {
+                return false;
+            }
+
+            var movePathCenter = GetMovePathCenter();
+            _lastBioStageNodeSource = "none";
+            ExportEntry bestStage = null;
+            float bestScore = float.MaxValue;
+            int bestNodeCount = -1;
+            float bestYawDegrees = 0f;
+            Vector3 bestPivot = Vector3.Zero;
+            List<Vector3> bestNodes = [];
+
+            foreach (var export in exports)
+            {
+                if (!string.Equals(export.ClassName, "BioStage", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+                var location = export.GetProperty<StructProperty>("Location") ?? export.GetProperty<StructProperty>("location");
+                if (location is null)
+                {
+                    continue;
+                }
+
+                var stagePivot = CommonStructs.GetVector3(location);
+                float score = Vector3.DistanceSquared(stagePivot, movePathCenter);
+
+                float stageYawDegrees = 0f;
+                var stageRotation = export.GetProperty<StructProperty>("Rotation") ?? export.GetProperty<StructProperty>("rotation");
+                if (stageRotation is not null)
+                {
+                    int stageYawUnreal = stageRotation.GetProp<IntProperty>("Yaw")?.Value
+                                        ?? (int)(stageRotation.GetProp<FloatProperty>("Yaw")?.Value ?? 0f);
+                    stageYawDegrees = stageYawUnreal.UnrealRotationUnitsToDegrees();
+                }
+
+                var stageNodes = new List<Vector3>();
+                TryCollectBioStageCameraNodes(export, stagePivot, stageNodes);
+                int nodeCount = stageNodes.Count;
+
+                bool isBetter = nodeCount > bestNodeCount
+                    || (nodeCount == bestNodeCount && score < bestScore);
+
+                if (isBetter)
+                {
+                    bestScore = score;
+                    bestStage = export;
+                    bestNodeCount = nodeCount;
+                    bestYawDegrees = stageYawDegrees;
+                    bestPivot = stagePivot;
+                    bestNodes = stageNodes;
+                }
+            }
+
+            if (bestStage is null)
+            {
+                return false;
+            }
+
+            stageName = bestStage.ObjectName.Instanced;
+            pivot = bestPivot;
+            yawDegrees = bestYawDegrees;
+            nodePoints.AddRange(bestNodes);
+            return true;
+        }
+
+        private Vector3 GetMovePathCenter()
+        {
+            var movePoints = _interpData?.Groups?
+                .SelectMany(g => g.Tracks)
+                .OfType<InterpTrackMove>()
+                .SelectMany(track =>
+                {
+                    var props = track.Export.GetProperties();
+                    var posPoints = props.GetProp<StructProperty>("PosTrack")?
+                        .GetProp<ArrayProperty<StructProperty>>("Points");
+                    if (posPoints is null)
+                    {
+                        return Enumerable.Empty<Vector3>();
+                    }
+
+                    return posPoints
+                        .Select(point => point.GetProp<StructProperty>("OutVal"))
+                        .Where(outVal => outVal is not null)
+                        .Select(CommonStructs.GetVector3);
+                })
+                .ToList();
+
+            if (movePoints is null || movePoints.Count == 0)
+            {
+                return Vector3.Zero;
+            }
+
+            return new Vector3(
+                movePoints.Average(p => p.X),
+                movePoints.Average(p => p.Y),
+                movePoints.Average(p => p.Z));
+        }
+
+        private void TryCollectBioStageCameraNodes(ExportEntry bioStageExport, Vector3 stagePivot, List<Vector3> nodePoints)
+        {
+            nodePoints.Clear();
+
+            try
+            {
+                var bioStageBinary = bioStageExport.GetBinaryData<BioStage>();
+                if (bioStageBinary?.CameraList is null)
+                {
+                    // fall through to non-binary property path
+                }
+
+                if (bioStageBinary?.CameraList is not null)
+                {
+                    foreach ((NameReference _, PropertyCollection cameraProps) in bioStageBinary.CameraList)
+                    {
+                        if (TryExtractBioStageNodePosition(cameraProps, out var nodePosition))
+                        {
+                            nodePoints.Add(nodePosition);
+                        }
+                    }
+
+                    if (nodePoints.Count > 0)
+                    {
+                        _lastBioStageNodeSource = "binary-camera-list";
+                    }
+                }
+
+                if (nodePoints.Count == 0)
+                {
+                    TryCollectBioStageNodesFromProperties(bioStageExport, nodePoints);
+                    if (nodePoints.Count > 0)
+                    {
+                        _lastBioStageNodeSource = "property-camera-list";
+                    }
+                }
+
+                if (nodePoints.Count == 0)
+                {
+                    TryCollectBioStageNodesFromSkeletalMeshBones(bioStageExport, nodePoints);
+                    if (nodePoints.Count > 0)
+                    {
+                        _lastBioStageNodeSource = "skeletalmesh-bones";
+                    }
+                }
+            }
+            catch
+            {
+                // best-effort context extraction
+                if (nodePoints.Count == 0)
+                {
+                    TryCollectBioStageNodesFromProperties(bioStageExport, nodePoints);
+                    if (nodePoints.Count > 0)
+                    {
+                        _lastBioStageNodeSource = "property-camera-list";
+                    }
+                }
+
+                if (nodePoints.Count == 0)
+                {
+                    TryCollectBioStageNodesFromSkeletalMeshBones(bioStageExport, nodePoints);
+                    if (nodePoints.Count > 0)
+                    {
+                        _lastBioStageNodeSource = "skeletalmesh-bones";
+                    }
+                }
+            }
+        }
+
+        private static void TryCollectBioStageNodesFromSkeletalMeshBones(ExportEntry bioStageExport, List<Vector3> nodePoints)
+        {
+            ExportEntry skeletalMeshComponent = ResolveBioStageSkeletalMeshComponent(bioStageExport);
+            if (skeletalMeshComponent is null)
+            {
+                return;
+            }
+
+            ExportEntry skeletalMeshExport = skeletalMeshComponent.GetProperty<ObjectProperty>("SkeletalMesh")?.ResolveToEntry(bioStageExport.FileRef) as ExportEntry;
+            if (skeletalMeshExport is null)
+            {
+                return;
+            }
+
+            SkeletalMesh skelMesh;
+            try
+            {
+                skelMesh = skeletalMeshExport.GetBinaryData<SkeletalMesh>();
+            }
+            catch
+            {
+                return;
+            }
+
+            if (skelMesh?.RefSkeleton is null || skelMesh.RefSkeleton.Length == 0)
+            {
+                return;
+            }
+
+            var stageTransform = BuildTransformFromProperties(bioStageExport.GetProperties(), defaultScale: Vector3.One);
+            var componentTransform = BuildTransformFromProperties(skeletalMeshComponent.GetProperties(), defaultScale: Vector3.One);
+            var localToWorld = componentTransform * stageTransform;
+
+            var worldBonePositions = BuildApproximateWorldBonePositions(skelMesh.RefSkeleton);
+            var filtered = new List<Vector3>();
+            for (int i = 0; i < skelMesh.RefSkeleton.Length; i++)
+            {
+                string boneName = skelMesh.RefSkeleton[i].Name.Instanced;
+                if (IsLikelyBioStageNodeBoneName(boneName))
+                {
+                    filtered.Add(Vector3.Transform(worldBonePositions[i], localToWorld));
+                }
+            }
+
+            if (filtered.Count > 24)
+            {
+                // If a mesh naming scheme still over-matches, keep a sparse subset so the view remains readable.
+                int step = (int)Math.Ceiling(filtered.Count / 24.0);
+                filtered = filtered.Where((_, idx) => idx % step == 0).ToList();
+            }
+
+            if (filtered.Count == 0)
+            {
+                var bounds = skelMesh.Bounds;
+                Vector3 c = Vector3.Transform(bounds.Origin, localToWorld);
+                Vector3 e = bounds.BoxExtent;
+                filtered.Add(c + new Vector3(-e.X, -e.Y, 0));
+                filtered.Add(c + new Vector3(e.X, -e.Y, 0));
+                filtered.Add(c + new Vector3(e.X, e.Y, 0));
+                filtered.Add(c + new Vector3(-e.X, e.Y, 0));
+            }
+
+            nodePoints.AddRange(filtered);
+        }
+
+        private static bool IsLikelyBioStageNodeBoneName(string boneName)
+        {
+            if (string.IsNullOrWhiteSpace(boneName))
+            {
+                return false;
+            }
+
+            // Prefer explicit node/camera markers; avoid broad stage/floor matches that pull full rig detail.
+            if (boneName.Contains("node", StringComparison.OrdinalIgnoreCase)
+                || boneName.Contains("cam", StringComparison.OrdinalIgnoreCase)
+                || boneName.Contains("camera", StringComparison.OrdinalIgnoreCase)
+                || boneName.Contains("shot", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+        private static ExportEntry ResolveBioStageSkeletalMeshComponent(ExportEntry bioStageExport)
+        {
+            var meshExport = bioStageExport.GetProperty<ObjectProperty>("Mesh")?.ResolveToEntry(bioStageExport.FileRef) as ExportEntry;
+            if (meshExport is not null && meshExport.ClassName.Contains("SkeletalMeshComponent", StringComparison.OrdinalIgnoreCase))
+            {
+                return meshExport;
+            }
+
+            var components = bioStageExport.GetProperty<ArrayProperty<ObjectProperty>>("Components");
+            if (components is not null)
+            {
+                foreach (var entry in components.ResolveToEntries(bioStageExport.FileRef).OfType<ExportEntry>())
+                {
+                    if (entry.ClassName.Contains("SkeletalMeshComponent", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return entry;
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        private static Matrix4x4 BuildTransformFromProperties(PropertyCollection properties, Vector3 defaultScale)
+        {
+            if (properties is null)
+            {
+                return Matrix4x4.Identity;
+            }
+
+            var location = properties.GetProp<StructProperty>("location")
+                           ?? properties.GetProp<StructProperty>("Location")
+                           ?? properties.GetProp<StructProperty>("Translation")
+                           ?? properties.GetProp<StructProperty>("translation");
+
+            var rotation = properties.GetProp<StructProperty>("Rotation")
+                           ?? properties.GetProp<StructProperty>("rotation");
+
+            var drawScale3D = properties.GetProp<StructProperty>("DrawScale3D")
+                            ?? properties.GetProp<StructProperty>("Scale3D")
+                            ?? properties.GetProp<StructProperty>("scale3D");
+
+            var prePivot = properties.GetProp<StructProperty>("PrePivot")
+                          ?? properties.GetProp<StructProperty>("prePivot");
+
+            float drawScale = properties.GetProp<FloatProperty>("DrawScale")?.Value
+                           ?? properties.GetProp<FloatProperty>("Scale")?.Value
+                           ?? 1f;
+
+            Vector3 loc = location is null ? Vector3.Zero : CommonStructs.GetVector3(location);
+            Vector3 scale = drawScale * (drawScale3D is null ? defaultScale : CommonStructs.GetVector3(drawScale3D));
+            Vector3 pivot = prePivot is null ? Vector3.Zero : CommonStructs.GetVector3(prePivot);
+            Rotator rot = rotation is null ? new Rotator(0, 0, 0) : CommonStructs.GetRotator(rotation);
+
+            return ActorUtils.ComposeLocalToWorld(loc, rot, scale, pivot);
+        }
+
+        private static Vector3[] BuildApproximateWorldBonePositions(MeshBone[] bones)
+        {
+            var world = new Vector3[bones.Length];
+            for (int i = 0; i < bones.Length; i++)
+            {
+                int parent = bones[i].ParentIndex;
+                world[i] = bones[i].Position + (parent >= 0 && parent < bones.Length ? world[parent] : Vector3.Zero);
+            }
+
+            return world;
+        }
+
+        private static void TryCollectBioStageNodesFromProperties(ExportEntry bioStageExport, List<Vector3> nodePoints)
+        {
+            var props = bioStageExport.GetProperties();
+            var cameraList = props.GetProp<ArrayProperty<StructProperty>>("m_aCameraList")
+                             ?? props.GetProp<ArrayProperty<StructProperty>>("CameraList")
+                             ?? props.GetProp<ArrayProperty<StructProperty>>("cameraList");
+
+            if (cameraList is null)
+            {
+                return;
+            }
+
+            foreach (var cameraStruct in cameraList)
+            {
+                if (TryExtractBioStageNodePosition(cameraStruct, out var nodePosition))
+                {
+                    nodePoints.Add(nodePosition);
+                }
+            }
+        }
+
+        private static bool TryExtractBioStageNodePosition(StructProperty cameraStruct, out Vector3 nodePosition)
+        {
+            nodePosition = Vector3.Zero;
+            if (cameraStruct is null)
+            {
+                return false;
+            }
+
+            var posStruct = cameraStruct.GetProp<StructProperty>("vPos")
+                           ?? cameraStruct.GetProp<StructProperty>("m_vPos")
+                           ?? cameraStruct.GetProp<StructProperty>("Location")
+                           ?? cameraStruct.GetProp<StructProperty>("location")
+                           ?? cameraStruct.GetProp<StructProperty>("Pos")
+                           ?? cameraStruct.GetProp<StructProperty>("Position")
+                           ?? cameraStruct.GetProp<StructProperty>("vPosition")
+                           ?? cameraStruct.GetProp<StructProperty>("m_vPosition");
+
+            if (TryExtractVectorFromStruct(posStruct, out nodePosition))
+            {
+                return true;
+            }
+
+            return TryExtractVectorRecursively(cameraStruct.Properties, out nodePosition);
+        }
+
+        private static bool TryExtractBioStageNodePosition(PropertyCollection cameraProps, out Vector3 nodePosition)
+        {
+            nodePosition = Vector3.Zero;
+
+            var posStruct = cameraProps.GetProp<StructProperty>("vPos")
+                           ?? cameraProps.GetProp<StructProperty>("m_vPos")
+                           ?? cameraProps.GetProp<StructProperty>("Location")
+                           ?? cameraProps.GetProp<StructProperty>("location")
+                           ?? cameraProps.GetProp<StructProperty>("Pos")
+                           ?? cameraProps.GetProp<StructProperty>("Position")
+                           ?? cameraProps.GetProp<StructProperty>("vPosition")
+                           ?? cameraProps.GetProp<StructProperty>("m_vPosition");
+
+            if (TryExtractVectorFromStruct(posStruct, out nodePosition))
+            {
+                return true;
+            }
+
+            foreach (var structProp in cameraProps.OfType<StructProperty>())
+            {
+                if (TryExtractVectorFromStruct(structProp, out nodePosition))
+                {
+                    return true;
+                }
+
+                if (TryExtractVectorRecursively(structProp.Properties, out nodePosition))
+                {
+                    return true;
+                }
+            }
+
+            foreach (var nestedStructArray in cameraProps.OfType<ArrayProperty<StructProperty>>())
+            {
+                foreach (var nested in nestedStructArray)
+                {
+                    if (TryExtractVectorFromStruct(nested, out nodePosition))
+                    {
+                        return true;
+                    }
+
+                    if (TryExtractVectorRecursively(nested.Properties, out nodePosition))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        private static bool TryExtractVectorRecursively(PropertyCollection properties, out Vector3 vector)
+        {
+            vector = Vector3.Zero;
+            if (properties is null)
+            {
+                return false;
+            }
+
+            foreach (var prop in properties)
+            {
+                if (prop is StructProperty sp)
+                {
+                    if (TryExtractVectorFromStruct(sp, out vector))
+                    {
+                        return true;
+                    }
+
+                    if (TryExtractVectorRecursively(sp.Properties, out vector))
+                    {
+                        return true;
+                    }
+                }
+                else if (prop is ArrayProperty<StructProperty> array)
+                {
+                    foreach (var item in array)
+                    {
+                        if (TryExtractVectorFromStruct(item, out vector))
+                        {
+                            return true;
+                        }
+
+                        if (TryExtractVectorRecursively(item.Properties, out vector))
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        private static bool TryExtractVectorFromStruct(StructProperty structProp, out Vector3 vector)
+        {
+            vector = Vector3.Zero;
+            if (structProp is null)
+            {
+                return false;
+            }
+
+            try
+            {
+                vector = CommonStructs.GetVector3(structProp);
+                return true;
+            }
+            catch
+            {
+                // fallback below
+            }
+
+            float? x = structProp.GetProp<FloatProperty>("X")?.Value
+                       ?? structProp.GetProp<FloatProperty>("x")?.Value
+                       ?? structProp.GetProp<IntProperty>("X")?.Value
+                       ?? structProp.GetProp<IntProperty>("x")?.Value;
+
+            float? y = structProp.GetProp<FloatProperty>("Y")?.Value
+                       ?? structProp.GetProp<FloatProperty>("y")?.Value
+                       ?? structProp.GetProp<IntProperty>("Y")?.Value
+                       ?? structProp.GetProp<IntProperty>("y")?.Value;
+
+            float? z = structProp.GetProp<FloatProperty>("Z")?.Value
+                       ?? structProp.GetProp<FloatProperty>("z")?.Value
+                       ?? structProp.GetProp<IntProperty>("Z")?.Value
+                       ?? structProp.GetProp<IntProperty>("z")?.Value;
+
+            if (x is null || y is null || z is null)
+            {
+                return false;
+            }
+
+            vector = new Vector3(x.Value, y.Value, z.Value);
+            return true;
+        }
+
+        private void ExpandBoundsWithContext(ContextOverlayData context)
+        {
+            if (context is null)
+            {
+                return;
+            }
+
+            var points = new List<(float A, float B)>();
+            points.Add(ProjectToPlane(new PathPoint { X = context.AnchorOrWorldPivot.X, Y = context.AnchorOrWorldPivot.Y, Z = context.AnchorOrWorldPivot.Z }));
+
+            if (context.HasBioStageContext)
+            {
+                points.Add(ProjectToPlane(new PathPoint { X = context.BioStagePivot.X, Y = context.BioStagePivot.Y, Z = context.BioStagePivot.Z }));
+                points.AddRange(context.BioStageNodePoints.Select(p => ProjectToPlane(new PathPoint { X = p.X, Y = p.Y, Z = p.Z })));
+                points.AddRange(context.BioStageHullPoints.Select(p => ProjectToPlane(new PathPoint { X = p.X, Y = p.Y, Z = p.Z })));
+            }
+
+            foreach ((float A, float B) in points)
+            {
+                _dataMinA = Math.Min(_dataMinA, A);
+                _dataMaxA = Math.Max(_dataMaxA, A);
+                _dataMinB = Math.Min(_dataMinB, B);
+                _dataMaxB = Math.Max(_dataMaxB, B);
+            }
         }
 
         private bool TryCreateCameraOverlay(MoveTrackData path, bool isSelectedPath, double selectedDim, out CameraOverlay cameraOverlay)
