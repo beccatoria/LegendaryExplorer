@@ -37,9 +37,24 @@ public enum EWidgetMode
     Scale
 }
 
+/// <summary>
+/// Implemented by anything the transform <see cref="Widget"/> can manipulate in the 3D scene
+/// (level actors, and embedded editor targets such as 3D Curve Editor keyframes).
+/// </summary>
+public interface ITransformWidgetTarget
+{
+    Vector3 Location { get; set; }
+    Rotator Rotation { get; set; }
+    float DrawScale { get; set; }
+    Vector3 DrawScale3D { get; set; }
+    bool IsReadOnly { get; }
+    Matrix4x4 LocalToWorld { get; }
+    TransformSnapshot SnapshotTransform();
+}
+
 public class Widget : UIElement
 {
-    public ActorProxy Attach;
+    public ITransformWidgetTarget Attach;
 
     public EWidgetMode Mode = EWidgetMode.Translate;
     public bool UseLocalCoords = true;
@@ -460,7 +475,7 @@ public class Widget : UIElement
     /// Called when a drag completes with the before and after transform snapshots.
     /// Wired by LevelEditor to push undo actions.
     /// </summary>
-    public Action<ActorProxy, TransformSnapshot, TransformSnapshot> OnDragComplete;
+    public Action<ITransformWidgetTarget, TransformSnapshot, TransformSnapshot> OnDragComplete;
 
     public void BeginDrag(int x, int y)
     {

@@ -680,6 +680,96 @@ return;
         }
 
         /// <summary>
+        /// Shifts an InterpTrackMove export by the position, rotation, and time offsets defined in the given parameters.
+        /// </summary>
+        public static void ShiftInterpTrackMove(ExportEntry interpTrackMove, LegendaryExplorer.Dialogs.ShiftInterpTrackParameters parameters)
+        {
+            var props = interpTrackMove.GetProperties();
+            var posTrack = props.GetProp<StructProperty>("PosTrack");
+            var points = posTrack.GetProp<ArrayProperty<StructProperty>>("Points");
+            var eulerTrack = props.GetProp<StructProperty>("EulerTrack");
+            var eulerPoints = eulerTrack?.GetProp<ArrayProperty<StructProperty>>("Points");
+            var lookupTrack = props.GetProp<StructProperty>("LookupTrack");
+            var lookupPoints = lookupTrack?.GetProp<ArrayProperty<StructProperty>>("Points");
+
+            for (int i = 0; i < points.Count; i++)
+            {
+                var point = points[i];
+                var outval = point.GetProp<StructProperty>("OutVal");
+                outval.GetProp<FloatProperty>("X").Value += parameters.OffsetX;
+                outval.GetProp<FloatProperty>("Y").Value += parameters.OffsetY;
+                outval.GetProp<FloatProperty>("Z").Value += parameters.OffsetZ;
+
+                // Update time offset for position track
+                if (parameters.TimeOffset != 0)
+                {
+                    var inVal = point.GetProp<FloatProperty>("InVal");
+                    if (inVal != null)
+                    {
+                        inVal.Value += parameters.TimeOffset;
+                    }
+                }
+            }
+
+            // Handle rotation (roll, pitch, yaw)
+            if ((parameters.Roll != 0 || parameters.Pitch != 0 || parameters.Yaw != 0) && eulerPoints != null)
+            {
+                for (int i = 0; i < eulerPoints.Count; i++)
+                {
+                    var eulerPoint = eulerPoints[i];
+                    var eulerVal = eulerPoint.GetProp<StructProperty>("OutVal");
+                    if (eulerVal != null)
+                    {
+                        var xProp = eulerVal.GetProp<FloatProperty>("X");
+                        var yProp = eulerVal.GetProp<FloatProperty>("Y");
+                        var zProp = eulerVal.GetProp<FloatProperty>("Z");
+
+                        if (xProp != null) xProp.Value += parameters.Roll;
+                        if (yProp != null) yProp.Value += parameters.Pitch;
+                        if (zProp != null) zProp.Value += parameters.Yaw;
+                    }
+                }
+            }
+
+            // Handle time offset for euler track (independent of rotation)
+            if (parameters.TimeOffset != 0 && eulerPoints != null)
+            {
+                for (int i = 0; i < eulerPoints.Count; i++)
+                {
+                    var eulerPoint = eulerPoints[i];
+                    var inVal = eulerPoint.GetProp<FloatProperty>("InVal");
+                    if (inVal != null)
+                    {
+                        inVal.Value += parameters.TimeOffset;
+                    }
+                }
+            }
+
+            // Handle time offset for lookup track
+            if (parameters.TimeOffset != 0 && lookupPoints != null)
+            {
+                for (int i = 0; i < lookupPoints.Count; i++)
+                {
+                    var lookupPoint = lookupPoints[i];
+                    var inVal = lookupPoint.GetProp<FloatProperty>("InVal");
+                    if (inVal != null)
+                    {
+                        inVal.Value += parameters.TimeOffset;
+                    }
+
+                    // Update the Time property directly in the InterpLookupPoint structure
+                    var timeProp = lookupPoint.GetProp<FloatProperty>("Time");
+                    if (timeProp != null)
+                    {
+                        timeProp.Value += parameters.TimeOffset;
+                    }
+                }
+            }
+
+            interpTrackMove.WriteProperties(props);
+        }
+
+        /// <summary>
         /// Shifts an ME1 AnimCutscene by specified X Y Z values. Only supports 96NoW (3 32-bit float) animations
         /// By Mgamerz 
         /// </summary>

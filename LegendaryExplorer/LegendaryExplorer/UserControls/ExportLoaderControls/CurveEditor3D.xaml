@@ -1,0 +1,291 @@
+﻿<exportLoaderControls:ExportLoaderControl x:Class="LegendaryExplorer.UserControls.ExportLoaderControls.CurveEditor3D"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:xctk="http://schemas.xceed.com/wpf/xaml/toolkit"
+        xmlns:exportLoaderControls="clr-namespace:LegendaryExplorer.UserControls.ExportLoaderControls"
+        xmlns:scene3D="clr-namespace:LegendaryExplorer.Tools.LevelEditor.Scene3D"
+        mc:Ignorable="d"
+        d:DesignHeight="600" d:DesignWidth="1000"
+        DataContext="{Binding RelativeSource={RelativeSource Self}}"
+        Loaded="CurveEditor3D_Loaded"
+        Unloaded="CurveEditor3D_Unloaded">
+    <DockPanel>
+        <WrapPanel DockPanel.Dock="Top">
+            <ToolBar ToolBarTray.IsLocked="True" OverflowMode="Never">
+                <Button Content="Open Level" Click="OpenLevel_Click" ToolTip="Replace the level backdrop"/>
+                <Button Content="Add Level" Click="AddLevel_Click" ToolTip="Add another level file to the backdrop"/>
+                <Button Content="Unload Level" Click="UnloadLevel_Click" ToolTip="Unload all level backdrop files"/>
+                <Button x:Name="RecentLevelsButton" Content="Recent Levels" Click="RecentLevelsButton_Click" ToolTip="Open a recent level backdrop">
+                    <Button.ContextMenu>
+                        <ContextMenu x:Name="RecentLevelsMenu" Opened="RecentLevelsMenu_Opened"/>
+                    </Button.ContextMenu>
+                </Button>
+                <Separator Style="{StaticResource {x:Static ToolBar.SeparatorStyleKey}}" />
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="Loc" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                    <TextBlock Text="X:" Margin="0,0,4,0" VerticalAlignment="Center" Foreground="Red"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,6,0">
+                        <TextBox x:Name="CameraPositionX_TextBox" Width="72"
+                                 Text="{Binding CameraPositionX, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                 KeyUp="CameraPositionBoxes_KeyUp"
+                                 GotKeyboardFocus="CameraPositionBoxes_GotKeyboardFocus"
+                                 LostKeyboardFocus="CameraPositionBoxes_LostKeyboardFocus"
+                                 GotFocus="CoordinateEditor_GotFocus"
+                                 VerticalContentAlignment="Center"
+                                 FontFamily="Consolas"
+                                 ToolTip="Camera X position"/>
+                        <StackPanel Margin="2,0,0,0">
+                            <Button Width="16" Height="11" Padding="0" FontSize="8" Content="Γû▓"
+                                    Tag="X,1" Click="CameraPositionAdjustButton_Click" ToolTip="Increase X position"/>
+                            <Button Width="16" Height="11" Padding="0" FontSize="8" Content="Γû╝"
+                                    Tag="X,-1" Click="CameraPositionAdjustButton_Click" ToolTip="Decrease X position"/>
+                        </StackPanel>
+                    </StackPanel>
+                    <TextBlock Text="Y:" Margin="0,0,4,0" VerticalAlignment="Center" Foreground="#FF00C91D"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,6,0">
+                        <TextBox x:Name="CameraPositionY_TextBox" Width="72"
+                                 Text="{Binding CameraPositionY, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                 KeyUp="CameraPositionBoxes_KeyUp"
+                                 GotKeyboardFocus="CameraPositionBoxes_GotKeyboardFocus"
+                                 LostKeyboardFocus="CameraPositionBoxes_LostKeyboardFocus"
+                                 GotFocus="CoordinateEditor_GotFocus"
+                                 VerticalContentAlignment="Center"
+                                 FontFamily="Consolas"
+                                 ToolTip="Camera Y position"/>
+                        <StackPanel Margin="2,0,0,0">
+                            <Button Width="16" Height="11" Padding="0" FontSize="8" Content="Γû▓"
+                                    Tag="Y,1" Click="CameraPositionAdjustButton_Click" ToolTip="Increase Y position"/>
+                            <Button Width="16" Height="11" Padding="0" FontSize="8" Content="Γû╝"
+                                    Tag="Y,-1" Click="CameraPositionAdjustButton_Click" ToolTip="Decrease Y position"/>
+                        </StackPanel>
+                    </StackPanel>
+                    <TextBlock Text="Z:" Margin="0,0,4,0" VerticalAlignment="Center" Foreground="Blue"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,6,0">
+                        <TextBox x:Name="CameraPositionZ_TextBox" Width="72"
+                                 Text="{Binding CameraPositionZ, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                 KeyUp="CameraPositionBoxes_KeyUp"
+                                 GotKeyboardFocus="CameraPositionBoxes_GotKeyboardFocus"
+                                 LostKeyboardFocus="CameraPositionBoxes_LostKeyboardFocus"
+                                 GotFocus="CoordinateEditor_GotFocus"
+                                 VerticalContentAlignment="Center"
+                                 FontFamily="Consolas"
+                                 ToolTip="Camera Z position"/>
+                        <StackPanel Margin="2,0,0,0">
+                            <Button Width="16" Height="11" Padding="0" FontSize="8" Content="Γû▓"
+                                    Tag="Z,1" Click="CameraPositionAdjustButton_Click" ToolTip="Increase Z position"/>
+                            <Button Width="16" Height="11" Padding="0" FontSize="8" Content="Γû╝"
+                                    Tag="Z,-1" Click="CameraPositionAdjustButton_Click" ToolTip="Decrease Z position"/>
+                        </StackPanel>
+                    </StackPanel>
+                    <TextBlock Text="Step:" Margin="0,0,4,0" VerticalAlignment="Center"/>
+                    <xctk:SingleUpDown Width="70" Value="{Binding CameraPositionStep}" Minimum="0.01"
+                                       ButtonSpinnerLocation="Left" FormatString="F2"
+                                       VerticalContentAlignment="Center" ToolTip="Camera position adjustment step"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="6,0,0,0">
+                    <TextBlock Text="Rot" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                    <TextBlock Text="X:" Margin="0,0,4,0" VerticalAlignment="Center" Foreground="Red"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,6,0">
+                        <TextBox x:Name="CameraRotationX_TextBox" Width="72"
+                                 Text="{Binding CameraRotationX, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                 KeyUp="CameraRotationBoxes_KeyUp"
+                                 GotKeyboardFocus="CameraRotationBoxes_GotKeyboardFocus"
+                                 LostKeyboardFocus="CameraRotationBoxes_LostKeyboardFocus"
+                                 GotFocus="CoordinateEditor_GotFocus"
+                                 VerticalContentAlignment="Center"
+                                 FontFamily="Consolas"
+                                 ToolTip="Camera X rotation (Roll, degrees)"/>
+                        <StackPanel Margin="2,0,0,0">
+                            <Button Width="16" Height="11" Padding="0" FontSize="8" Content="Γû▓"
+                                    Tag="X,1" Click="CameraRotationAdjustButton_Click" ToolTip="Increase X rotation"/>
+                            <Button Width="16" Height="11" Padding="0" FontSize="8" Content="Γû╝"
+                                    Tag="X,-1" Click="CameraRotationAdjustButton_Click" ToolTip="Decrease X rotation"/>
+                        </StackPanel>
+                    </StackPanel>
+                    <TextBlock Text="Y:" Margin="0,0,4,0" VerticalAlignment="Center" Foreground="#FF00C91D"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,6,0">
+                        <TextBox x:Name="CameraRotationY_TextBox" Width="72"
+                                 Text="{Binding CameraRotationY, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                 KeyUp="CameraRotationBoxes_KeyUp"
+                                 GotKeyboardFocus="CameraRotationBoxes_GotKeyboardFocus"
+                                 LostKeyboardFocus="CameraRotationBoxes_LostKeyboardFocus"
+                                 GotFocus="CoordinateEditor_GotFocus"
+                                 VerticalContentAlignment="Center"
+                                 FontFamily="Consolas"
+                                 ToolTip="Camera Y rotation (Pitch, degrees)"/>
+                        <StackPanel Margin="2,0,0,0">
+                            <Button Width="16" Height="11" Padding="0" FontSize="8" Content="Γû▓"
+                                    Tag="Y,1" Click="CameraRotationAdjustButton_Click" ToolTip="Increase Y rotation"/>
+                            <Button Width="16" Height="11" Padding="0" FontSize="8" Content="Γû╝"
+                                    Tag="Y,-1" Click="CameraRotationAdjustButton_Click" ToolTip="Decrease Y rotation"/>
+                        </StackPanel>
+                    </StackPanel>
+                    <TextBlock Text="Z:" Margin="0,0,4,0" VerticalAlignment="Center" Foreground="Blue"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,6,0">
+                        <TextBox x:Name="CameraRotationZ_TextBox" Width="72"
+                                 Text="{Binding CameraRotationZ, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                 KeyUp="CameraRotationBoxes_KeyUp"
+                                 GotKeyboardFocus="CameraRotationBoxes_GotKeyboardFocus"
+                                 LostKeyboardFocus="CameraRotationBoxes_LostKeyboardFocus"
+                                 GotFocus="CoordinateEditor_GotFocus"
+                                 VerticalContentAlignment="Center"
+                                 FontFamily="Consolas"
+                                 ToolTip="Camera Z rotation (Yaw, degrees)"/>
+                        <StackPanel Margin="2,0,0,0">
+                            <Button Width="16" Height="11" Padding="0" FontSize="8" Content="Γû▓"
+                                    Tag="Z,1" Click="CameraRotationAdjustButton_Click" ToolTip="Increase Z rotation"/>
+                            <Button Width="16" Height="11" Padding="0" FontSize="8" Content="Γû╝"
+                                    Tag="Z,-1" Click="CameraRotationAdjustButton_Click" ToolTip="Decrease Z rotation"/>
+                        </StackPanel>
+                    </StackPanel>
+                    <TextBlock Text="Step:" Margin="0,0,4,0" VerticalAlignment="Center"/>
+                    <xctk:SingleUpDown Width="70" Value="{Binding CameraRotationStep}" Minimum="0.1"
+                                       ButtonSpinnerLocation="Left" FormatString="F2"
+                                       VerticalContentAlignment="Center" ToolTip="Camera rotation adjustment step in degrees"/>
+                </StackPanel>
+                <Separator Style="{StaticResource {x:Static ToolBar.SeparatorStyleKey}}" />
+                <xctk:DropDownButton Content="View options" MaxDropDownHeight="220"
+                                     BorderBrush="{DynamicResource {x:Static SystemColors.ControlDarkBrushKey}}">
+                    <xctk:DropDownButton.DropDownContent>
+                        <scene3D:SceneControlOptionsControl/>
+                    </xctk:DropDownButton.DropDownContent>
+                </xctk:DropDownButton>
+                <Separator Style="{StaticResource {x:Static ToolBar.SeparatorStyleKey}}" />
+                <TextBlock Text="{Binding CurrentExportName}" VerticalAlignment="Center" Margin="4,0"/>
+            </ToolBar>
+        </WrapPanel>
+
+        <StatusBar DockPanel.Dock="Bottom">
+            <TextBlock Text="{Binding SceneStatus}"/>
+        </StatusBar>
+
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="5"/>
+                <ColumnDefinition Width="280"/>
+            </Grid.ColumnDefinitions>
+
+            <scene3D:SceneRenderControl x:Name="SceneViewer" Grid.Column="0"/>
+            <GridSplitter Grid.Column="1" Width="5" HorizontalAlignment="Stretch"/>
+
+            <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto" Padding="8">
+                <StackPanel>
+                    <TextBlock Text="Keyframes" FontSize="18" FontWeight="SemiBold"/>
+                    <GroupBox Header="Playback" Margin="0,4,0,8">
+                        <StackPanel Margin="6">
+                            <WrapPanel Margin="0,0,0,6">
+                                <Button Content="Play" Click="PlayMove_Click" Loaded="PlayMoveButton_Loaded" IsEnabled="False" Margin="0,0,4,4"
+                                        ToolTip="Play the move through the scene camera using the track interpolation modes"/>
+                                <Button x:Name="SnapToKeyButton" Content="Snap Camera to Key" Click="SnapCameraToKey_Click" IsEnabled="False" Margin="0,0,4,4"
+                                        ToolTip="Move the camera to the selected keyframe and apply its rotation"/>
+                                <Button Content="Translate" Click="TranslateMode_Click" Margin="0,0,4,4" ToolTip="Drag the selected cube with the translation gizmo"/>
+                                <Button Content="Rotate" Click="RotateMode_Click" Margin="0,0,4,4" ToolTip="Rotate the selected cube with the rotation gizmo"/>
+                            </WrapPanel>
+                            <TextBlock Text="{Binding PlaybackKeyframeStatus}" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </GroupBox>
+                    <ListBox x:Name="KeyframeList" Margin="0,4,0,10" MaxHeight="220"
+                             SelectionChanged="KeyframeList_SelectionChanged">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel Orientation="Horizontal" Margin="2">
+                                    <Border Width="11" Height="11" Margin="0,0,7,0" BorderThickness="2"
+                                            BorderBrush="#FFFFB21A" Background="#FF242424"/>
+                                    <TextBlock Text="{Binding Time, StringFormat=InVal {0:0.###}}"/>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+
+                    <StackPanel DataContext="{Binding SelectedKeyframe}">
+                        <TextBlock Text="Selected Keyframe" FontSize="18" FontWeight="SemiBold"/>
+
+                        <GroupBox Header="Increment" Margin="0,4,0,8">
+                            <xctk:SingleUpDown x:Name="TransformIncrementUpDown" Margin="6" Value="1" Increment="0.1" Minimum="0.0001"
+                                               ToolTip="Amount added or subtracted by the location and rotation arrow buttons"/>
+                        </GroupBox>
+
+                        <GroupBox Header="Timing (InVal)" Margin="0,0,0,8">
+                            <TextBox Margin="6" Text="{Binding Time, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged, Delay=150, ValidatesOnExceptions=True}"/>
+                        </GroupBox>
+
+                        <GroupBox Header="Location" Margin="0,0,0,8">
+                            <Grid Margin="6">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="40"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <TextBlock Text="X" Foreground="#FFFF0000" VerticalAlignment="Center"/>
+                                <xctk:SingleUpDown Grid.Column="1" Value="{Binding X, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged, Delay=150, ValidatesOnExceptions=True}"
+                                                   Increment="{Binding Value, ElementName=TransformIncrementUpDown}"/>
+                                <TextBlock Grid.Row="1" Text="Y" Foreground="#FF00FF00" VerticalAlignment="Center"/>
+                                <xctk:SingleUpDown Grid.Row="1" Grid.Column="1" Value="{Binding Y, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged, Delay=150, ValidatesOnExceptions=True}"
+                                                   Increment="{Binding Value, ElementName=TransformIncrementUpDown}"/>
+                                <TextBlock Grid.Row="2" Text="Z" Foreground="#FF0000FF" VerticalAlignment="Center"/>
+                                <xctk:SingleUpDown Grid.Row="2" Grid.Column="1" Value="{Binding Z, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged, Delay=150, ValidatesOnExceptions=True}"
+                                                   Increment="{Binding Value, ElementName=TransformIncrementUpDown}"/>
+                            </Grid>
+                        </GroupBox>
+
+                        <GroupBox Header="Rotation" Margin="0,0,0,8">
+                            <Grid Margin="6">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="40"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <TextBlock Text="Roll" Foreground="#FFFF0000" VerticalAlignment="Center"/>
+                                <xctk:SingleUpDown Grid.Column="1" Value="{Binding Roll, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged, Delay=150, ValidatesOnExceptions=True}"
+                                                   Increment="{Binding Value, ElementName=TransformIncrementUpDown}"/>
+                                <TextBlock Grid.Row="1" Text="Pitch" Foreground="#FF00FF00" VerticalAlignment="Center"/>
+                                <xctk:SingleUpDown Grid.Row="1" Grid.Column="1" Value="{Binding Pitch, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged, Delay=150, ValidatesOnExceptions=True}"
+                                                   Increment="{Binding Value, ElementName=TransformIncrementUpDown}"/>
+                                <TextBlock Grid.Row="2" Text="Yaw" Foreground="#FF0000FF" VerticalAlignment="Center"/>
+                                <xctk:SingleUpDown Grid.Row="2" Grid.Column="1" Value="{Binding Yaw, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged, Delay=150, ValidatesOnExceptions=True}"
+                                                   Increment="{Binding Value, ElementName=TransformIncrementUpDown}"/>
+                            </Grid>
+                        </GroupBox>
+
+                        <GroupBox Header="Interp Mode Type">
+                            <Grid Margin="6">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="8"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+
+                                <StackPanel>
+                                    <TextBlock Text="PosTrack" FontWeight="SemiBold"/>
+                                    <ComboBox Margin="0,4,0,0" ItemsSource="{Binding DataContext.InterpModes, RelativeSource={RelativeSource AncestorType={x:Type exportLoaderControls:CurveEditor3D}}}"
+                                              SelectedItem="{Binding PosTrackInterpMode, UpdateSourceTrigger=PropertyChanged}"/>
+                                    <Button Margin="0,6,0,0" Content="Apply Pos to all" Click="ApplyPosTrackInterpModeToAll_Click"/>
+                                </StackPanel>
+
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Text="EulerTrack" FontWeight="SemiBold"/>
+                                    <ComboBox Margin="0,4,0,0" ItemsSource="{Binding DataContext.InterpModes, RelativeSource={RelativeSource AncestorType={x:Type exportLoaderControls:CurveEditor3D}}}"
+                                              SelectedItem="{Binding EulerTrackInterpMode, UpdateSourceTrigger=PropertyChanged}"/>
+                                    <Button Margin="0,6,0,0" Content="Apply Euler to all" Click="ApplyEulerTrackInterpModeToAll_Click"/>
+                                </StackPanel>
+                            </Grid>
+                        </GroupBox>
+
+                        <TextBlock Margin="0,12,0,0" Text="Select a cube or list item, then edit values or use the Translate/Rotate gizmo." TextWrapping="Wrap" Opacity="0.7"/>
+                    </StackPanel>
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
+    </DockPanel>
+</exportLoaderControls:ExportLoaderControl>

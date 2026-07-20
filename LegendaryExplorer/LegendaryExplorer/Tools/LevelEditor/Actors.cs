@@ -18,7 +18,7 @@ using MediaColors = System.Windows.Media.Colors;
 
 namespace LegendaryExplorer.Tools.LevelEditor;
 
-public class ActorProxy : NotifyPropertyChangedBase, IDisposable, IHitProxy
+public class ActorProxy : NotifyPropertyChangedBase, IDisposable, IHitProxy, ITransformWidgetTarget
 {
     public IActorEditorContext Editor;
     public OpenLevelFile OwningFile { get; set; }
@@ -296,6 +296,10 @@ public class ActorProxy : NotifyPropertyChangedBase, IDisposable, IHitProxy
     }
 
     public TransformSnapshot SnapshotTransform() => new(location, rotation, drawScale, drawScale3D);
+
+    // Explicit interface implementation forwarding to the public LocalToWorld field,
+    // which the transform widget consumes via ITransformWidgetTarget.
+    Matrix4x4 ITransformWidgetTarget.LocalToWorld => LocalToWorld;
 
     public void RestoreTransform(TransformSnapshot snapshot)
     {

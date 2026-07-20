@@ -12,7 +12,7 @@ public class SceneCamera
     private Vector3 position = Vector3.Zero;
     private float pitch = 0;
     private float yaw = 0;
-    // Ignore Roll for now. Who would ever roll their preview camera?
+    private float roll = 0;
     public Vector3 Position
     {
         get => position;
@@ -40,8 +40,17 @@ public class SceneCamera
             CalcViewMatrix();
         }
     }
+    public float Roll
+    {
+        get => roll;
+        set
+        {
+            roll = value.Wrap(0, MathF.PI * 2);
+            CalcViewMatrix();
+        }
+    }
 
-    public float FocusDepth = 0; // Depth of rotation center for 3rd person mode.
+    public float FocusDepth = 0;
     public float aspect = 1.0f;
     public float FOV = MathF.PI / 3; // 60 degrees.
     public float ZNear = 0.1f;
@@ -80,10 +89,10 @@ public class SceneCamera
     {
         get
         {
-            float sr = MathF.Sin(0/*Roll*/);
+            float sr = MathF.Sin(Roll);
             float sp = MathF.Sin(Pitch);
             float sy = MathF.Sin(Yaw);
-            float cr = MathF.Cos(0/*Roll*/);
+            float cr = MathF.Cos(Roll);
             float cp = MathF.Cos(Pitch);
             float cy = MathF.Cos(Yaw);
 
@@ -97,10 +106,10 @@ public class SceneCamera
     {
         get
         {
-            float sr = MathF.Sin(0/*Roll*/);
+            float sr = MathF.Sin(Roll);
             float sp = MathF.Sin(Pitch);
             float sy = MathF.Sin(Yaw);
-            float cr = MathF.Cos(0/*Roll*/);
+            float cr = MathF.Cos(Roll);
             float cp = MathF.Cos(Pitch);
             float cy = MathF.Cos(Yaw);
 

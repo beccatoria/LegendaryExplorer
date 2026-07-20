@@ -22,6 +22,10 @@ public class LevelEditorRenderContext : MeshRenderContext
 {
     public event Action<ActorProxy> SelectActor;
     public event Action<ActorProxy> FocusActor;
+    public event Action<IHitProxy> SelectHitProxy;
+    public event Action<IHitProxy> RightClickHitProxy;
+    public event Action<ActorProxy> RightClickActor;
+    public event Action RightClickViewport;
     public bool LastActorSelectionWasAdditive { get; private set; }
     public List<ActorProxy> DrawList_3D = [];
     public List<UIElement> DrawList_UI = [];
@@ -29,6 +33,18 @@ public class LevelEditorRenderContext : MeshRenderContext
     private USparseArray<IHitProxy> HitProxies = [];
 
     public readonly Widget TransformWidget;
+
+    /// <summary>
+    /// When true, the scene will keep rendering every frame even without input.
+    /// Used by embedded editors (e.g. the 3D Curve Editor) that animate playback.
+    /// </summary>
+    public bool ForceContinuousRendering { get; set; }
+
+    /// <summary>
+    /// Controls whether light-source icon overlays are drawn. Present for parity with
+    /// embedded scene consumers; the level editor's light overlay is not ported here.
+    /// </summary>
+    public bool ShowLightIcons = true;
 
     public readonly BatchedPrimitives Primitives = new();
 
@@ -71,6 +87,25 @@ public class LevelEditorRenderContext : MeshRenderContext
         {
             IHitProxy selected = GetHitProxy(x, y);
 
+            if (button == MouseButtons.Right)
+            {
+                switch (selected)
+                {
+                    case ActorProxy rcActor:
+                        RightClickActor?.Invoke(rcActor);
+                        RightClickHitProxy?.Invoke(rcActor);
+                        break;
+                    case null:
+                        RightClickViewport?.Invoke();
+                        break;
+                    default:
+                        RightClickHitProxy?.Invoke(selected);
+                        break;
+                }
+                _ctrlSelectionLatched = false;
+                return false;
+            }
+
             TransformWidget.CurrentAxis = EWidgetAxis.None;
             switch (selected)
             {
@@ -92,6 +127,15 @@ public class LevelEditorRenderContext : MeshRenderContext
                 case AxisHitProxy axisProxy:
                     LastActorSelectionWasAdditive = false;
                     TransformWidget.CurrentAxis = axisProxy.Axis;
+                    if (button is MouseButtons.Left)
+                    {
+                        ClearLeftClickHistory();
+                    }
+                    break;
+                case not null:
+                    LastActorSelectionWasAdditive = false;
+                    TransformWidget.Attach = null;
+                    SelectHitProxy?.Invoke(selected);
                     if (button is MouseButtons.Left)
                     {
                         ClearLeftClickHistory();
@@ -298,10 +342,30 @@ public class LevelEditorRenderContext : MeshRenderContext
         {
             actor.HitID = HitProxies.Add(actor);
         }
+        EnableTransformWidget();
+    }
+
+    public void EnableTransformWidget()
+    {
         if (!IsReadOnly && !DrawList_UI.Contains(TransformWidget))
         {
             DrawList_UI.Add(TransformWidget);
             TransformWidget.GetAxisHitProxies(ref HitProxies);
+        }
+    }
+
+    public int AddHitProxy(IHitProxy hitProxy)
+    {
+        hitProxy.HitID = HitProxies.Add(hitProxy);
+        return hitProxy.HitID;
+    }
+
+    public void RemoveHitProxy(IHitProxy hitProxy)
+    {
+        if (hitProxy.HitID > 0)
+        {
+            HitProxies.RemoveAt(hitProxy.HitID);
+            hitProxy.HitID = 0;
         }
     }
 

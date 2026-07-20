@@ -3069,6 +3069,7 @@ namespace LegendaryExplorer.Tools.PackageEditor
             ExportLoaders[MetadataTab_MetadataEditor] = Metadata_Tab;
             ExportLoaders[SoundTab_Soundpanel] = Sound_Tab;
             ExportLoaders[CurveTab_CurveEditor] = CurveEditor_Tab;
+            ExportLoaders[CurveEditor3DTab_CurveEditor3D] = CurveEditor3D_Tab;
             ExportLoaders[FaceFXTab_Editor] = FaceFXAnimSet_Tab;
             ExportLoaders[Bio2DATab_Bio2DAEditor] = Bio2DAViewer_Tab;
             ExportLoaders[BytecodeTab_BytecodeEditor] = Bytecode_Tab;

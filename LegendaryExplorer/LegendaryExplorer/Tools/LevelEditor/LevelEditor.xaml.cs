@@ -2314,8 +2314,9 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         }
     }
 
-    private void OnWidgetDragComplete(ActorProxy actor, TransformSnapshot before, TransformSnapshot after)
+    private void OnWidgetDragComplete(ITransformWidgetTarget target, TransformSnapshot before, TransformSnapshot after)
     {
+        if (target is not ActorProxy actor) return;
         if (before.Equals(after)) return;
 
         if (TryApplyGroupedLeadTransformEdit(actor, before, after, $"Drag group ({ActiveTransformGroup?.Name ?? "Lead"})"))

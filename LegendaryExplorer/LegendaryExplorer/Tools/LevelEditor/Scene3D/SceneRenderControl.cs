@@ -163,6 +163,11 @@ public abstract class RenderContext
         EnableBlueChannel = 1 << 4,
         EnableAlphaChannel = 1 << 5,
 
+        /// <summary>
+        /// Render without scene lighting (used by embedded scene consumers such as the 3D Curve Editor)
+        /// </summary>
+        Unlit = 1 << 7,
+
         //level editor flags
         Wireframe = 1 << 29,
         Selected = 1 << 30,
@@ -542,6 +547,18 @@ public sealed class SceneRenderControl : ContentControl, IDisposable, INotifyPro
         //}
 
         _shouldRender = shouldRender;
+    }
+
+    /// <summary>
+    /// Requests that the scene be redrawn. This control renders continuously while active,
+    /// so this simply requests an immediate render of the next frame.
+    /// </summary>
+    public void MarkRenderDirty()
+    {
+        if (_shouldRender && Context is { IsReady: true })
+        {
+            D3DImage?.RequestRender();
+        }
     }
 
     #region Input Events
