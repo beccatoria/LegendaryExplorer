@@ -4,6 +4,7 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:questMap="clr-namespace:Gammtek.Conduit.MassEffect3.SFXGame.QuestMap"
+	xmlns:plotEditor="clr-namespace:LegendaryExplorer.Tools.PlotEditor"
     xmlns:xctk="http://schemas.xceed.com/wpf/xaml/toolkit"
     xmlns:misc="clr-namespace:LegendaryExplorer.Misc"
     mc:Ignorable="d" 
@@ -11,6 +12,7 @@
 	d:DesignHeight="480" d:DesignWidth="640">
 	<!-- UserControl Resources -->
 	<UserControl.Resources>
+		<plotEditor:TaskEvalPlotPathConverter x:Key="TaskEvalPlotPathConverter" />
 		<Style TargetType="{x:Type ListBox}" x:Key="ListBoxStyle">
 			<Style.Triggers>
 				<Trigger Property="HasItems" Value="True">
@@ -29,29 +31,45 @@
 			<ColumnDefinition Width="*" />
 		</Grid.ColumnDefinitions>
 		<Grid.RowDefinitions>
+			<RowDefinition Height="Auto" />
 			<RowDefinition Height="*" />
 			<RowDefinition Height="Auto" />
 		</Grid.RowDefinitions>
 
 		<!-- Grid Content -->
-		<ListBox x:Name="StateTaskListsListBox" Grid.Column="0" Grid.Row="0" Width="150" Style="{DynamicResource ListBoxStyle}"
-						ItemsSource="{Binding StateTaskLists, NotifyOnTargetUpdated=True}" SelectedItem="{Binding SelectedStateTaskList, Mode=TwoWay}">
+		<StackPanel Grid.Column="0" Grid.Row="0" Margin="0,0,0,5">
+			<Label Content="Filter by Quest" Padding="0"/>
+			<TextBox Text="{Binding QuestFilterText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" MinWidth="150" />
+		</StackPanel>
+
+		<ListBox x:Name="StateTaskListsListBox" Grid.Column="0" Grid.Row="1" Width="150" Style="{DynamicResource ListBoxStyle}"
+						ItemsSource="{Binding FilteredStateTaskLists, NotifyOnTargetUpdated=True}" SelectedItem="{Binding SelectedStateTaskList, Mode=TwoWay}">
             <ListBox.ItemTemplate>
                 <DataTemplate>
-                    <TextBlock Text="{Binding Key, StringFormat='State Task List \{0\}'}" Width="125">
-                        <TextBlock.ContextMenu>
+					<StackPanel HorizontalAlignment="Left">
+						<TextBlock Text="{Binding Key, StringFormat='State Task List \{0\}'}" Width="125" />
+						<TextBlock FontSize="10" TextWrapping="Wrap" Width="125">
+							<TextBlock.Text>
+								<MultiBinding Converter="{StaticResource TaskEvalPlotPathConverter}">
+									<Binding Path="CurrentGame" RelativeSource="{RelativeSource AncestorType={x:Type plotEditor:StateTaskListsView}}" />
+									<Binding Path="Key" />
+									<Binding Path="TaskEvalType" RelativeSource="{RelativeSource AncestorType={x:Type plotEditor:StateTaskListsView}}" />
+								</MultiBinding>
+							</TextBlock.Text>
+						</TextBlock>
+						<StackPanel.ContextMenu>
                             <ContextMenu>
                                 <MenuItem Header="Change Id" Click="ChangeStateTaskListId_Click"/>
                                 <MenuItem Header="Copy" Click="CopyStateTaskList_Click"/>
                                 <MenuItem Header="Remove" Click="RemoveStateTaskList_Click"/>
                             </ContextMenu>
-                        </TextBlock.ContextMenu>
-                    </TextBlock>
+						</StackPanel.ContextMenu>
+					</StackPanel>
                 </DataTemplate>
             </ListBox.ItemTemplate>
         </ListBox>
 
-		<Grid Grid.Column="0" Grid.Row="1" Margin="0,5,0,0">
+		<Grid Grid.Column="0" Grid.Row="2" Margin="0,5,0,0">
 			<!-- Grid Definitions -->
 			<Grid.ColumnDefinitions>
 				<ColumnDefinition Width="*" />
@@ -161,6 +179,7 @@
 							<RowDefinition Height="Auto" />
 							<RowDefinition Height="Auto" />
 							<RowDefinition Height="Auto" />
+							<RowDefinition Height="Auto" />
 						</Grid.RowDefinitions>
 
 						<!-- Task Description -->
@@ -179,27 +198,35 @@
 										Text="{Binding Path=SelectedTaskEval.Quest, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
 										Width="150" Margin="5,5" HorizontalAlignment="Left" VerticalAlignment="Center" />
 
-						<!-- Task Planet Name -->
-						<Label Grid.Column="0" Grid.Row="2" Content="State"
+						<Label Grid.Column="0" Grid.Row="2" Content="Quest TLK"
 										Margin="0,5" HorizontalAlignment="Left" VerticalAlignment="Center" />
 
-						<xctk:IntegerUpDown Grid.Column="1" Grid.Row="2"
+						<TextBox Grid.Column="1" Grid.Row="2"
+										Text="{Binding Path=SelectedTaskEvalQuestDisplay, Mode=OneWay}"
+										IsReadOnly="True"
+										Width="250" Margin="5,5" HorizontalAlignment="Left" VerticalAlignment="Center" />
+
+						<!-- Task Planet Name -->
+						<Label Grid.Column="0" Grid.Row="3" Content="State"
+										Margin="0,5" HorizontalAlignment="Left" VerticalAlignment="Center" />
+
+						<xctk:IntegerUpDown Grid.Column="1" Grid.Row="3"
 										Text="{Binding Path=SelectedTaskEval.State, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
 										Width="150" Margin="5,5" HorizontalAlignment="Left" VerticalAlignment="Center" />
 
 						<!-- Task -->
-						<Label Grid.Column="0" Grid.Row="3" Content="Task"
+						<Label Grid.Column="0" Grid.Row="4" Content="Task"
 										Margin="0,5" HorizontalAlignment="Left" VerticalAlignment="Center" />
 
-						<xctk:IntegerUpDown Grid.Column="1" Grid.Row="3"
+						<xctk:IntegerUpDown Grid.Column="1" Grid.Row="4"
 										Text="{Binding Path=SelectedTaskEval.Task, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
 										Width="150" Margin="5,5" HorizontalAlignment="Left" VerticalAlignment="Center" />
 
 						<!-- Task Instance Version -->
-						<Label Grid.Column="0" Grid.Row="4" Content="Instance Version"
+						<Label Grid.Column="0" Grid.Row="5" Content="Instance Version"
 										Margin="0,5" HorizontalAlignment="Left" VerticalAlignment="Center" />
 
-						<xctk:IntegerUpDown Grid.Column="1" Grid.Row="4"
+						<xctk:IntegerUpDown Grid.Column="1" Grid.Row="5"
 										Text="{Binding Path=SelectedTaskEval.InstanceVersion, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
 										Width="150" Margin="5,5" HorizontalAlignment="Left" VerticalAlignment="Center" />
 					</Grid>

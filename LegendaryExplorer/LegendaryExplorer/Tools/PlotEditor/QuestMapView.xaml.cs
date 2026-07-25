@@ -339,6 +339,7 @@ namespace LegendaryExplorer.Tools.PlotEditor
             Quests.Add(questPair);
 
             SelectedQuest = questPair;
+            RefreshTaskEvalQuestMetadata();
         }
 
         public void AddQuestGoal()
@@ -606,6 +607,8 @@ namespace LegendaryExplorer.Tools.PlotEditor
                     ? Quests[index - 1]
                     : Quests.First();
             }
+
+            RefreshTaskEvalQuestMetadata();
         }
 
         public void RemoveQuestGoal()
@@ -703,6 +706,10 @@ namespace LegendaryExplorer.Tools.PlotEditor
                 return;
             }
 
+            BoolStateTaskListsControl.SetTaskEvalContext(game, "bool");
+            FloatStateTaskListsControl.SetTaskEvalContext(game, "float");
+            IntStateTaskListsControl.SetTaskEvalContext(game, "int");
+
             BoolStateTaskListsControl.SetStateTaskLists(questMap.BoolTaskEvals.OrderBy(pair => pair.Key));
             FloatStateTaskListsControl.SetStateTaskLists(questMap.FloatTaskEvals.OrderBy(pair => pair.Key));
             IntStateTaskListsControl.SetStateTaskLists(questMap.IntTaskEvals.OrderBy(pair => pair.Key));
@@ -725,7 +732,17 @@ namespace LegendaryExplorer.Tools.PlotEditor
                 }
             }
 
+            RefreshTaskEvalQuestMetadata();
+
             RefreshAssociatedStates();
+        }
+
+        private void RefreshTaskEvalQuestMetadata()
+        {
+            var questLookup = Quests ?? InitCollection<KeyValuePair<int, BioQuest>>();
+            BoolStateTaskListsControl.SetQuestLookup(questLookup);
+            FloatStateTaskListsControl.SetQuestLookup(questLookup);
+            IntStateTaskListsControl.SetQuestLookup(questLookup);
         }
 
         private void RefreshAssociatedStates()
