@@ -48,6 +48,102 @@ namespace LegendaryExplorer.Tools.PlotEditor
             }
         }
 
+        public int GetNextStateTaskListId()
+        {
+            return GetMaxStateTaskListId() + 1;
+        }
+
+        public List<int> GetMatchingStateTaskListIds(int questId, int taskIndex)
+        {
+            if (StateTaskLists == null)
+            {
+                return new List<int>();
+            }
+
+            return StateTaskLists
+                .Where(pair => pair.Value?.TaskEvals != null
+                               && pair.Value.TaskEvals.Any(eval => eval != null && eval.Quest == questId && eval.Task == taskIndex))
+                .Select(pair => pair.Key)
+                .OrderBy(id => id)
+                .ToList();
+        }
+
+        public bool TrySelectTaskEval(int questId, int taskIndex)
+        {
+            if (StateTaskLists == null)
+            {
+                return false;
+            }
+
+            foreach (var stateTaskList in StateTaskLists)
+            {
+                var taskEval = stateTaskList.Value?.TaskEvals?.FirstOrDefault(eval => eval != null && eval.Quest == questId && eval.Task == taskIndex);
+                if (taskEval == null)
+                {
+                    continue;
+                }
+
+                QuestFilterText = string.Empty;
+                SelectedStateTaskList = stateTaskList;
+                SelectedTaskEval = taskEval;
+                StateTaskListsListBox.ScrollIntoView(stateTaskList);
+                TaskEvalsListBox.ScrollIntoView(taskEval);
+                return true;
+            }
+
+            return false;
+        }
+
+        public BioTaskEval EnsureTaskEval(int stateTaskListId, int questId, int taskIndex)
+        {
+            if (StateTaskLists == null)
+            {
+                StateTaskLists = InitCollection<KeyValuePair<int, BioStateTaskList>>();
+            }
+
+            if (!StateTaskLists.Any(pair => pair.Key == stateTaskListId))
+            {
+                var newStateTaskList = new BioStateTaskList();
+                if (TaskEvalType == "bool")
+                {
+                    newStateTaskList.InstanceVersion = 1;
+                }
+
+                AddStateTaskList(stateTaskListId, newStateTaskList);
+            }
+
+            var stateTaskList = StateTaskLists.First(pair => pair.Key == stateTaskListId);
+            if (stateTaskList.Value.TaskEvals == null)
+            {
+                stateTaskList.Value.TaskEvals = InitCollection<BioTaskEval>();
+            }
+
+            var existingTaskEval = stateTaskList.Value.TaskEvals.FirstOrDefault(eval => eval != null && eval.Quest == questId && eval.Task == taskIndex);
+            if (existingTaskEval != null)
+            {
+                QuestFilterText = string.Empty;
+                SelectedStateTaskList = stateTaskList;
+                SelectedTaskEval = existingTaskEval;
+                StateTaskListsListBox.ScrollIntoView(stateTaskList);
+                TaskEvalsListBox.ScrollIntoView(existingTaskEval);
+                return existingTaskEval;
+            }
+
+            var newTaskEval = new BioTaskEval
+            {
+                Quest = questId,
+                Task = taskIndex
+            };
+
+            stateTaskList.Value.TaskEvals.Add(newTaskEval);
+            QuestFilterText = string.Empty;
+            SelectedStateTaskList = stateTaskList;
+            SelectedTaskEval = newTaskEval;
+            StateTaskListsListBox.ScrollIntoView(stateTaskList);
+            TaskEvalsListBox.ScrollIntoView(newTaskEval);
+            return newTaskEval;
+        }
+
         public bool CanRemoveStateTaskList
         {
             get

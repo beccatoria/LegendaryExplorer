@@ -3,7 +3,9 @@ using System.Collections.ObjectModel;
 using System.Windows.Input;
 using System.IO;
 using System.Linq;
+using System.Windows;
 using Gammtek.Conduit.MassEffect3.SFXGame.QuestMap;
+using LegendaryExplorer.Dialogs;
 using LegendaryExplorer.Misc;
 using LegendaryExplorer.SharedUI;
 using LegendaryExplorer.Tools.PlotEditor;
@@ -34,6 +36,13 @@ namespace LegendaryExplorer.Tools.PlotEditor
         private BioQuestGoal _selectedQuestGoal;
         private BioQuestPlotItem _selectedQuestPlotItem;
         private BioQuestTask _selectedQuestTask;
+
+        private enum TaskEvalType
+        {
+            Bool,
+            Int,
+            Float
+        }
         
         public ICommand MoveQuestTaskUpCommand { get; set; }
         public ICommand MoveQuestTaskDownCommand { get; set; }
@@ -398,10 +407,15 @@ namespace LegendaryExplorer.Tools.PlotEditor
 
         public void AddQuestTask()
         {
-            AddQuestTask(null);
+            AddQuestTask(null, true);
         }
 
         public void AddQuestTask(BioQuestTask questTask)
+        {
+            AddQuestTask(questTask, false);
+        }
+
+        private void AddQuestTask(BioQuestTask questTask, bool configureTaskEval)
         {
             if (Quests == null || SelectedQuest.Value == null)
             {
@@ -425,6 +439,64 @@ namespace LegendaryExplorer.Tools.PlotEditor
             SelectedQuest.Value.Tasks.Add(questTask);
 
             SelectedQuestTask = questTask;
+            RefreshAssociatedStates();
+
+            if (configureTaskEval)
+            {
+                ConfigureTaskEvalForSelectedQuestTask();
+            }
+        }
+
+        private void ConfigureTaskEvalForSelectedQuestTask()
+        {
+            if (SelectedQuest.Value == null || SelectedQuestTask == null)
+            {
+                return;
+            }
+
+            var questId = SelectedQuest.Key;
+            var taskIndex = SelectedQuest.Value.Tasks.IndexOf(SelectedQuestTask);
+            if (taskIndex < 0)
+            {
+                return;
+            }
+
+            var availableTypes = GetAvailableTaskEvalTypes(questId, taskIndex);
+            if (availableTypes.Any())
+            {
+                TaskEvalType selectedType;
+                if (availableTypes.Count == 1)
+                {
+                    selectedType = availableTypes[0];
+                }
+                else if (!TryPromptTaskEvalType(availableTypes, out selectedType, "Select task eval type"))
+                {
+                    return;
+                }
+
+                NavigateToTaskEval(selectedType, questId, taskIndex);
+                return;
+            }
+
+            if (!TryPromptTaskEvalType(new[] { TaskEvalType.Bool, TaskEvalType.Int, TaskEvalType.Float }, out var createType, "Create task eval type"))
+            {
+                return;
+            }
+
+            var selectedControl = GetTaskEvalControl(createType);
+            var newIdDialog = new NewObjectDialog
+            {
+                ContentText = $"New {GetTaskEvalTypeDisplay(createType)} task eval ID",
+                ObjectId = selectedControl.GetNextStateTaskListId()
+            };
+
+            if (newIdDialog.ShowDialog() != true || newIdDialog.ObjectId < 0)
+            {
+                return;
+            }
+
+            SelectTaskEvalTab(createType);
+            selectedControl.EnsureTaskEval(newIdDialog.ObjectId, questId, taskIndex);
             RefreshAssociatedStates();
         }
 
@@ -502,7 +574,7 @@ namespace LegendaryExplorer.Tools.PlotEditor
                 return;
             }
 
-            AddQuestTask(new BioQuestTask(SelectedQuestTask));
+            AddQuestTask(new BioQuestTask(SelectedQuestTask), false);
         }
 
         public void GoToQuest(KeyValuePair<int, BioQuest> quest)
@@ -873,6 +945,151 @@ namespace LegendaryExplorer.Tools.PlotEditor
         private void AddQuestTask_Click(object sender, System.Windows.RoutedEventArgs e)
         {
             AddQuestTask();
+        }
+
+        private void QuestTasksListBox_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+        {
+            if (SelectedQuest.Value == null || SelectedQuestTask == null)
+            {
+                return;
+            }
+
+            var questId = SelectedQuest.Key;
+            var taskIndex = SelectedQuest.Value.Tasks.IndexOf(SelectedQuestTask);
+            if (taskIndex < 0)
+            {
+                return;
+            }
+
+            var availableTypes = GetAvailableTaskEvalTypes(questId, taskIndex);
+            if (!availableTypes.Any())
+            {
+                MessageBox.Show("No linked bool/int/float task eval was found for this task.", "Task eval not found", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            TaskEvalType selectedType;
+            if (availableTypes.Count == 1)
+            {
+                selectedType = availableTypes[0];
+            }
+            else if (!TryPromptTaskEvalType(availableTypes, out selectedType, "Select task eval type to open"))
+            {
+                return;
+            }
+
+            NavigateToTaskEval(selectedType, questId, taskIndex);
+        }
+
+        private List<TaskEvalType> GetAvailableTaskEvalTypes(int questId, int taskIndex)
+        {
+            var availableTypes = new List<TaskEvalType>();
+            if (BoolStateTaskListsControl.GetMatchingStateTaskListIds(questId, taskIndex).Any())
+            {
+                availableTypes.Add(TaskEvalType.Bool);
+            }
+
+            if (IntStateTaskListsControl.GetMatchingStateTaskListIds(questId, taskIndex).Any())
+            {
+                availableTypes.Add(TaskEvalType.Int);
+            }
+
+            if (FloatStateTaskListsControl.GetMatchingStateTaskListIds(questId, taskIndex).Any())
+            {
+                availableTypes.Add(TaskEvalType.Float);
+            }
+
+            return availableTypes;
+        }
+
+        private bool NavigateToTaskEval(TaskEvalType taskEvalType, int questId, int taskIndex)
+        {
+            var selectedControl = GetTaskEvalControl(taskEvalType);
+            if (selectedControl == null)
+            {
+                return false;
+            }
+
+            SelectTaskEvalTab(taskEvalType);
+            return selectedControl.TrySelectTaskEval(questId, taskIndex);
+        }
+
+        private StateTaskListsView GetTaskEvalControl(TaskEvalType taskEvalType)
+        {
+            return taskEvalType switch
+            {
+                TaskEvalType.Bool => BoolStateTaskListsControl,
+                TaskEvalType.Int => IntStateTaskListsControl,
+                TaskEvalType.Float => FloatStateTaskListsControl,
+                _ => null
+            };
+        }
+
+        private void SelectTaskEvalTab(TaskEvalType taskEvalType)
+        {
+            QuestMapTabControl.SelectedIndex = taskEvalType switch
+            {
+                TaskEvalType.Bool => 1,
+                TaskEvalType.Float => 2,
+                TaskEvalType.Int => 3,
+                _ => 1
+            };
+        }
+
+        private bool TryPromptTaskEvalType(IEnumerable<TaskEvalType> availableTypes, out TaskEvalType selectedType, string title)
+        {
+            selectedType = TaskEvalType.Bool;
+            var orderedTypes = availableTypes
+                .Distinct()
+                .OrderBy(GetTaskEvalTypePriority)
+                .ToList();
+
+            if (!orderedTypes.Any())
+            {
+                return false;
+            }
+
+            var options = orderedTypes.Select(GetTaskEvalTypeDisplay).ToList();
+            var promptDialog = new DropdownPromptDialog("Select task eval type.", title, "Task eval type", options, Window.GetWindow(this));
+            var dialogResult = promptDialog.ShowDialog();
+            if (dialogResult != true)
+            {
+                return false;
+            }
+
+            selectedType = ParseTaskEvalType(promptDialog.Response);
+            return true;
+        }
+
+        private static TaskEvalType ParseTaskEvalType(string value)
+        {
+            return value switch
+            {
+                "Int Task Eval" => TaskEvalType.Int,
+                "Float Task Eval" => TaskEvalType.Float,
+                _ => TaskEvalType.Bool
+            };
+        }
+
+        private static string GetTaskEvalTypeDisplay(TaskEvalType taskEvalType)
+        {
+            return taskEvalType switch
+            {
+                TaskEvalType.Int => "Int Task Eval",
+                TaskEvalType.Float => "Float Task Eval",
+                _ => "Bool Task Eval"
+            };
+        }
+
+        private static int GetTaskEvalTypePriority(TaskEvalType taskEvalType)
+        {
+            return taskEvalType switch
+            {
+                TaskEvalType.Bool => 0,
+                TaskEvalType.Int => 1,
+                TaskEvalType.Float => 2,
+                _ => 10
+            };
         }
 
         private void AddQuestTaskPlotItemIndex_Click(object sender, System.Windows.RoutedEventArgs e)

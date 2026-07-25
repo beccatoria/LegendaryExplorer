@@ -20,6 +20,10 @@ namespace LegendaryExplorer.Dialogs
             Title = title;
             Selection_Combobox.Watermark = watermark;
             Items.AddRange(items);
+            if (Items.Count > 0)
+            {
+                Selection_Combobox.SelectedIndex = 0;
+            }
         }
 
         private void btnOk_Click(object sender, RoutedEventArgs e)
