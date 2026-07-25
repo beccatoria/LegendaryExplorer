@@ -1,8 +1,14 @@
 ﻿using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Windows.Input;
 using System.IO;
 using System.Linq;
+<<<<<<< HEAD
+=======
+using System.Windows;
+using System.Windows.Data;
+>>>>>>> d4c1e530b (add search to plot manager.)
 using Gammtek.Conduit.MassEffect3.SFXGame.QuestMap;
 using LegendaryExplorer.Misc;
 using LegendaryExplorer.SharedUI;
@@ -30,6 +36,8 @@ namespace LegendaryExplorer.Tools.PlotEditor
         }
 
         private ObservableCollection<KeyValuePair<int, BioQuest>> _quests;
+        private ICollectionView _filteredQuests;
+        private string _questSearchText;
         private KeyValuePair<int, BioQuest> _selectedQuest;
         private BioQuestGoal _selectedQuestGoal;
         private BioQuestPlotItem _selectedQuestPlotItem;
@@ -235,10 +243,36 @@ namespace LegendaryExplorer.Tools.PlotEditor
             set
             {
                 SetProperty(ref _quests, value);
+                FilteredQuests = value is null
+                    ? null
+                    : CollectionViewSource.GetDefaultView(value);
+
+                if (FilteredQuests != null)
+                {
+                    FilteredQuests.Filter = ShouldIncludeQuest;
+                }
+
+                RefreshQuestFilter();
                 OnPropertyChanged(nameof(CanAddQuestGoal));
                 OnPropertyChanged(nameof(CanAddQuestPlotItem));
                 OnPropertyChanged(nameof(CanAddQuestTask));
                 OnPropertyChanged(nameof(CanRemoveQuest));
+            }
+        }
+
+        public ICollectionView FilteredQuests
+        {
+            get => _filteredQuests;
+            private set => SetProperty(ref _filteredQuests, value);
+        }
+
+        public string QuestSearchText
+        {
+            get => _questSearchText;
+            set
+            {
+                SetProperty(ref _questSearchText, value);
+                RefreshQuestFilter();
             }
         }
 
@@ -858,6 +892,181 @@ namespace LegendaryExplorer.Tools.PlotEditor
             AddQuestTask();
         }
 
+<<<<<<< HEAD
+=======
+        private void QuestTasksListBox_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+        {
+            if (SelectedQuest.Value == null || SelectedQuestTask == null)
+            {
+                return;
+            }
+
+            var questId = SelectedQuest.Key;
+            var taskIndex = SelectedQuest.Value.Tasks.IndexOf(SelectedQuestTask);
+            if (taskIndex < 0)
+            {
+                return;
+            }
+
+            var availableTypes = GetAvailableTaskEvalTypes(questId, taskIndex);
+            if (!availableTypes.Any())
+            {
+                MessageBox.Show("No linked bool/int/float task eval was found for this task.", "Task eval not found", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            TaskEvalType selectedType;
+            if (availableTypes.Count == 1)
+            {
+                selectedType = availableTypes[0];
+            }
+            else if (!TryPromptTaskEvalType(availableTypes, out selectedType, "Select task eval type to open"))
+            {
+                return;
+            }
+
+            NavigateToTaskEval(selectedType, questId, taskIndex);
+        }
+
+        private List<TaskEvalType> GetAvailableTaskEvalTypes(int questId, int taskIndex)
+        {
+            var availableTypes = new List<TaskEvalType>();
+            if (BoolStateTaskListsControl.GetMatchingStateTaskListIds(questId, taskIndex).Any())
+            {
+                availableTypes.Add(TaskEvalType.Bool);
+            }
+
+            if (IntStateTaskListsControl.GetMatchingStateTaskListIds(questId, taskIndex).Any())
+            {
+                availableTypes.Add(TaskEvalType.Int);
+            }
+
+            if (FloatStateTaskListsControl.GetMatchingStateTaskListIds(questId, taskIndex).Any())
+            {
+                availableTypes.Add(TaskEvalType.Float);
+            }
+
+            return availableTypes;
+        }
+
+        private bool NavigateToTaskEval(TaskEvalType taskEvalType, int questId, int taskIndex)
+        {
+            var selectedControl = GetTaskEvalControl(taskEvalType);
+            if (selectedControl == null)
+            {
+                return false;
+            }
+
+            SelectTaskEvalTab(taskEvalType);
+            return selectedControl.TrySelectTaskEval(questId, taskIndex);
+        }
+
+        private StateTaskListsView GetTaskEvalControl(TaskEvalType taskEvalType)
+        {
+            return taskEvalType switch
+            {
+                TaskEvalType.Bool => BoolStateTaskListsControl,
+                TaskEvalType.Int => IntStateTaskListsControl,
+                TaskEvalType.Float => FloatStateTaskListsControl,
+                _ => null
+            };
+        }
+
+        private void SelectTaskEvalTab(TaskEvalType taskEvalType)
+        {
+            QuestMapTabControl.SelectedIndex = taskEvalType switch
+            {
+                TaskEvalType.Bool => 1,
+                TaskEvalType.Float => 2,
+                TaskEvalType.Int => 3,
+                _ => 1
+            };
+        }
+
+        private bool TryPromptTaskEvalType(IEnumerable<TaskEvalType> availableTypes, out TaskEvalType selectedType, string title)
+        {
+            selectedType = TaskEvalType.Bool;
+            var orderedTypes = availableTypes
+                .Distinct()
+                .OrderBy(GetTaskEvalTypePriority)
+                .ToList();
+
+            if (!orderedTypes.Any())
+            {
+                return false;
+            }
+
+            var options = orderedTypes.Select(GetTaskEvalTypeDisplay).ToList();
+            var promptDialog = new DropdownPromptDialog("Select task eval type.", title, "Task eval type", options, Window.GetWindow(this));
+            var dialogResult = promptDialog.ShowDialog();
+            if (dialogResult != true)
+            {
+                return false;
+            }
+
+            selectedType = ParseTaskEvalType(promptDialog.Response);
+            return true;
+        }
+
+        private static TaskEvalType ParseTaskEvalType(string value)
+        {
+            return value switch
+            {
+                "Int Task Eval" => TaskEvalType.Int,
+                "Float Task Eval" => TaskEvalType.Float,
+                _ => TaskEvalType.Bool
+            };
+        }
+
+        private static string GetTaskEvalTypeDisplay(TaskEvalType taskEvalType)
+        {
+            return taskEvalType switch
+            {
+                TaskEvalType.Int => "Int Task Eval",
+                TaskEvalType.Float => "Float Task Eval",
+                _ => "Bool Task Eval"
+            };
+        }
+
+        private static int GetTaskEvalTypePriority(TaskEvalType taskEvalType)
+        {
+            return taskEvalType switch
+            {
+                TaskEvalType.Bool => 0,
+                TaskEvalType.Int => 1,
+                TaskEvalType.Float => 2,
+                _ => 10
+            };
+        }
+
+        private bool ShouldIncludeQuest(object obj)
+        {
+            if (obj is not KeyValuePair<int, BioQuest> quest)
+            {
+                return false;
+            }
+
+            if (string.IsNullOrWhiteSpace(QuestSearchText))
+            {
+                return true;
+            }
+
+            var filter = QuestSearchText.Trim();
+            if (int.TryParse(filter, out var idFilter) && quest.Key == idFilter)
+            {
+                return true;
+            }
+
+            return !string.IsNullOrWhiteSpace(quest.Value?.QuestName)
+                   && quest.Value.QuestName.Contains(filter, System.StringComparison.OrdinalIgnoreCase);
+        }
+
+        private void RefreshQuestFilter()
+        {
+            FilteredQuests?.Refresh();
+        }
+
+>>>>>>> d4c1e530b (add search to plot manager.)
         private void AddQuestTaskPlotItemIndex_Click(object sender, System.Windows.RoutedEventArgs e)
         {
             AddQuestTaskPlotItemIndex();

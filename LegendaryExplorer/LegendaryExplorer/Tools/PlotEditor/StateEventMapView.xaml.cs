@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Globalization;
 using System.Linq;
 using System.Windows.Controls;
@@ -27,6 +28,8 @@ namespace LegendaryExplorer.Tools.PlotEditor
         private KeyValuePair<int, BioStateEvent> _selectedStateEvent;
         private BioStateEventElement _selectedStateEventElement;
         private ObservableCollection<KeyValuePair<int, BioStateEvent>> _stateEvents;
+        private ICollectionView _filteredStateEvents;
+        private string _stateEventSearchText;
         
         public bool CanAddStateEventElement => StateEvents != null && SelectedStateEvent.Value != null;
 
@@ -70,7 +73,36 @@ namespace LegendaryExplorer.Tools.PlotEditor
         public ObservableCollection<KeyValuePair<int, BioStateEvent>> StateEvents
         {
             get => _stateEvents;
-            set => SetProperty(ref _stateEvents, value);
+            set
+            {
+                SetProperty(ref _stateEvents, value);
+                FilteredStateEvents = value is null
+                    ? null
+                    : CollectionViewSource.GetDefaultView(value);
+
+                if (FilteredStateEvents != null)
+                {
+                    FilteredStateEvents.Filter = ShouldIncludeStateEvent;
+                }
+
+                RefreshStateEventFilter();
+            }
+        }
+
+        public ICollectionView FilteredStateEvents
+        {
+            get => _filteredStateEvents;
+            private set => SetProperty(ref _filteredStateEvents, value);
+        }
+
+        public string StateEventSearchText
+        {
+            get => _stateEventSearchText;
+            set
+            {
+                SetProperty(ref _stateEventSearchText, value);
+                RefreshStateEventFilter();
+            }
         }
 
         public void AddStateEvent()
@@ -122,6 +154,7 @@ namespace LegendaryExplorer.Tools.PlotEditor
             StateEvents.Add(stateEventPair);
 
             SelectedStateEvent = stateEventPair;
+            RefreshStateEventFilter();
         }
 
         public void AddStateEventElement(BioStateEventElementType elementType)
@@ -340,6 +373,7 @@ namespace LegendaryExplorer.Tools.PlotEditor
                 stateEvent.Value.PlotPath = PlotDatabases.FindPlotTransitionByID(stateEvent.Key, pcc.Game)?.Path;
             }
             SetListsAsBindable();
+            RefreshStateEventFilter();
             package = pcc;
         }
 
@@ -477,6 +511,33 @@ namespace LegendaryExplorer.Tools.PlotEditor
         private int GetMaxStateEventId()
         {
             return StateEvents.Any() ? StateEvents.Max(pair => pair.Key) : -1;
+        }
+
+        private bool ShouldIncludeStateEvent(object obj)
+        {
+            if (obj is not KeyValuePair<int, BioStateEvent> stateEvent)
+            {
+                return false;
+            }
+
+            if (string.IsNullOrWhiteSpace(StateEventSearchText))
+            {
+                return true;
+            }
+
+            var filter = StateEventSearchText.Trim();
+            if (int.TryParse(filter, out var idFilter) && stateEvent.Key == idFilter)
+            {
+                return true;
+            }
+
+            return !string.IsNullOrWhiteSpace(stateEvent.Value?.PlotPath)
+                   && stateEvent.Value.PlotPath.Contains(filter, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private void RefreshStateEventFilter()
+        {
+            FilteredStateEvents?.Refresh();
         }
 
         private void SetFromStateEventMap(BioStateEventMap bioStateEventMap)

@@ -44,13 +44,19 @@
 						<ColumnDefinition Width="*" />
 					</Grid.ColumnDefinitions>
 					<Grid.RowDefinitions>
+						<RowDefinition Height="Auto" />
 						<RowDefinition Height="*" />
 						<RowDefinition Height="Auto" />
 					</Grid.RowDefinitions>
 
 					<!-- Grid Content -->
-					<ListBox x:Name="QuestsListBox" Grid.Column="0" Grid.Row="0" Width="200" Style="{DynamicResource ListBoxStyle}"
-						ItemsSource="{Binding Quests, NotifyOnTargetUpdated=True}" SelectedItem="{Binding SelectedQuest, Mode=TwoWay}">
+					<StackPanel Grid.Column="0" Grid.Row="0" Margin="0,0,0,5">
+						<Label Content="Search" Padding="0"/>
+						<TextBox Width="200" Text="{Binding QuestSearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+					</StackPanel>
+
+					<ListBox x:Name="QuestsListBox" Grid.Column="0" Grid.Row="1" Width="200" Style="{DynamicResource ListBoxStyle}"
+						ItemsSource="{Binding FilteredQuests, NotifyOnTargetUpdated=True}" SelectedItem="{Binding SelectedQuest, Mode=TwoWay}">
                         <ListBox.ItemTemplate>
                             <!--<DataTemplate DataType="{x:Type questMap:BioQuest}">-->
                             <DataTemplate>
@@ -69,7 +75,7 @@
                         </ListBox.ItemTemplate>
                     </ListBox>
 
-					<Grid Grid.Column="0" Grid.Row="1" Margin="0,5,0,0">
+					<Grid Grid.Column="0" Grid.Row="2" Margin="0,5,0,0">
 						<!-- Grid Definitions -->
 						<Grid.ColumnDefinitions>
 							<ColumnDefinition Width="*" />
@@ -87,7 +93,7 @@
 					</Grid>
 
 					<!-- Selected Quest -->
-					<Grid Grid.Column="1" Grid.Row="0" Grid.RowSpan="2" Margin="5,0,0,0">
+					<Grid Grid.Column="1" Grid.Row="0" Grid.RowSpan="3" Margin="5,0,0,0">
 						<Grid.ColumnDefinitions>
 							<ColumnDefinition Width="*" />
 						</Grid.ColumnDefinitions>

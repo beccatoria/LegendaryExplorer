@@ -1,9 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Windows.Data;
 using Gammtek.Conduit.MassEffect3.SFXGame.CodexMap;
 using LegendaryExplorer.Tools.PlotEditor.Dialogs;
 using static LegendaryExplorer.Tools.TlkManagerNS.TLKManagerWPF;
@@ -31,6 +33,10 @@ namespace LegendaryExplorer.Tools.PlotEditor
 
         private ObservableCollection<KeyValuePair<int, BioCodexPage>> _codexPages;
         private ObservableCollection<KeyValuePair<int, BioCodexSection>> _codexSections;
+        private ICollectionView _filteredCodexPages;
+        private ICollectionView _filteredCodexSections;
+        private string _codexPageSearchText;
+        private string _codexSectionSearchText;
         private KeyValuePair<int, BioCodexPage> _selectedCodexPage;
         private KeyValuePair<int, BioCodexSection> _selectedCodexSection;
 
@@ -66,6 +72,15 @@ namespace LegendaryExplorer.Tools.PlotEditor
             set
             {
                 SetProperty(ref _codexPages, value);
+                FilteredCodexPages = value is null
+                    ? null
+                    : CollectionViewSource.GetDefaultView(value);
+                if (FilteredCodexPages != null)
+                {
+                    FilteredCodexPages.Filter = ShouldIncludeCodexPage;
+                }
+
+                RefreshCodexPageFilter();
                 OnPropertyChanged(nameof(CanRemoveCodexPage));
                 //CodexPagesListBox.ItemsSource = CodexPages;
             }
@@ -77,7 +92,48 @@ namespace LegendaryExplorer.Tools.PlotEditor
             set
             {
                 SetProperty(ref _codexSections, value);
+                FilteredCodexSections = value is null
+                    ? null
+                    : CollectionViewSource.GetDefaultView(value);
+                if (FilteredCodexSections != null)
+                {
+                    FilteredCodexSections.Filter = ShouldIncludeCodexSection;
+                }
+
+                RefreshCodexSectionFilter();
                 OnPropertyChanged(nameof(CanRemoveCodexSection));
+            }
+        }
+
+        public ICollectionView FilteredCodexPages
+        {
+            get => _filteredCodexPages;
+            private set => SetProperty(ref _filteredCodexPages, value);
+        }
+
+        public ICollectionView FilteredCodexSections
+        {
+            get => _filteredCodexSections;
+            private set => SetProperty(ref _filteredCodexSections, value);
+        }
+
+        public string CodexPageSearchText
+        {
+            get => _codexPageSearchText;
+            set
+            {
+                SetProperty(ref _codexPageSearchText, value);
+                RefreshCodexPageFilter();
+            }
+        }
+
+        public string CodexSectionSearchText
+        {
+            get => _codexSectionSearchText;
+            set
+            {
+                SetProperty(ref _codexSectionSearchText, value);
+                RefreshCodexSectionFilter();
             }
         }
 
@@ -339,6 +395,9 @@ namespace LegendaryExplorer.Tools.PlotEditor
                 section.Value.TitleAsString = GlobalFindStrRefbyID(section.Value.Title, pcc.Game, null);
             }
 
+            RefreshCodexPageFilter();
+            RefreshCodexSectionFilter();
+
             package = pcc;
         }
 
@@ -445,6 +504,63 @@ namespace LegendaryExplorer.Tools.PlotEditor
 
             CodexPages = InitCollection(codexMap.Pages.OrderBy(pair => pair.Key));
             CodexSections = InitCollection(codexMap.Sections.OrderBy(pair => pair.Key));
+
+            RefreshCodexPageFilter();
+            RefreshCodexSectionFilter();
+        }
+
+        private bool ShouldIncludeCodexPage(object obj)
+        {
+            if (obj is not KeyValuePair<int, BioCodexPage> page)
+            {
+                return false;
+            }
+
+            if (string.IsNullOrWhiteSpace(CodexPageSearchText))
+            {
+                return true;
+            }
+
+            var filter = CodexPageSearchText.Trim();
+            if (int.TryParse(filter, out var idFilter) && page.Key == idFilter)
+            {
+                return true;
+            }
+
+            return !string.IsNullOrWhiteSpace(page.Value?.TitleAsString)
+                   && page.Value.TitleAsString.Contains(filter, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private bool ShouldIncludeCodexSection(object obj)
+        {
+            if (obj is not KeyValuePair<int, BioCodexSection> section)
+            {
+                return false;
+            }
+
+            if (string.IsNullOrWhiteSpace(CodexSectionSearchText))
+            {
+                return true;
+            }
+
+            var filter = CodexSectionSearchText.Trim();
+            if (int.TryParse(filter, out var idFilter) && section.Key == idFilter)
+            {
+                return true;
+            }
+
+            return !string.IsNullOrWhiteSpace(section.Value?.TitleAsString)
+                   && section.Value.TitleAsString.Contains(filter, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private void RefreshCodexPageFilter()
+        {
+            FilteredCodexPages?.Refresh();
+        }
+
+        private void RefreshCodexSectionFilter()
+        {
+            FilteredCodexSections?.Refresh();
         }
         
         private static ObservableCollection<T> InitCollection<T>()
@@ -524,6 +640,9 @@ namespace LegendaryExplorer.Tools.PlotEditor
 
                 if (SelectedCodexPage.Value != null) SelectedCodexPage.Value.TitleAsString = txt_cdxPgeTitle.Text;
                 if (SelectedCodexSection.Value != null) SelectedCodexSection.Value.TitleAsString = txt_cdxSecTitle.Text;
+
+                RefreshCodexPageFilter();
+                RefreshCodexSectionFilter();
             }
         }
     }
