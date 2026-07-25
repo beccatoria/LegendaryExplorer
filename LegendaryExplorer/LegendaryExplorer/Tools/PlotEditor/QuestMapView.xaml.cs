@@ -1,9 +1,11 @@
 ﻿using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Windows.Input;
 using System.IO;
 using System.Linq;
 using System.Windows;
+using System.Windows.Data;
 using Gammtek.Conduit.MassEffect3.SFXGame.QuestMap;
 using LegendaryExplorer.Dialogs;
 using LegendaryExplorer.Misc;
@@ -32,6 +34,8 @@ namespace LegendaryExplorer.Tools.PlotEditor
         }
 
         private ObservableCollection<KeyValuePair<int, BioQuest>> _quests;
+        private ICollectionView _filteredQuests;
+        private string _questSearchText;
         private KeyValuePair<int, BioQuest> _selectedQuest;
         private BioQuestGoal _selectedQuestGoal;
         private BioQuestPlotItem _selectedQuestPlotItem;
@@ -244,10 +248,36 @@ namespace LegendaryExplorer.Tools.PlotEditor
             set
             {
                 SetProperty(ref _quests, value);
+                FilteredQuests = value is null
+                    ? null
+                    : CollectionViewSource.GetDefaultView(value);
+
+                if (FilteredQuests != null)
+                {
+                    FilteredQuests.Filter = ShouldIncludeQuest;
+                }
+
+                RefreshQuestFilter();
                 OnPropertyChanged(nameof(CanAddQuestGoal));
                 OnPropertyChanged(nameof(CanAddQuestPlotItem));
                 OnPropertyChanged(nameof(CanAddQuestTask));
                 OnPropertyChanged(nameof(CanRemoveQuest));
+            }
+        }
+
+        public ICollectionView FilteredQuests
+        {
+            get => _filteredQuests;
+            private set => SetProperty(ref _filteredQuests, value);
+        }
+
+        public string QuestSearchText
+        {
+            get => _questSearchText;
+            set
+            {
+                SetProperty(ref _questSearchText, value);
+                RefreshQuestFilter();
             }
         }
 
@@ -1090,6 +1120,33 @@ namespace LegendaryExplorer.Tools.PlotEditor
                 TaskEvalType.Float => 2,
                 _ => 10
             };
+        }
+
+        private bool ShouldIncludeQuest(object obj)
+        {
+            if (obj is not KeyValuePair<int, BioQuest> quest)
+            {
+                return false;
+            }
+
+            if (string.IsNullOrWhiteSpace(QuestSearchText))
+            {
+                return true;
+            }
+
+            var filter = QuestSearchText.Trim();
+            if (int.TryParse(filter, out var idFilter) && quest.Key == idFilter)
+            {
+                return true;
+            }
+
+            return !string.IsNullOrWhiteSpace(quest.Value?.QuestName)
+                   && quest.Value.QuestName.Contains(filter, System.StringComparison.OrdinalIgnoreCase);
+        }
+
+        private void RefreshQuestFilter()
+        {
+            FilteredQuests?.Refresh();
         }
 
         private void AddQuestTaskPlotItemIndex_Click(object sender, System.Windows.RoutedEventArgs e)
