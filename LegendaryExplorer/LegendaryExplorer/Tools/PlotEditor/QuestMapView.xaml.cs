@@ -4,12 +4,10 @@ using System.ComponentModel;
 using System.Windows.Input;
 using System.IO;
 using System.Linq;
-<<<<<<< HEAD
-=======
 using System.Windows;
 using System.Windows.Data;
->>>>>>> d4c1e530b (add search to plot manager.)
 using Gammtek.Conduit.MassEffect3.SFXGame.QuestMap;
+using LegendaryExplorer.Dialogs;
 using LegendaryExplorer.Misc;
 using LegendaryExplorer.SharedUI;
 using LegendaryExplorer.Tools.PlotEditor;
@@ -42,6 +40,13 @@ namespace LegendaryExplorer.Tools.PlotEditor
         private BioQuestGoal _selectedQuestGoal;
         private BioQuestPlotItem _selectedQuestPlotItem;
         private BioQuestTask _selectedQuestTask;
+
+        private enum TaskEvalType
+        {
+            Bool,
+            Int,
+            Float
+        }
         
         public ICommand MoveQuestTaskUpCommand { get; set; }
         public ICommand MoveQuestTaskDownCommand { get; set; }
@@ -373,6 +378,7 @@ namespace LegendaryExplorer.Tools.PlotEditor
             Quests.Add(questPair);
 
             SelectedQuest = questPair;
+            RefreshTaskEvalQuestMetadata();
         }
 
         public void AddQuestGoal()
@@ -431,10 +437,15 @@ namespace LegendaryExplorer.Tools.PlotEditor
 
         public void AddQuestTask()
         {
-            AddQuestTask(null);
+            AddQuestTask(null, true);
         }
 
         public void AddQuestTask(BioQuestTask questTask)
+        {
+            AddQuestTask(questTask, false);
+        }
+
+        private void AddQuestTask(BioQuestTask questTask, bool configureTaskEval)
         {
             if (Quests == null || SelectedQuest.Value == null)
             {
@@ -458,6 +469,64 @@ namespace LegendaryExplorer.Tools.PlotEditor
             SelectedQuest.Value.Tasks.Add(questTask);
 
             SelectedQuestTask = questTask;
+            RefreshAssociatedStates();
+
+            if (configureTaskEval)
+            {
+                ConfigureTaskEvalForSelectedQuestTask();
+            }
+        }
+
+        private void ConfigureTaskEvalForSelectedQuestTask()
+        {
+            if (SelectedQuest.Value == null || SelectedQuestTask == null)
+            {
+                return;
+            }
+
+            var questId = SelectedQuest.Key;
+            var taskIndex = SelectedQuest.Value.Tasks.IndexOf(SelectedQuestTask);
+            if (taskIndex < 0)
+            {
+                return;
+            }
+
+            var availableTypes = GetAvailableTaskEvalTypes(questId, taskIndex);
+            if (availableTypes.Any())
+            {
+                TaskEvalType selectedType;
+                if (availableTypes.Count == 1)
+                {
+                    selectedType = availableTypes[0];
+                }
+                else if (!TryPromptTaskEvalType(availableTypes, out selectedType, "Select task eval type"))
+                {
+                    return;
+                }
+
+                NavigateToTaskEval(selectedType, questId, taskIndex);
+                return;
+            }
+
+            if (!TryPromptTaskEvalType(new[] { TaskEvalType.Bool, TaskEvalType.Int, TaskEvalType.Float }, out var createType, "Create task eval type"))
+            {
+                return;
+            }
+
+            var selectedControl = GetTaskEvalControl(createType);
+            var newIdDialog = new NewObjectDialog
+            {
+                ContentText = $"New {GetTaskEvalTypeDisplay(createType)} task eval ID",
+                ObjectId = selectedControl.GetNextStateTaskListId()
+            };
+
+            if (newIdDialog.ShowDialog() != true || newIdDialog.ObjectId < 0)
+            {
+                return;
+            }
+
+            SelectTaskEvalTab(createType);
+            selectedControl.EnsureTaskEval(newIdDialog.ObjectId, questId, taskIndex);
             RefreshAssociatedStates();
         }
 
@@ -535,7 +604,7 @@ namespace LegendaryExplorer.Tools.PlotEditor
                 return;
             }
 
-            AddQuestTask(new BioQuestTask(SelectedQuestTask));
+            AddQuestTask(new BioQuestTask(SelectedQuestTask), false);
         }
 
         public void GoToQuest(KeyValuePair<int, BioQuest> quest)
@@ -640,6 +709,8 @@ namespace LegendaryExplorer.Tools.PlotEditor
                     ? Quests[index - 1]
                     : Quests.First();
             }
+
+            RefreshTaskEvalQuestMetadata();
         }
 
         public void RemoveQuestGoal()
@@ -737,6 +808,10 @@ namespace LegendaryExplorer.Tools.PlotEditor
                 return;
             }
 
+            BoolStateTaskListsControl.SetTaskEvalContext(game, "bool");
+            FloatStateTaskListsControl.SetTaskEvalContext(game, "float");
+            IntStateTaskListsControl.SetTaskEvalContext(game, "int");
+
             BoolStateTaskListsControl.SetStateTaskLists(questMap.BoolTaskEvals.OrderBy(pair => pair.Key));
             FloatStateTaskListsControl.SetStateTaskLists(questMap.FloatTaskEvals.OrderBy(pair => pair.Key));
             IntStateTaskListsControl.SetStateTaskLists(questMap.IntTaskEvals.OrderBy(pair => pair.Key));
@@ -759,7 +834,17 @@ namespace LegendaryExplorer.Tools.PlotEditor
                 }
             }
 
+            RefreshTaskEvalQuestMetadata();
+
             RefreshAssociatedStates();
+        }
+
+        private void RefreshTaskEvalQuestMetadata()
+        {
+            var questLookup = Quests ?? InitCollection<KeyValuePair<int, BioQuest>>();
+            BoolStateTaskListsControl.SetQuestLookup(questLookup);
+            FloatStateTaskListsControl.SetQuestLookup(questLookup);
+            IntStateTaskListsControl.SetQuestLookup(questLookup);
         }
 
         private void RefreshAssociatedStates()
@@ -892,8 +977,6 @@ namespace LegendaryExplorer.Tools.PlotEditor
             AddQuestTask();
         }
 
-<<<<<<< HEAD
-=======
         private void QuestTasksListBox_MouseDoubleClick(object sender, MouseButtonEventArgs e)
         {
             if (SelectedQuest.Value == null || SelectedQuestTask == null)
@@ -1066,7 +1149,6 @@ namespace LegendaryExplorer.Tools.PlotEditor
             FilteredQuests?.Refresh();
         }
 
->>>>>>> d4c1e530b (add search to plot manager.)
         private void AddQuestTaskPlotItemIndex_Click(object sender, System.Windows.RoutedEventArgs e)
         {
             AddQuestTaskPlotItemIndex();

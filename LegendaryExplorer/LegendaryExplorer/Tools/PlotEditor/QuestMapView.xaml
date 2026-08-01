@@ -35,7 +35,7 @@
 
 	<!-- Content -->
 	<Grid>
-		<TabControl>
+		<TabControl x:Name="QuestMapTabControl">
 			<TabItem Header="Quests">
 				<Grid>
 					<!-- Grid Definitions -->
@@ -358,6 +358,7 @@
 
 									<!-- Grid Content -->
 									<ListBox x:Name="QuestTasksListBox" Grid.Column="0" Grid.Row="0" Width="150" Style="{DynamicResource ListBoxStyle}"
+										MouseDoubleClick="QuestTasksListBox_MouseDoubleClick"
 										ItemsSource="{Binding SelectedQuest.Value.Tasks, NotifyOnTargetUpdated=True}" SelectedItem="{Binding SelectedQuestTask, Mode=TwoWay}">
                                         <ListBox.ItemTemplate>
                                             <DataTemplate DataType="{x:Type questMap:BioQuestTask}">
