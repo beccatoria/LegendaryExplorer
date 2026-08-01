@@ -432,6 +432,8 @@ namespace LegendaryExplorer.Tools.AssetDatabase
 
     public class MeshRecord : IAssetRecord
     {
+        public const int TriggerVolumeBoneCountSentinel = -1;
+
         public string MeshName { get; set; }
 
         public bool IsSkeleton { get; set; }
@@ -439,6 +441,9 @@ namespace LegendaryExplorer.Tools.AssetDatabase
         public int BoneCount { get; set; }
 
         public bool IsModOnly { get; set; }
+
+        [IgnoredMember]
+        public bool IsTriggerVolume => !IsSkeleton && BoneCount == TriggerVolumeBoneCountSentinel;
 
         [IgnoredMember] public IEnumerable<IAssetUsage> AssetUsages => Usages;
         public List<MeshUsage> Usages { get; set; } = new();
@@ -450,6 +455,11 @@ namespace LegendaryExplorer.Tools.AssetDatabase
                 if (IsSkeleton)
                 {
                     return $"{MeshName} (Skeletal Mesh, Bone Count: {BoneCount})";
+                }
+
+                if (IsTriggerVolume)
+                {
+                    return $"{MeshName} (Trigger Volume)";
                 }
 
                 return MeshName;

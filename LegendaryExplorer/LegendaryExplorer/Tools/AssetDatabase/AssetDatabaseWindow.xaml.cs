@@ -1572,7 +1572,10 @@ namespace LegendaryExplorer.Tools.AssetDatabase
 
         private void ToggleRenderMesh()
         {
-            bool showmesh = btn_MeshRenderToggle.IsChecked == true && lstbx_Meshes.SelectedIndex >= 0 && CurrentDataBase.Meshes[lstbx_Meshes.SelectedIndex].Usages.Count > 0 && currentView == 3;
+            bool showmesh = btn_MeshRenderToggle.IsChecked == true
+                            && lstbx_Meshes.SelectedIndex >= 0
+                            && CurrentDataBase.Meshes[lstbx_Meshes.SelectedIndex].Usages.Count > 0
+                            && currentView == 3;
 
             if (!showmesh)
             {
@@ -1619,7 +1622,11 @@ namespace LegendaryExplorer.Tools.AssetDatabase
                 if (uexpIdx <= meshPcc.ExportCount)
                 {
                     var meshExp = meshPcc.GetUExport(uexpIdx);
-                    if (meshExp.ObjectName == selecteditem.MeshName)
+                    bool canRenderSelection = selecteditem.IsTriggerVolume
+                        ? meshExp.ClassName == "BrushComponent"
+                        : meshExp.ObjectName == selecteditem.MeshName;
+
+                    if (canRenderSelection)
                     {
                         MeshRendererTab_MeshRenderer.LoadExport(meshExp);
                         break;
@@ -2862,6 +2869,11 @@ namespace LegendaryExplorer.Tools.AssetDatabase
         {
             if (sender is FrameworkElement elem && elem.DataContext is MeshRecord psr)
             {
+                if (psr.IsTriggerVolume)
+                {
+                    return;
+                }
+
                 var usage = psr.AssetUsages.First();
                 var fpath = GetFilePath(usage.FileKey);
                 if (GameController.IsGameOpen(CurrentGame) && File.Exists(fpath))
