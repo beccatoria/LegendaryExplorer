@@ -174,6 +174,30 @@
                         <MenuItem Header="Filter Animations" ItemsSource="{Binding AssetFilters.AnimationFilter.Filters}" ItemContainerStyle="{DynamicResource CustomFilterMenuItem}"/>
                         <MenuItem Header="Filter Classes" ItemsSource="{Binding AssetFilters.ClassFilter.Filters}" ItemContainerStyle="{DynamicResource CustomFilterMenuItem}"/>
                         <MenuItem Header="Filter Materials">
+                            <MenuItem Header="Texture Type Quick Pick" SubmenuOpened="TextureQuickPickSubmenu_Opened" ToolTip="Select one or more keywords. Selected options become tex: keyword1, keyword2 (comma = must include all). Use | for OR in manual search.">
+                                <MenuItem x:Name="menu_tex_diff" Header="diff" Tag="diff" IsCheckable="True" StaysOpenOnClick="True" Click="TextureQuickPickToggle_Click"/>
+                                <MenuItem x:Name="menu_tex_norm" Header="norm" Tag="norm" IsCheckable="True" StaysOpenOnClick="True" Click="TextureQuickPickToggle_Click"/>
+                                <MenuItem x:Name="menu_tex_spec" Header="spec" Tag="spec" IsCheckable="True" StaysOpenOnClick="True" Click="TextureQuickPickToggle_Click"/>
+                                <MenuItem x:Name="menu_tex_spwr" Header="spwr" Tag="spwr" IsCheckable="True" StaysOpenOnClick="True" Click="TextureQuickPickToggle_Click"/>
+                                <MenuItem x:Name="menu_tex_tint" Header="tint" Tag="tint" IsCheckable="True" StaysOpenOnClick="True" Click="TextureQuickPickToggle_Click"/>
+                                <MenuItem x:Name="menu_tex_mask" Header="mask" Tag="mask" IsCheckable="True" StaysOpenOnClick="True" Click="TextureQuickPickToggle_Click"/>
+                                <MenuItem x:Name="menu_tex_msk" Header="msk" Tag="msk" IsCheckable="True" StaysOpenOnClick="True" Click="TextureQuickPickToggle_Click"/>
+                                <MenuItem x:Name="menu_tex_msk3" Header="msk3" Tag="msk3" IsCheckable="True" StaysOpenOnClick="True" Click="TextureQuickPickToggle_Click"/>
+                                <MenuItem x:Name="menu_tex_opac" Header="opac" Tag="opac" IsCheckable="True" StaysOpenOnClick="True" Click="TextureQuickPickToggle_Click"/>
+                                <MenuItem x:Name="menu_tex_opacity" Header="opacity" Tag="opacity" IsCheckable="True" StaysOpenOnClick="True" Click="TextureQuickPickToggle_Click"/>
+                                <MenuItem x:Name="menu_tex_refl" Header="refl" Tag="refl" IsCheckable="True" StaysOpenOnClick="True" Click="TextureQuickPickToggle_Click"/>
+                                <MenuItem x:Name="menu_tex_emis" Header="emis" Tag="emis" IsCheckable="True" StaysOpenOnClick="True" Click="TextureQuickPickToggle_Click"/>
+                                <MenuItem x:Name="menu_tex_emiss" Header="emiss" Tag="emiss" IsCheckable="True" StaysOpenOnClick="True" Click="TextureQuickPickToggle_Click"/>
+                                <MenuItem x:Name="menu_tex_cubemap" Header="cubemap" Tag="cubemap" IsCheckable="True" StaysOpenOnClick="True" Click="TextureQuickPickToggle_Click"/>
+                                <MenuItem x:Name="menu_tex_env" Header="env" Tag="env" IsCheckable="True" StaysOpenOnClick="True" Click="TextureQuickPickToggle_Click"/>
+                                <MenuItem x:Name="menu_tex_detail" Header="detail" Tag="detail" IsCheckable="True" StaysOpenOnClick="True" Click="TextureQuickPickToggle_Click"/>
+                                <MenuItem x:Name="menu_tex_ao" Header="ao" Tag="ao" IsCheckable="True" StaysOpenOnClick="True" Click="TextureQuickPickToggle_Click"/>
+                                <MenuItem x:Name="menu_tex_rough" Header="rough" Tag="rough" IsCheckable="True" StaysOpenOnClick="True" Click="TextureQuickPickToggle_Click"/>
+                                <MenuItem x:Name="menu_tex_metal" Header="metal" Tag="metal" IsCheckable="True" StaysOpenOnClick="True" Click="TextureQuickPickToggle_Click"/>
+                                <MenuItem x:Name="menu_tex_albedo" Header="albedo" Tag="albedo" IsCheckable="True" StaysOpenOnClick="True" Click="TextureQuickPickToggle_Click"/>
+                                <Separator/>
+                                <MenuItem Header="Clear texture quick pick" Click="TextureQuickPickClear_Click"/>
+                            </MenuItem>
                             <MenuItem Header="Class Filters" DataContext="{Binding AssetFilters.MaterialFilter}" ItemsSource="{Binding Types}" ItemContainerStyle="{DynamicResource CustomFilterMenuItem}"/>
                             <MenuItem Header="Generic Filters" DataContext="{Binding AssetFilters.MaterialFilter}" ItemsSource="{Binding Filters}" ItemContainerStyle="{DynamicResource CustomFilterMenuItem}"/>
                             <MenuItem Header="Blend Mode" DataContext="{Binding AssetFilters.MaterialFilter}" ItemsSource="{Binding BlendModes}" ItemContainerStyle="{DynamicResource CustomFilterMenuItem}"/>

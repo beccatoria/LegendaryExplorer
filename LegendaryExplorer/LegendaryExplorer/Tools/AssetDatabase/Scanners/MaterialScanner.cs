@@ -136,6 +136,7 @@ namespace LegendaryExplorer.Tools.AssetDatabase.Scanners
 
                                 string exprsnName =
                                     exprsn.ClassName.Replace("MaterialExpression", string.Empty);
+                                var textureReference = ResolveTextureReference(exprsnProps.GetProp<ObjectProperty>("Texture"), e.Export.FileRef);
                                 switch (exprsn.ClassName)
                                 {
                                     case "MaterialExpressionScalarParameter":
@@ -167,7 +168,7 @@ namespace LegendaryExplorer.Tools.AssetDatabase.Scanners
                                         pSet = new MatSetting(exprsnName, paramName, linearColor);
                                         break;
                                     default:
-                                        pSet = new MatSetting(exprsnName, paramName, null);
+                                        pSet = new MatSetting(exprsnName, paramName, textureReference);
                                         break;
                                 }
 
@@ -193,6 +194,23 @@ namespace LegendaryExplorer.Tools.AssetDatabase.Scanners
                 }
 
                 mSets.Add(new MatSetting("IsInstance", "true", null));
+
+                if (e.Properties.GetProp<ArrayProperty<StructProperty>>("TextureParameterValues") is { } textureValues)
+                {
+                    foreach (var textureValue in textureValues)
+                    {
+                        var parameterName = textureValue.GetProp<NameProperty>("ParameterName")?.Value.Instanced;
+                        var parameterValue = textureValue.GetProp<ObjectProperty>("ParameterValue");
+                        var textureReference = ResolveTextureReference(parameterValue, e.Export.FileRef);
+
+                        if (!string.IsNullOrWhiteSpace(parameterName) || !string.IsNullOrWhiteSpace(textureReference))
+                        {
+                            mSets.Add(new MatSetting("TextureParameter", parameterName, textureReference));
+                        }
+                    }
+                }
+
+                AddInheritedTextureSettings(e.Export, mSets);
             }
 
             return mSets;
@@ -209,6 +227,87 @@ namespace LegendaryExplorer.Tools.AssetDatabase.Scanners
                 }
             }
         }
+
+        private static string ResolveTextureReference(ObjectProperty textureProperty, IMEPackage package)
+        {
+            return textureProperty?.ResolveToEntry(package)?.InstancedFullPath;
+        }
+
+        private static void AddInheritedTextureSettings(ExportEntry sourceInstance, List<MatSetting> mSets)
+        {
+            var visited = new HashSet<int>();
+            var current = sourceInstance;
+            while (current is not null && visited.Add(current.UIndex))
+            {
+                var parentProperty = current.GetProperty<ObjectProperty>("Parent");
+                if (parentProperty is null || !current.FileRef.TryGetEntry(parentProperty.Value, out var parentEntry) || parentEntry is not ExportEntry parentExport)
+                {
+                    break;
+                }
+
+                AddTextureExpressionSettings(parentExport, mSets);
+                AddTextureParameterSettings(parentExport, mSets, "InheritedTextureParameter");
+
+                if (!parentExport.IsA("MaterialInstance"))
+                {
+                    break;
+                }
+
+                current = parentExport;
+            }
+        }
+
+        private static void AddTextureExpressionSettings(ExportEntry export, List<MatSetting> mSets)
+        {
+            var properties = export.GetProperties();
+            if (properties.GetProp<ArrayProperty<ObjectProperty>>("Expressions") is not { } expressions)
+            {
+                return;
+            }
+
+            foreach (var expressionProperty in expressions)
+            {
+                if (expressionProperty.Value <= 0)
+                {
+                    continue;
+                }
+
+                var expression = export.FileRef.GetUExport(expressionProperty.Value);
+                var expressionProps = expression.GetProperties();
+                var parameterName = expressionProps.GetProp<NameProperty>("ParameterName")?.Value.Instanced;
+                var textureReference = ResolveTextureReference(expressionProps.GetProp<ObjectProperty>("Texture"), export.FileRef);
+                var expressionName = expression.ClassName.Replace("MaterialExpression", string.Empty);
+
+                if (string.IsNullOrWhiteSpace(parameterName) && string.IsNullOrWhiteSpace(textureReference))
+                {
+                    continue;
+                }
+
+                mSets.Add(new MatSetting("InheritedTextureExpression", parameterName ?? expressionName, textureReference));
+            }
+        }
+
+        private static void AddTextureParameterSettings(ExportEntry export, List<MatSetting> mSets, string settingName)
+        {
+            var properties = export.GetProperties();
+            if (properties.GetProp<ArrayProperty<StructProperty>>("TextureParameterValues") is not { } textureValues)
+            {
+                return;
+            }
+
+            foreach (var textureValue in textureValues)
+            {
+                var parameterName = textureValue.GetProp<NameProperty>("ParameterName")?.Value.Instanced;
+                var parameterValue = textureValue.GetProp<ObjectProperty>("ParameterValue");
+                var textureReference = ResolveTextureReference(parameterValue, export.FileRef);
+
+                if (!string.IsNullOrWhiteSpace(parameterName) || !string.IsNullOrWhiteSpace(textureReference))
+                {
+                    mSets.Add(new MatSetting(settingName, parameterName, textureReference));
+                }
+            }
+        }
+
         private static string GetPropertyValue(Property p, bool isDefault, IMEPackage pcc)
         {
             string pValue = null;

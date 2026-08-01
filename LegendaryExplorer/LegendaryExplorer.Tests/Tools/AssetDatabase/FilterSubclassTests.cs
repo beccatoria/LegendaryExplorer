@@ -60,5 +60,33 @@ namespace LegendaryExplorer.Tests.Tools.AssetDatabase
             Assert.IsFalse(AssetFilters.MeshSearch(("bones:5000", r1)));
         }
 
+        [TestMethod]
+        public void TestMaterialTextureTypeSearch()
+        {
+            var material = new MaterialRecord(
+                "Bio_Mat_Face",
+                "BIOG_HMF_HED_PRO",
+                false,
+                new List<MatSetting>
+                {
+                    new("TextureSampleParameter2D", "diff", "BioT_HMF_Face_Diff"),
+                    new("TextureSampleParameter2D", "normal", "BioT_HMF_Face_Norm"),
+                    new("InheritedTextureExpression", "msk3", "BioT_HMF_Face_Msk3"),
+                    new("VectorParameter", "skinColor", null)
+                });
+
+            Assert.IsTrue(MaterialFilter.MaterialSearch(("tex:diff", material)));
+            Assert.IsTrue(MaterialFilter.MaterialSearch(("tex:norm", material)));
+            Assert.IsTrue(MaterialFilter.MaterialSearch(("tex:msk3", material)));
+            Assert.IsTrue(MaterialFilter.MaterialSearch(("tex: diff,norm", material)));
+            Assert.IsFalse(MaterialFilter.MaterialSearch(("tex: diff,spec", material))); // AND semantics
+            Assert.IsTrue(MaterialFilter.MaterialSearch(("tex: diff,spec|norm", material))); // OR groups
+            Assert.IsFalse(MaterialFilter.MaterialSearch(("tex:spec", material)));
+            Assert.IsFalse(MaterialFilter.MaterialSearch(("tex:", material)));
+
+            Assert.IsTrue(MaterialFilter.MaterialSearch(("face", material)));
+            Assert.IsTrue(MaterialFilter.MaterialSearch(("HMF_HED", material)));
+        }
+
     }
 }

@@ -282,6 +282,11 @@ namespace LegendaryExplorer.Tools.AssetDatabase
 
         private bool CanSetFilter(object obj)
         {
+            if (obj is string str && (str.StartsWith("MatTexQuick:", StringComparison.Ordinal) || str == "MatTexQuickClear"))
+            {
+                return currentView == 2;
+            }
+
             if (obj is "") // This makes the LODGroups submenu work.
             {
                 return true;
@@ -1387,7 +1392,7 @@ namespace LegendaryExplorer.Tools.AssetDatabase
                 switch (currentView)
                 {
                     case 2:
-                        FilterBox.Watermark = "Search (by material name or parent package)";
+                        FilterBox.Watermark = "Search (name/package) or tex: norm,diff,spec";
                         break;
                     case 4:
                         FilterBox.Watermark = "Search (by texture name or CRC if compiled)";
@@ -2169,10 +2174,112 @@ namespace LegendaryExplorer.Tools.AssetDatabase
                         }
                         break;
                     default:
+                        if (param == "MatTexQuickClear")
+                        {
+                            FilterBox.Clear();
+                        }
+                        else if (param?.StartsWith("MatTexQuick:", StringComparison.Ordinal) == true)
+                        {
+                            var quickQuery = param.Substring("MatTexQuick:".Length);
+                            FilterBox.Text = $"tex: {quickQuery}";
+                        }
                         break;
                 }
             }
             Filter();
+        }
+
+        private void TextureQuickPickSubmenu_Opened(object sender, RoutedEventArgs e)
+        {
+            if (currentView != 2)
+            {
+                return;
+            }
+
+            SyncTextureQuickPickChecksFromSearch();
+        }
+
+        private void TextureQuickPickToggle_Click(object sender, RoutedEventArgs e)
+        {
+            if (currentView != 2)
+            {
+                return;
+            }
+
+            ApplyTextureQuickPickSearchFromChecks();
+        }
+
+        private void TextureQuickPickClear_Click(object sender, RoutedEventArgs e)
+        {
+            foreach (var item in GetTextureQuickPickItems())
+            {
+                item.IsChecked = false;
+            }
+
+            FilterBox.Clear();
+            Filter();
+        }
+
+        private void ApplyTextureQuickPickSearchFromChecks()
+        {
+            var selectedTokens = GetTextureQuickPickItems()
+                .Where(i => i.IsChecked)
+                .Select(i => i.Tag as string)
+                .Where(t => !string.IsNullOrWhiteSpace(t))
+                .ToList();
+
+            FilterBox.Text = selectedTokens.Count == 0
+                ? string.Empty
+                : $"tex: {string.Join(", ", selectedTokens)}";
+
+            Filter();
+        }
+
+        private void SyncTextureQuickPickChecksFromSearch()
+        {
+            var selectedTokens = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            var text = FilterBox.Text?.Trim();
+            if (!string.IsNullOrEmpty(text) && text.StartsWith("tex:", StringComparison.OrdinalIgnoreCase))
+            {
+                var tokenText = text[4..].Trim();
+                foreach (var token in tokenText.Split(new[] { ',', ';', '|', ' ' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                {
+                    selectedTokens.Add(token);
+                }
+            }
+
+            foreach (var item in GetTextureQuickPickItems())
+            {
+                if (item.Tag is string tag)
+                {
+                    item.IsChecked = selectedTokens.Contains(tag);
+                }
+            }
+        }
+
+        private IEnumerable<MenuItem> GetTextureQuickPickItems()
+        {
+            yield return menu_tex_diff;
+            yield return menu_tex_norm;
+            yield return menu_tex_spec;
+            yield return menu_tex_spwr;
+            yield return menu_tex_tint;
+            yield return menu_tex_mask;
+            yield return menu_tex_msk;
+            yield return menu_tex_msk3;
+            yield return menu_tex_opac;
+            yield return menu_tex_opacity;
+            yield return menu_tex_refl;
+            yield return menu_tex_emis;
+            yield return menu_tex_emiss;
+            yield return menu_tex_cubemap;
+            yield return menu_tex_env;
+            yield return menu_tex_detail;
+            yield return menu_tex_ao;
+            yield return menu_tex_rough;
+            yield return menu_tex_metal;
+            yield return menu_tex_albedo;
         }
 
         private void FilterBox_KeyUp(object sender, KeyEventArgs e)

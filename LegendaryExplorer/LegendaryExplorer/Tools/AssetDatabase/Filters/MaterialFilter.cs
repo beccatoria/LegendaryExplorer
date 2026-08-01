@@ -8,6 +8,8 @@ namespace LegendaryExplorer.Tools.AssetDatabase.Filters
 {
     public class MaterialFilter : GenericAssetFilter<MaterialRecord>
     {
+        private static readonly char[] TextureSearchSeparators = [',', ';', ' '];
+
         public List<IAssetSpecification<MaterialRecord>> Types { get; private set; } = new();
         public List<IAssetSpecification<MaterialRecord>> BlendModes { get; private set; } = new();
         public ObservableCollection<IAssetSpecification<MaterialRecord>> GeneratedOptions { get; } = new();
@@ -78,10 +80,67 @@ namespace LegendaryExplorer.Tools.AssetDatabase.Filters
             return GeneratedOptions.Concat(Types).Append(blendModeOr);
         }
 
-        private bool MaterialSearch((string, MaterialRecord) t)
+        public static bool MaterialSearch((string, MaterialRecord) t)
         {
             var (text, mr) = t;
-            return mr.MaterialName.ToLower().Contains(text.ToLower()) || mr.ParentPackage.ToLower().Contains(text.ToLower());
+            text = text.Trim();
+
+            if (text.StartsWith("tex:", StringComparison.OrdinalIgnoreCase))
+            {
+                return TextureTypeSearch(text[4..], mr);
+            }
+
+            return mr.MaterialName.Contains(text, StringComparison.OrdinalIgnoreCase)
+                   || mr.ParentPackage.Contains(text, StringComparison.OrdinalIgnoreCase);
         }
+
+        private static bool TextureTypeSearch(string textureSearchText, MaterialRecord mr)
+        {
+            var orGroups = textureSearchText.Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (orGroups.Length == 0)
+            {
+                return false;
+            }
+
+            var textureValues = mr.MatSettings
+                .Where(IsTextureSetting)
+                .SelectMany(setting => new[] { setting.Name, setting.Parm1, setting.Parm2 })
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .ToList();
+
+            if (textureValues.Count == 0)
+            {
+                return false;
+            }
+
+            foreach (var group in orGroups)
+            {
+                var tokens = group
+                    .Split(TextureSearchSeparators, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                if (tokens.Count == 0)
+                {
+                    continue;
+                }
+
+                // Comma/space separated tokens are ANDed.
+                if (tokens.All(token => textureValues.Any(value => value.Contains(token, StringComparison.OrdinalIgnoreCase))))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool IsTextureSetting(MatSetting setting)
+        {
+            return setting.Name?.Contains("Texture", StringComparison.OrdinalIgnoreCase) == true
+                   || setting.Parm1?.Contains("Texture", StringComparison.OrdinalIgnoreCase) == true
+                   || setting.Parm2?.Contains("Texture", StringComparison.OrdinalIgnoreCase) == true;
+        }
+
     }
 }
