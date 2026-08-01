@@ -131,6 +131,7 @@ public class MeshRenderContext : RenderContext
     public float CameraSpeed { get; set; } = 500.0f; // Units per second
     private const float KeyTapMoveSeconds = 0.045f;
     private const float FastMoveMultiplier = 4.0f;
+    private const float SlowMoveMultiplier = 0.25f;
     private const float FirstPersonRotationSensitivity = 0.014f;
     private const float OrbitRotationSensitivity = 0.014f;
     private const float MouseZoomSensitivity = 0.015f;
@@ -273,7 +274,8 @@ public class MeshRenderContext : RenderContext
             return;
         }
 
-        float moveAmount = MathF.Max(CameraSpeed * GetCameraMovementSpeedMultiplier() * KeyTapMoveSeconds, 24f);
+        float movementSpeedMultiplier = GetCameraMovementSpeedMultiplier();
+        float moveAmount = MathF.Max(CameraSpeed * movementSpeedMultiplier * KeyTapMoveSeconds, 24f * movementSpeedMultiplier);
         switch (keyState)
         {
             case KeyStates.W:
@@ -299,6 +301,11 @@ public class MeshRenderContext : RenderContext
 
     private static float GetCameraMovementSpeedMultiplier()
     {
+        if (Keyboard.Modifiers.HasFlag(ModifierKeys.Shift))
+        {
+            return SlowMoveMultiplier;
+        }
+
         return Keyboard.Modifiers.HasFlag(ModifierKeys.Control) ? FastMoveMultiplier : 1f;
     }
 
