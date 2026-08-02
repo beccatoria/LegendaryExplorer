@@ -87,6 +87,199 @@ namespace LegendaryExplorer.Tools.PackageEditor.Experiments
             dlg.Show();
         }
 
+        public static void BeccaSquidSelectiveTexturesToTfc(PackageEditorWindow pew)
+        {
+            if (pew?.Pcc is null)
+            {
+                return;
+            }
+
+            string tfcName = DetermineDlcModTextureTfcName(pew);
+            if (string.IsNullOrWhiteSpace(tfcName))
+            {
+                MessageBox.Show(pew,
+                    "Unable to determine target TFC name. Open a package under a non-official DLC_* folder first.",
+                    "Move Selected Package Textures to TFC", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            string targetTfcPath = FindTargetTfcPathInPackageParentStructure(pew, tfcName);
+
+            List<ExportEntry> packageStoredTextures = [];
+            foreach (ExportEntry textureExport in pew.Pcc.Exports.Where(x => x.ClassName == "Texture2D"))
+            {
+                try
+                {
+                    var texture = new UnrealTexture2D(textureExport);
+                    if (texture.GetTopMip().IsPackageStored)
+                    {
+                        packageStoredTextures.Add(textureExport);
+                    }
+                }
+                catch
+                {
+                    // Skip anything that cannot be parsed as a normal Texture2D payload.
+                }
+            }
+
+            if (packageStoredTextures.Count == 0)
+            {
+                MessageBox.Show(pew,
+                    "No package-stored Texture2D exports were found in this package.",
+                    "Move Selected Package Textures to TFC", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            List<CheckedListItem> dialogItems = packageStoredTextures
+                .OrderBy(x => x.InstancedFullPath)
+                .Select(x => new CheckedListItem
+                {
+                    DisplayName = $"[{x.UIndex}] {x.InstancedFullPath}",
+                    IsSelected = true,
+                    Tag = x
+                }).ToList();
+
+            var dialog = new CheckedListDialog(
+                dialogItems,
+                "becca butchers squid's experiment: move selected package stored textures to tfc",
+                $"Target TFC: {tfcName}\nTarget Path: {targetTfcPath}\n\nSelect the textures you want moved to TFC. Unchecked textures will remain package-stored.",
+                pew,
+                "Move Selected");
+            dialog.DoubleClickItemHandler = item =>
+            {
+                if (item?.Tag is ExportEntry entry)
+                {
+                    pew.GoToNumber(entry.UIndex);
+                    pew.Activate();
+                }
+            };
+
+            dialog.Closed += (_, _) =>
+            {
+                if (!dialog.IsAccepted)
+                {
+                    return;
+                }
+
+                List<ExportEntry> selectedExports = dialog.GetSelectedItems()
+                    .Select(x => x.Tag as ExportEntry)
+                    .Where(x => x is not null)
+                    .ToList();
+
+                if (selectedExports.Count == 0)
+                {
+                    MessageBox.Show(pew,
+                        "No textures were selected. No changes were made.",
+                        "Move Selected Package Textures to TFC", MessageBoxButton.OK, MessageBoxImage.Information);
+                    return;
+                }
+
+                int movedCount = 0;
+                List<EntryStringPair> failed = [];
+                foreach (ExportEntry textureExport in selectedExports)
+                {
+                    try
+                    {
+                        var texture = new UnrealTexture2D(textureExport);
+                        if (!texture.GetTopMip().IsPackageStored)
+                        {
+                            continue;
+                        }
+
+                        var image = texture.ToImage(LegendaryExplorerCore.Textures.Image.getPixelFormatType(texture.TextureFormat));
+                        var props = textureExport.GetProperties();
+                        texture.Replace(image, props, forcedTFCName: tfcName, forcedTFCPath: targetTfcPath);
+                        movedCount++;
+                    }
+                    catch (Exception ex)
+                    {
+                        failed.Add(new EntryStringPair(textureExport, $"[{textureExport.UIndex}] {textureExport.InstancedFullPath}: {ex.Message}"));
+                    }
+                }
+
+                if (failed.Count > 0)
+                {
+                    new ListDialog(failed,
+                        "Move Selected Package Textures to TFC",
+                        $"Moved {movedCount} texture(s) to {tfcName}. Failed: {failed.Count}.",
+                        pew, 900, 500).Show();
+                }
+                else
+                {
+                    MessageBox.Show(pew,
+                        $"Moved {movedCount} texture(s) to {tfcName}.\n\nRemember to save the package.",
+                        "Move Selected Package Textures to TFC", MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+            };
+
+            dialog.Show();
+            dialog.Activate();
+        }
+
+        private static string DetermineDlcModTextureTfcName(PackageEditorWindow pew)
+        {
+            var containingFolderInfo = Directory.GetParent(pew.Pcc.FilePath);
+            if (containingFolderInfo is null)
+            {
+                return null;
+            }
+
+            DirectoryInfo current = containingFolderInfo;
+            while (current != null)
+            {
+                if (current.Name.StartsWith("DLC_", StringComparison.InvariantCultureIgnoreCase))
+                {
+                    var possibleDLCName = current.Name;
+                    if (!MEDirectories.OfficialDLC(pew.Pcc.Game).Contains(possibleDLCName))
+                    {
+                        return $"Textures_{possibleDLCName}";
+                    }
+
+                    break;
+                }
+
+                current = current.Parent;
+            }
+
+            return null;
+        }
+
+        private static string FindTargetTfcPathInPackageParentStructure(PackageEditorWindow pew, string tfcName)
+        {
+            string tfcFileName = $"{tfcName}.tfc";
+            var packageDirInfo = Directory.GetParent(pew.Pcc.FilePath);
+            if (packageDirInfo is null)
+            {
+                return Path.Combine(Path.GetDirectoryName(pew.Pcc.FilePath) ?? string.Empty, tfcFileName);
+            }
+
+            DirectoryInfo nearestCookedPcDir = null;
+            DirectoryInfo current = packageDirInfo;
+            while (current != null)
+            {
+                if (current.Name.StartsWith("CookedPC", StringComparison.InvariantCultureIgnoreCase))
+                {
+                    nearestCookedPcDir = current;
+                }
+
+                string candidatePath = Path.Combine(current.FullName, tfcFileName);
+                if (File.Exists(candidatePath))
+                {
+                    return candidatePath;
+                }
+
+                if (current.Name.StartsWith("DLC_", StringComparison.InvariantCultureIgnoreCase))
+                {
+                    break;
+                }
+
+                current = current.Parent;
+            }
+
+            string baseDirectory = nearestCookedPcDir?.FullName ?? packageDirInfo.FullName;
+            return Path.Combine(baseDirectory, tfcFileName);
+        }
+
         public static void ScanAndRegenerateCorruptedSmallBlockCompressedMips(PackageEditorWindow pew)
         {
             if (pew?.Pcc is null)

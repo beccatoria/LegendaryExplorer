@@ -242,12 +242,13 @@
             <MenuItem Header="Fix misaligned skeleton" Click="FixMisalignedSkeleton_Click" ToolTip="Attempts to fix a misaligned skeleton. This issue will pop up when the vertices on the neck seam match at rest, but there is a gap when animations are applied."/>
         </MenuItem>
     </MenuItem>
+    <MenuItem Header="becca can't code">
+        <MenuItem Header="becca butchers squid's experiment: move selected package stored textures to tfc" Click="BeccaSquidSelectiveTexturesToTfc_Click" ToolTip="Based on Squid's original experiment, but lets you pick which package-stored textures to move to TFC."/>
+        <MenuItem Header="Light Finder" Click="FindClosestLights_Click" ToolTip="Lists the closest placed lights to a set of world coordinates in the current package."/>
+        <MenuItem Header="Scan block-compressed textures for corrupted 2x2/1x1 mips (select + regenerate)" Click="ScanAndRegenerateCorruptedSmallMips_Click" ToolTip="Scans for corrupted 2x2/1x1 block-compressed mips, shows reasons with checkboxes, and regenerates selected items."/>
+        <MenuItem Header="Scan folder for files with corrupted 2x2/1x1 mips" Click="ScanFolderForCorruptedSmallMips_Click" ToolTip="Scans package files in a selected folder and lists files containing corrupted 2x2/1x1 block-compressed mips."/>
+    </MenuItem>
     <MenuItem Header="Other people's box of Legos">
-        <MenuItem Header="becca can't code">
-            <MenuItem Header="Light Finder" Click="FindClosestLights_Click" ToolTip="Lists the closest placed lights to a set of world coordinates in the current package."/>
-            <MenuItem Header="Scan block-compressed textures for corrupted 2x2/1x1 mips (select + regenerate)" Click="ScanAndRegenerateCorruptedSmallMips_Click" ToolTip="Scans for corrupted 2x2/1x1 block-compressed mips, shows reasons with checkboxes, and regenerates selected items."/>
-            <MenuItem Header="Scan folder for files with corrupted 2x2/1x1 mips" Click="ScanFolderForCorruptedSmallMips_Click" ToolTip="Scans package files in a selected folder and lists files containing corrupted 2x2/1x1 block-compressed mips."/>
-        </MenuItem>
         <MenuItem Header="Export level to T3D" Click="ExportLevelToT3D_Click"/>
         <MenuItem Header="Add Preset Director InterpGroup" Click="AddPresetDirectorGroup_Click" ToolTip="Add an InterpGroupDirector along with Director and DOF tracks."/>
         <MenuItem Header="Add Preset Camera InterpGroup" Click="AddPresetCameraGroup_Click" ToolTip="Add a Camera InterpGroup with its actor set along with Move and FOV tracks."/>

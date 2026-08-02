@@ -19,6 +19,7 @@ public partial class CheckedListDialog : TrackingNotifyPropertyChangedWindowBase
 {
     public ObservableCollectionExtended<CheckedListItem> Items { get; } = [];
     public Action<CheckedListItem> DoubleClickItemHandler { get; set; }
+    public bool IsAccepted { get; private set; }
 
     private string topText;
     public string TopText
@@ -50,13 +51,25 @@ public partial class CheckedListDialog : TrackingNotifyPropertyChangedWindowBase
 
     private void OK_Click(object sender, RoutedEventArgs e)
     {
-        DialogResult = true;
-        Close();
+        CloseWithResult(true);
     }
 
     private void Cancel_Click(object sender, RoutedEventArgs e)
     {
-        DialogResult = false;
+        CloseWithResult(false);
+    }
+
+    private void CloseWithResult(bool accepted)
+    {
+        IsAccepted = accepted;
+        try
+        {
+            DialogResult = accepted;
+        }
+        catch (InvalidOperationException)
+        {
+            // Non-modal usage does not allow setting DialogResult.
+        }
         Close();
     }
 
@@ -76,12 +89,22 @@ public partial class CheckedListDialog : TrackingNotifyPropertyChangedWindowBase
 
     private void CheckList_MouseDoubleClick(object sender, MouseButtonEventArgs e)
     {
+        InvokeListItemAction(e.OriginalSource);
+    }
+
+    private void CheckList_MouseRightButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        InvokeListItemAction(e.OriginalSource);
+    }
+
+    private void InvokeListItemAction(object originalSource)
+    {
         if (DoubleClickItemHandler is null)
         {
             return;
         }
 
-        var dataContext = (e.OriginalSource as FrameworkElement)?.DataContext;
+        var dataContext = (originalSource as FrameworkElement)?.DataContext;
         if (dataContext is CheckedListItem listItem)
         {
             DoubleClickItemHandler.Invoke(listItem);

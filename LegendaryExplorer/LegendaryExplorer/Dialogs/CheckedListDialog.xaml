@@ -16,6 +16,6 @@
             <Button Content="{Binding PrimaryButtonText}" Click="OK_Click" IsDefault="True" Padding="20,4" Margin="0,0,5,0"/>
             <Button Content="Cancel" Click="Cancel_Click" IsCancel="True" Padding="20,4"/>
         </StackPanel>
-        <xctk:CheckListBox x:Name="CheckList" ItemsSource="{Binding Items}" DisplayMemberPath="DisplayName" SelectedMemberPath="IsSelected" MouseDoubleClick="CheckList_MouseDoubleClick"/>
+        <xctk:CheckListBox x:Name="CheckList" ItemsSource="{Binding Items}" DisplayMemberPath="DisplayName" SelectedMemberPath="IsSelected" MouseDoubleClick="CheckList_MouseDoubleClick" MouseRightButtonUp="CheckList_MouseRightButtonUp"/>
     </DockPanel>
 </bases:TrackingNotifyPropertyChangedWindowBase>

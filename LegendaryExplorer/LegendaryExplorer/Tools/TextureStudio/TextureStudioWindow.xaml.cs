@@ -37,6 +37,13 @@ namespace LegendaryExplorer.Tools.TextureStudio
     /// </summary>
     public partial class TextureStudioWindow : NotifyPropertyChangedWindowBase, IRecents, IBusyUIHost
     {
+        public enum TextureStorageFilterMode
+        {
+            All,
+            PackageStored,
+            TFCStored
+        }
+
         public ObservableCollectionExtendedWPF<TextureMapMemoryEntry> AllRootTreeViewNodes { get; } = new();
         public ObservableCollectionExtendedWPF<string> ME1MasterTexturePackages { get; } = new();
         private Dictionary<uint, MEMTextureMap.TextureMapEntry> VanillaTextureMap { get; set; }
@@ -47,6 +54,52 @@ namespace LegendaryExplorer.Tools.TextureStudio
 
         private string _tfcSuffix;
         public string TFCSuffix { get => _tfcSuffix; set => SetProperty(ref _tfcSuffix, value); }
+
+        private string _textureSearchText;
+        public string TextureSearchText
+        {
+            get => _textureSearchText;
+            set
+            {
+                if (SetProperty(ref _textureSearchText, value))
+                {
+                    ApplyTreeFilters();
+                }
+            }
+        }
+
+        private string _tfcNameFilterText;
+        public string TFCNameFilterText
+        {
+            get => _tfcNameFilterText;
+            set
+            {
+                if (SetProperty(ref _tfcNameFilterText, value))
+                {
+                    ApplyTreeFilters();
+                }
+            }
+        }
+
+        private TextureStorageFilterMode _selectedStorageFilterMode = TextureStorageFilterMode.All;
+        public TextureStorageFilterMode SelectedStorageFilterMode
+        {
+            get => _selectedStorageFilterMode;
+            set
+            {
+                if (SetProperty(ref _selectedStorageFilterMode, value))
+                {
+                    ApplyTreeFilters();
+                }
+            }
+        }
+
+        public TextureStorageFilterMode[] StorageFilterModes { get; } =
+        {
+            TextureStorageFilterMode.All,
+            TextureStorageFilterMode.PackageStored,
+            TextureStorageFilterMode.TFCStored
+        };
 
         #region Variables
 
@@ -653,6 +706,97 @@ namespace LegendaryExplorer.Tools.TextureStudio
             StatusText = SelectedFolder != null ? $@"Operating on {SelectedFolder}" : @"Open a folder to begin working on textures";
         }
 
+        private void ApplyTreeFilters()
+        {
+            bool noFilters = string.IsNullOrWhiteSpace(TextureSearchText)
+                             && string.IsNullOrWhiteSpace(TFCNameFilterText)
+                             && SelectedStorageFilterMode == TextureStorageFilterMode.All;
+
+            foreach (var root in AllRootTreeViewNodes.OfType<TextureMapMemoryEntryWPF>())
+            {
+                ApplyTreeFiltersRecursive(root, noFilters);
+            }
+        }
+
+        private bool ApplyTreeFiltersRecursive(TextureMapMemoryEntryWPF node, bool noFilters)
+        {
+            bool anyVisibleChildren = false;
+            foreach (var child in node.Children.OfType<TextureMapMemoryEntryWPF>())
+            {
+                if (ApplyTreeFiltersRecursive(child, noFilters))
+                {
+                    anyVisibleChildren = true;
+                }
+            }
+
+            bool selfVisible = noFilters || NodeMatchesFilters(node);
+            bool isVisible = selfVisible || anyVisibleChildren;
+            node.IsFilterVisible = isVisible;
+
+            if (!isVisible)
+            {
+                node.IsExpanded = false;
+            }
+
+            return isVisible;
+        }
+
+        private bool NodeMatchesFilters(TextureMapMemoryEntryWPF node)
+        {
+            if (!string.IsNullOrWhiteSpace(TextureSearchText) && !NodeMatchesKeyword(node, TextureSearchText))
+            {
+                return false;
+            }
+
+            if (!node.IsTexture)
+            {
+                return false;
+            }
+
+            if (!NodeMatchesStorageMode(node))
+            {
+                return false;
+            }
+
+            if (!string.IsNullOrWhiteSpace(TFCNameFilterText))
+            {
+                return node.Instances.Any(x => !string.IsNullOrWhiteSpace(x.TFCName)
+                                               && x.TFCName.Contains(TFCNameFilterText, StringComparison.InvariantCultureIgnoreCase));
+            }
+
+            return true;
+        }
+
+        private static bool ContainsInsensitive(string text, string keyword)
+        {
+            return !string.IsNullOrWhiteSpace(text)
+                   && text.Contains(keyword, StringComparison.InvariantCultureIgnoreCase);
+        }
+
+        private bool NodeMatchesKeyword(TextureMapMemoryEntryWPF node, string keyword)
+        {
+            if (ContainsInsensitive(node.ObjectName, keyword)
+                || ContainsInsensitive(node.InstancedFullPath, keyword))
+            {
+                return true;
+            }
+
+            return node.Instances.Any(x => ContainsInsensitive(x.RelativePackagePath, keyword)
+                                           || ContainsInsensitive(x.ExportPath, keyword)
+                                           || ContainsInsensitive(x.PackageName, keyword)
+                                           || ContainsInsensitive(x.TFCName, keyword));
+        }
+
+        private bool NodeMatchesStorageMode(TextureMapMemoryEntryWPF node)
+        {
+            return SelectedStorageFilterMode switch
+            {
+                TextureStorageFilterMode.PackageStored => node.Instances.Any(x => !x.HasExternalReferences),
+                TextureStorageFilterMode.TFCStored => node.Instances.Any(x => x.HasExternalReferences),
+                _ => true
+            };
+        }
+
         #endregion
 
         #region Scanning methods
@@ -690,6 +834,7 @@ namespace LegendaryExplorer.Tools.TextureStudio
             {
                 ScanCanceled = false;
                 IsBusy = false;
+                ApplyTreeFilters();
 
                 if (nodeToSelect != null && entriesToReload is { Count: 1 })
                 {

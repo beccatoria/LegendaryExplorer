@@ -97,16 +97,25 @@
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
                 <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
                     <RowDefinition Height="15"/>
                     <RowDefinition Height="*"/>
                 </Grid.RowDefinitions>
-                <TextBlock Text="In-memory unique textures" Grid.Column="0" FontWeight="Bold" TextAlignment="Center" Background="{x:Static Brushes.Bisque}"/>
-                <TextBlock Text="Package instances" Grid.Column="2" FontWeight="Bold" TextAlignment="Center" Background="{x:Static Brushes.Bisque}"/>
-                <TextBlock Text="Texture Viewer for instance" Grid.Column="5" FontWeight="Bold" TextAlignment="Center" Background="{x:Static Brushes.Bisque}"/>
+                <StackPanel Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="5" Orientation="Horizontal" Margin="4">
+                    <TextBlock Text="Keyword" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <xctk:WatermarkTextBox Width="220" Watermark="Name, path, package, export, or TFC" Text="{Binding TextureSearchText, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,10,0"/>
+                    <TextBlock Text="Storage" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <ComboBox Width="160" ItemsSource="{Binding StorageFilterModes}" SelectedItem="{Binding SelectedStorageFilterMode}" Margin="0,0,10,0"/>
+                    <TextBlock Text="TFC name" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <xctk:WatermarkTextBox Width="220" Watermark="e.g. Textures_DLC_MOD_MyMod" Text="{Binding TFCNameFilterText, UpdateSourceTrigger=PropertyChanged}"/>
+                </StackPanel>
+                <TextBlock Text="In-memory unique textures" Grid.Row="1" Grid.Column="0" FontWeight="Bold" TextAlignment="Center" Background="{x:Static Brushes.Bisque}"/>
+                <TextBlock Text="Package instances" Grid.Row="1" Grid.Column="2" FontWeight="Bold" TextAlignment="Center" Background="{x:Static Brushes.Bisque}"/>
+                <TextBlock Text="Texture Viewer for instance" Grid.Row="1" Grid.Column="4" FontWeight="Bold" TextAlignment="Center" Background="{x:Static Brushes.Bisque}"/>
                 <TreeView x:Name="LeftSide_TreeView" 
                           Visibility="{Binding SelectedFolder, Converter={StaticResource NullVisibilityConverter}}"
                           Grid.Column="0" 
-                          Grid.Row="1"
+                          Grid.Row="2"
                           FontFamily="Consolas"
                           SelectedItemChanged="SelectedTreeNodeChanged"
                           ItemsSource="{Binding AllRootTreeViewNodes}" 
@@ -179,6 +188,7 @@
                             <!-- Items in the ItemsSource need to have these properties for the binding to work -->
                             <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                             <Setter Property="IsSelected" Value="{Binding IsSelected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                            <Setter Property="Visibility" Value="{Binding IsFilterVisible, Converter={StaticResource BoolToVisibilityConverter}}" />
                         </Style>
                     </TreeView.ItemContainerStyle>
                     <!--<i:Interaction.Behaviors>
@@ -186,8 +196,8 @@
                     </i:Interaction.Behaviors>-->
                 </TreeView>
 
-                <GridSplitter Width="5"  Grid.Column="1" VerticalAlignment="Stretch" HorizontalAlignment="Center" Grid.RowSpan="2"/>
-                <DockPanel Grid.Column="2" Grid.Row="1">
+                <GridSplitter Grid.Row="1" Width="5"  Grid.Column="1" VerticalAlignment="Stretch" HorizontalAlignment="Center" Grid.RowSpan="2"/>
+                <DockPanel Grid.Column="2" Grid.Row="2">
                         <StatusBar DockPanel.Dock="Bottom">
                             <StatusBarItem>
                                 <Button Content="Change all instances to new texture" ToolTip="Changes all instances of the texture to point to a new instance stored in the specified TFC."  Padding="5" Command="{Binding ChangeAllInstancesTextureCommand}"/>
@@ -232,8 +242,8 @@
                         </ListBox.Resources>
                     </ListBox>
                 </DockPanel>
-                <GridSplitter Grid.Row="0"  Grid.Column="3" Grid.RowSpan="2" Width="5" VerticalAlignment="Stretch" HorizontalAlignment="Center"/>
-                <exportLoaderControls:TextureViewerExportLoader x:Name="TextureViewer_ExportLoader"  Grid.Column="4" Grid.Row="1"
+                <GridSplitter Grid.Row="1"  Grid.Column="3" Grid.RowSpan="2" Width="5" VerticalAlignment="Stretch" HorizontalAlignment="Center"/>
+                <exportLoaderControls:TextureViewerExportLoader x:Name="TextureViewer_ExportLoader"  Grid.Column="4" Grid.Row="2"
                                                                 HostingControl="{Binding RelativeSource={RelativeSource AncestorType=Window}}"/>
 
             </Grid>

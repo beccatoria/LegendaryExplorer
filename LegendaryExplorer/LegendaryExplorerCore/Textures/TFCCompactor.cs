@@ -149,16 +149,22 @@ namespace LegendaryExplorerCore.Textures
         /// <returns></returns>
         private TFCInfo InitTFC()
         {
-            int? tfcIdx = infoPackage.UseIndexing ? 0 : null; // 0 cause it gets ++'d before first use
-            while (true)
+            for (var tfcIdx = 0; ; tfcIdx++)
             {
-                if (infoPackage.UseIndexing)
+                string tfcName;
+                if (tfcIdx == 0)
                 {
-                    tfcIdx++;
+                    tfcName = $"{infoPackage.TFCType}_{infoPackage.DLCName}";
+                }
+                else if (infoPackage.UseIndexing)
+                {
+                    tfcName = $"{infoPackage.TFCType}{tfcIdx}_{infoPackage.DLCName}";
+                }
+                else
+                {
+                    tfcName = $"{infoPackage.TFCType}_{infoPackage.DLCName}_{tfcIdx}";
                 }
 
-                //var tfcName = $"{infoPackage.TFCType}_{infoPackage.DLCName}{tfcIdx}";
-                var tfcName = $"{infoPackage.TFCType}{tfcIdx}_{infoPackage.DLCName}";
                 var testTFCPath = Path.Combine(infoPackage.StagingPath, $"{tfcName}.tfc");
                 if (File.Exists(testTFCPath))
                     continue; // go to next available name
@@ -378,11 +384,6 @@ namespace LegendaryExplorerCore.Textures
                 }
 
 
-                if (compactor.infoPackage.UseIndexing)
-                {
-                    // Stub TFC
-                    File.WriteAllBytes(Path.Combine(destPath, $"{infoPackage.TFCType}_{compactor.infoPackage.DLCName}.tfc"), Guid.NewGuid().ToByteArray());
-                }
             }
         }
 

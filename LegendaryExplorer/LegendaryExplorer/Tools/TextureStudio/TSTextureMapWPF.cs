@@ -39,6 +39,13 @@ namespace LegendaryExplorer.Tools.TextureStudio
             set => SetProperty(ref _isExpanded, value);
         }
 
+        private bool _isFilterVisible = true;
+        public bool IsFilterVisible
+        {
+            get => _isFilterVisible;
+            set => SetProperty(ref _isFilterVisible, value);
+        }
+
         public void OnIsExpandedChanged()
         {
             Debug.WriteLine($"IsExpanded: {IsExpanded} {InstancedFullPath}");

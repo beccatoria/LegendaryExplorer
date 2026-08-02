@@ -1728,6 +1728,11 @@ namespace LegendaryExplorer.UserControls.PackageEditorControls
             PackageEditorExperimentsO.FindClosestLights(GetPEWindow());
         }
 
+        private void BeccaSquidSelectiveTexturesToTfc_Click(object sender, RoutedEventArgs e)
+        {
+            PackageEditorExperimentsO.BeccaSquidSelectiveTexturesToTfc(GetPEWindow());
+        }
+
         private void ScanAndRegenerateCorruptedSmallMips_Click(object sender, RoutedEventArgs e)
         {
             PackageEditorExperimentsO.ScanAndRegenerateCorruptedSmallBlockCompressedMips(GetPEWindow());
