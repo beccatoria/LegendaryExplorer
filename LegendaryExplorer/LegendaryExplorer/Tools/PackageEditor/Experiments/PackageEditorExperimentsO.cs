@@ -87,6 +87,309 @@ namespace LegendaryExplorer.Tools.PackageEditor.Experiments
             dlg.Show();
         }
 
+        #region Move & Rotate Conversation Scene
+
+        /// <summary>
+        /// Select a BioStage, enter its NEW absolute location + yaw, and move AND yaw-rotate the entire
+        /// conversation scene as a rigid unit. Transforms placed actors/cameras/props (and the BioStage) in the
+        /// currently open base package, and all world-frame InterpTrackMove keys in both the base package and its
+        /// sibling _LOC_INT package. Anchor-relative (IMF_AnchorObject) tracks are left untouched.
+        /// </summary>
+        public static void MoveAndRotateConversationScene(PackageEditorWindow pew)
+        {
+            if (pew?.Pcc is null)
+            {
+                return;
+            }
+
+            if (!pew.TryGetSelectedExport(out ExportEntry selectedExport) || !selectedExport.IsA("BioStage"))
+            {
+                MessageBox.Show(pew,
+                    "Select the BioStage for the conversation you want to move in the tree first, then run this experiment.",
+                    "Move & Rotate Conversation Scene", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            // Read the BioStage's current location + yaw. This is the pivot the whole scene rotates around.
+            if (!TryGetActorLocation(selectedExport, out Vector3 oldLocation))
+            {
+                MessageBox.Show(pew,
+                    "The selected BioStage has no Location property, so its current position can't be read.",
+                    "Move & Rotate Conversation Scene", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            float oldYawDegrees = GetActorYawDegrees(selectedExport);
+
+            try
+            {
+                float newX = float.Parse(PromptDialog.Prompt(pew, "Enter the NEW stage X location", "New Stage X", oldLocation.X.ToString("0.###"), true));
+                float newY = float.Parse(PromptDialog.Prompt(pew, "Enter the NEW stage Y location", "New Stage Y", oldLocation.Y.ToString("0.###"), true));
+                float newZ = float.Parse(PromptDialog.Prompt(pew, "Enter the NEW stage Z location", "New Stage Z", oldLocation.Z.ToString("0.###"), true));
+                float newYawDegrees = float.Parse(PromptDialog.Prompt(pew, "Enter the NEW stage Yaw (degrees)", "New Stage Yaw", oldYawDegrees.ToString("0.###"), true));
+
+                var translation = new Vector3(newX - oldLocation.X, newY - oldLocation.Y, newZ - oldLocation.Z);
+                float deltaYawDegrees = newYawDegrees - oldYawDegrees;
+
+                if (translation.Length() < 0.0001f && MathF.Abs(deltaYawDegrees) < 0.0001f)
+                {
+                    MessageBox.Show(pew, "The new values match the current values, so there is nothing to move.",
+                        "Move & Rotate Conversation Scene", MessageBoxButton.OK, MessageBoxImage.Information);
+                    return;
+                }
+
+                // Resolve the sibling localized (_LOC_INT) package.
+                string locPath = ResolveLocFilePath(pew, pew.Pcc.FilePath);
+
+                float deltaYawRadians = MathF.PI * (deltaYawDegrees / 180f);
+                float sinYaw = MathF.Sin(deltaYawRadians);
+                float cosYaw = MathF.Cos(deltaYawRadians);
+
+                string locSummary = locPath != null ? Path.GetFileName(locPath) : "(none - base file only)";
+                MessageBoxResult confirm = MessageBox.Show(pew,
+                    $"About to move & rotate the whole scene as one unit.\n\n" +
+                    $"Pivot (current stage): ({oldLocation.X:0.###}, {oldLocation.Y:0.###}, {oldLocation.Z:0.###}), yaw {oldYawDegrees:0.###}\n" +
+                    $"Translation: ({translation.X:0.###}, {translation.Y:0.###}, {translation.Z:0.###})\n" +
+                    $"Yaw change: {deltaYawDegrees:0.###} degrees\n\n" +
+                    $"Base file: {Path.GetFileName(pew.Pcc.FilePath)}\n" +
+                    $"Localized file: {locSummary}\n\n" +
+                    "This edits placed actors/cameras/props and cinematic (InterpTrackMove) keys.\n" +
+                    "EXPERIMENTAL - MAKE BACKUPS FIRST.\n\nProceed?",
+                    "Move & Rotate Conversation Scene", MessageBoxButton.OKCancel, MessageBoxImage.Warning);
+                if (confirm != MessageBoxResult.OK)
+                {
+                    return;
+                }
+
+                // --- Transform the base (non-localized) package ---
+                int baseActors = TransformSceneActorsInPackage(pew.Pcc, oldLocation, translation, deltaYawDegrees, sinYaw, cosYaw);
+                int baseTracks = TransformInterpTrackMovesInPackage(pew.Pcc, oldLocation, translation, deltaYawDegrees, sinYaw, cosYaw);
+                pew.Pcc.Save();
+
+                // --- Transform the localized (_LOC_INT) package, if found ---
+                int locActors = 0;
+                int locTracks = 0;
+                if (locPath != null)
+                {
+                    using IMEPackage locPackage = MEPackageHandler.OpenMEPackage(locPath, forceLoadFromDisk: true);
+                    locActors = TransformSceneActorsInPackage(locPackage, oldLocation, translation, deltaYawDegrees, sinYaw, cosYaw);
+                    locTracks = TransformInterpTrackMovesInPackage(locPackage, oldLocation, translation, deltaYawDegrees, sinYaw, cosYaw);
+                    locPackage.Save();
+                }
+
+                MessageBox.Show(pew,
+                    $"Scene moved & rotated.\n\n" +
+                    $"Base file: {baseActors} actor(s), {baseTracks} InterpTrackMove(s).\n" +
+                    $"Localized file: {locActors} actor(s), {locTracks} InterpTrackMove(s).\n\n" +
+                    "Note: anchor-relative (IMF_AnchorObject) tracks were left as-is (they follow their anchor actor). " +
+                    "Items referenced only by tag from other files are not adjusted.",
+                    "Move & Rotate Conversation Scene", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            catch (FormatException)
+            {
+                // user typed something non-numeric or cancelled a prompt
+            }
+        }
+
+        /// <summary>
+        /// Works out the sibling _LOC_INT package path for a base package, and lets the user confirm or pick a different file.
+        /// Returns null if the user chooses to skip the localized file.
+        /// </summary>
+        private static string ResolveLocFilePath(PackageEditorWindow pew, string basePath)
+        {
+            string dir = Path.GetDirectoryName(basePath) ?? string.Empty;
+            string nameNoExt = Path.GetFileNameWithoutExtension(basePath);
+            string ext = Path.GetExtension(basePath);
+
+            // If the base file already looks like a localized file, don't try to add another suffix.
+            string candidate = nameNoExt.Contains("_LOC_", StringComparison.OrdinalIgnoreCase)
+                ? basePath
+                : Path.Combine(dir, $"{nameNoExt}_LOC_INT{ext}");
+
+            bool candidateExists = File.Exists(candidate);
+            string prompt = candidateExists
+                ? $"Localized file found:\n{candidate}\n\nUse this file? (No = pick a different one, Cancel = skip localized file)"
+                : $"Expected localized file was not found:\n{candidate}\n\nPick one manually? (Cancel = skip localized file)";
+
+            MessageBoxResult choice = MessageBox.Show(pew, prompt, "Localized (_LOC_INT) File",
+                MessageBoxButton.YesNoCancel, MessageBoxImage.Question);
+
+            switch (choice)
+            {
+                case MessageBoxResult.Yes when candidateExists:
+                    return candidate;
+                case MessageBoxResult.Cancel:
+                    return null;
+                default:
+                    var dlg = new CommonOpenFileDialog("Select the localized (_LOC_INT) package")
+                    {
+                        InitialDirectory = dir,
+                        EnsureFileExists = true
+                    };
+                    dlg.Filters.Add(new CommonFileDialogFilter("Package files", "*.pcc;*.upk"));
+                    dlg.Filters.Add(new CommonFileDialogFilter("All files", "*.*"));
+                    return dlg.ShowDialog() == CommonFileDialogResult.Ok ? dlg.FileName : null;
+            }
+        }
+
+        /// <summary>
+        /// Yaw-rotates (around <paramref name="pivot"/>) and translates the Location/Rotation of every placed actor in the
+        /// package, including StaticCollectionActor components. Returns how many actors were changed.
+        /// </summary>
+        private static int TransformSceneActorsInPackage(IMEPackage package, Vector3 pivot, Vector3 translation, float deltaYawDegrees, float sinYaw, float cosYaw)
+        {
+            int changed = 0;
+            int deltaYawUnits = deltaYawDegrees.DegreesToUnrealRotationUnits();
+
+            foreach (ExportEntry actor in package.Exports)
+            {
+                if (actor.IsDefaultObject || !actor.IsA("Actor") || actor.ClassName == "BioWorldInfo")
+                {
+                    continue;
+                }
+
+                // StaticCollectionActors hold multiple components in a single transform array.
+                if (actor.ClassName.Contains("CollectionActor"))
+                {
+                    if (ObjectBinary.From(actor) is StaticCollectionActor sca
+                        && actor.GetProperty<ArrayProperty<ObjectProperty>>(sca.ComponentPropName) is { } components
+                        && sca.LocalToWorldTransforms.Count >= components.Count)
+                    {
+                        for (int index = 0; index < components.Count; index++)
+                        {
+                            ((float posX, float posY, float posZ), Vector3 scale, (int uuPitch, int uuYaw, int uuRoll)) = sca.LocalToWorldTransforms[index].UnrealDecompose();
+                            (float newX, float newY) = RotateAroundPivot(posX, posY, pivot.X, pivot.Y, sinYaw, cosYaw);
+                            sca.LocalToWorldTransforms[index] = ActorUtils.ComposeLocalToWorld(
+                                new Vector3(newX + translation.X, newY + translation.Y, posZ + translation.Z),
+                                new Rotator(uuPitch, uuYaw + deltaYawUnits, uuRoll),
+                                scale);
+                        }
+                        actor.WriteBinary(sca);
+                        changed++;
+                    }
+                    continue;
+                }
+
+                StructProperty locationProp = actor.GetProperty<StructProperty>("location") ?? actor.GetProperty<StructProperty>("Location");
+                if (locationProp == null)
+                {
+                    continue;
+                }
+
+                float oldX = locationProp.GetProp<FloatProperty>("X")?.Value ?? 0;
+                float oldY = locationProp.GetProp<FloatProperty>("Y")?.Value ?? 0;
+                float oldZ = locationProp.GetProp<FloatProperty>("Z")?.Value ?? 0;
+
+                (float rotatedX, float rotatedY) = RotateAroundPivot(oldX, oldY, pivot.X, pivot.Y, sinYaw, cosYaw);
+                locationProp.Properties.AddOrReplaceProp(new FloatProperty(rotatedX + translation.X, "X"));
+                locationProp.Properties.AddOrReplaceProp(new FloatProperty(rotatedY + translation.Y, "Y"));
+                locationProp.Properties.AddOrReplaceProp(new FloatProperty(oldZ + translation.Z, "Z"));
+                actor.WriteProperty(locationProp);
+
+                StructProperty rotationProp = actor.GetProperty<StructProperty>("Rotation") ?? actor.GetProperty<StructProperty>("rotation");
+                if (rotationProp != null)
+                {
+                    (int pitch, int yaw, int roll) = CommonStructs.GetRotator(rotationProp);
+                    actor.WriteProperty(CommonStructs.RotatorProp(new Rotator(pitch, yaw + deltaYawUnits, roll), rotationProp.Name));
+                }
+
+                changed++;
+            }
+
+            return changed;
+        }
+
+        /// <summary>
+        /// Yaw-rotates (around <paramref name="pivot"/>) and translates every world-frame InterpTrackMove key in the package.
+        /// Anchor-relative (IMF_AnchorObject) tracks are skipped. Returns how many tracks were changed.
+        /// </summary>
+        private static int TransformInterpTrackMovesInPackage(IMEPackage package, Vector3 pivot, Vector3 translation, float deltaYawDegrees, float sinYaw, float cosYaw)
+        {
+            int changed = 0;
+
+            foreach (ExportEntry exp in package.Exports.Where(x => !x.IsDefaultObject && x.ClassName == "InterpTrackMove"))
+            {
+                string moveFrame = exp.GetProperty<EnumProperty>("MoveFrame")?.Value;
+                if (moveFrame == "IMF_AnchorObject")
+                {
+                    continue; // relative to an anchor actor; moving the actor already moves these
+                }
+
+                PropertyCollection props = exp.GetProperties();
+                var points = props.GetProp<StructProperty>("PosTrack")?.GetProp<ArrayProperty<StructProperty>>("Points");
+                if (points == null)
+                {
+                    continue;
+                }
+                var eulerPoints = props.GetProp<StructProperty>("EulerTrack")?.GetProp<ArrayProperty<StructProperty>>("Points");
+
+                for (int n = 0; n < points.Count; n++)
+                {
+                    StructProperty outVal = points[n].GetProp<StructProperty>("OutVal");
+                    if (outVal != null)
+                    {
+                        float x = outVal.GetProp<FloatProperty>("X")?.Value ?? 0;
+                        float y = outVal.GetProp<FloatProperty>("Y")?.Value ?? 0;
+                        float z = outVal.GetProp<FloatProperty>("Z")?.Value ?? 0;
+                        (float newX, float newY) = RotateAroundPivot(x, y, pivot.X, pivot.Y, sinYaw, cosYaw);
+                        outVal.GetProp<FloatProperty>("X").Value = newX + translation.X;
+                        outVal.GetProp<FloatProperty>("Y").Value = newY + translation.Y;
+                        outVal.GetProp<FloatProperty>("Z").Value = z + translation.Z;
+                    }
+
+                    if (eulerPoints != null && n < eulerPoints.Count)
+                    {
+                        StructProperty outRot = eulerPoints[n].GetProp<StructProperty>("OutVal");
+                        if (outRot?.GetProp<FloatProperty>("Z") is { } yawProp)
+                        {
+                            yawProp.Value += deltaYawDegrees; // EulerTrack yaw is stored in degrees
+                        }
+                    }
+                }
+
+                exp.WriteProperties(props);
+                changed++;
+            }
+
+            return changed;
+        }
+
+        private static (float x, float y) RotateAroundPivot(float x, float y, float pivotX, float pivotY, float sinYaw, float cosYaw)
+        {
+            float relX = x - pivotX;
+            float relY = y - pivotY;
+            float rotX = relX * cosYaw - relY * sinYaw;
+            float rotY = relX * sinYaw + relY * cosYaw;
+            return (pivotX + rotX, pivotY + rotY);
+        }
+
+        private static bool TryGetActorLocation(ExportEntry actor, out Vector3 location)
+        {
+            StructProperty loc = actor.GetProperty<StructProperty>("location") ?? actor.GetProperty<StructProperty>("Location");
+            if (loc == null)
+            {
+                location = Vector3.Zero;
+                return false;
+            }
+            location = new Vector3(
+                loc.GetProp<FloatProperty>("X")?.Value ?? 0,
+                loc.GetProp<FloatProperty>("Y")?.Value ?? 0,
+                loc.GetProp<FloatProperty>("Z")?.Value ?? 0);
+            return true;
+        }
+
+        private static float GetActorYawDegrees(ExportEntry actor)
+        {
+            StructProperty rot = actor.GetProperty<StructProperty>("Rotation") ?? actor.GetProperty<StructProperty>("rotation");
+            if (rot == null)
+            {
+                return 0;
+            }
+            (int _, int yaw, int _) = CommonStructs.GetRotator(rot);
+            return yaw.UnrealRotationUnitsToDegrees();
+        }
+
+        #endregion
+
         public static void BeccaSquidSelectiveTexturesToTfc(PackageEditorWindow pew)
         {
             if (pew?.Pcc is null)

@@ -185,9 +185,7 @@
         <MenuItem Header="Destroyer" Click="BlowMeUp"/>
         <MenuItem Header="Trash Compactor" Click="RunTrashCompactor"/>
         <MenuItem Header="Move Scene" Click="ShiftInterpTrackMovePackageWideScene"/>
-        <MenuItem Header="Move Scene - Test" Click="ShiftInterpTrackMovePackageWideSceneTest"/>
         <MenuItem Header="Anchor Moves" Click="MakeInterpTrackMovesIntoAnchors"/>
-        <MenuItem Header="Move Anchors - Test" Click="MakeInterpTrackMovesIntoAnchorsTest"/>
         <MenuItem Header="Bulk Replace TLK refs" Click="ReplaceAllTlkRefs"/>
         <MenuItem Header="RenameFXA (including internal)" Click="RenameFXA"/>
         <MenuItem Header="Wwise Import Bank and References - Do not overwrite existing streams" Click="ImportWwiseBankRefs_Click"/>
@@ -243,6 +241,7 @@
         </MenuItem>
     </MenuItem>
     <MenuItem Header="becca can't code">
+        <MenuItem Header="Move &amp; Rotate Conversation Scene" Click="MoveAndRotateConversationScene_Click" ToolTip="Select a BioStage, enter its NEW location + yaw, and move/rotate the whole conversation scene (actors, cameras, props and cinematic InterpTrackMoves in the base and _LOC_INT files) as one rigid unit."/>
         <MenuItem Header="becca butchers squid's experiment: move selected package stored textures to tfc" Click="BeccaSquidSelectiveTexturesToTfc_Click" ToolTip="Based on Squid's original experiment, but lets you pick which package-stored textures to move to TFC."/>
         <MenuItem Header="Light Finder" Click="FindClosestLights_Click" ToolTip="Lists the closest placed lights to a set of world coordinates in the current package."/>
         <MenuItem Header="Scan block-compressed textures for corrupted 2x2/1x1 mips (select + regenerate)" Click="ScanAndRegenerateCorruptedSmallMips_Click" ToolTip="Scans for corrupted 2x2/1x1 block-compressed mips, shows reasons with checkboxes, and regenerates selected items."/>
