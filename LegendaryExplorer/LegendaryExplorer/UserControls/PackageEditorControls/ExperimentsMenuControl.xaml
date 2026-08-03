@@ -241,6 +241,11 @@
         </MenuItem>
     </MenuItem>
     <MenuItem Header="becca can't code">
+        <MenuItem Header="Experiment: force full clone for clone-with-references"
+                  ToolTip="When enabled, clone-with-references will stop matching existing exports by name/path and instead fully clone referenced exports from the source package."
+                  IsCheckable="True"
+                  StaysOpenOnClick="True"
+                  IsChecked="{Binding BeccaCloneRefsForceFullClone, Mode=TwoWay}"/>
         <MenuItem Header="Move &amp; Rotate Conversation Scene" Click="MoveAndRotateConversationScene_Click" ToolTip="Select a BioStage, enter its NEW location + yaw, and move/rotate the whole conversation scene (actors, cameras, props and cinematic InterpTrackMoves in the base and _LOC_INT files) as one rigid unit."/>
         <MenuItem Header="becca butchers squid's experiment: move selected package stored textures to tfc" Click="BeccaSquidSelectiveTexturesToTfc_Click" ToolTip="Based on Squid's original experiment, but lets you pick which package-stored textures to move to TFC."/>
         <MenuItem Header="Light Finder" Click="FindClosestLights_Click" ToolTip="Lists the closest placed lights to a set of world coordinates in the current package."/>

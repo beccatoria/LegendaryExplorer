@@ -43,6 +43,21 @@ namespace LegendaryExplorer.UserControls.PackageEditorControls
         private readonly KeyGestureConverter keyGestureConverter = new();
         private readonly Dictionary<KeyBinding, MenuItem> boundExperimentKeyBindings = [];
 
+        public bool BeccaCloneRefsForceFullClone
+        {
+            get => Settings.PackageEditor_BeccaCloneRefsForceFullClone;
+            set
+            {
+                if (Settings.PackageEditor_BeccaCloneRefsForceFullClone == value)
+                {
+                    return;
+                }
+
+                Settings.PackageEditor_BeccaCloneRefsForceFullClone = value;
+                Settings.Save();
+            }
+        }
+
         public ExperimentsMenuControl()
         {
             LoadCommands();

@@ -67,6 +67,11 @@ namespace LegendaryExplorer.Misc.AppSettings
             get => _packageeditor_boundexperimentshortcuts;
             set => SetProperty(ref _packageeditor_boundexperimentshortcuts, value);
         }
+        private static bool _packageeditor_beccaclonerefsforcefullclone = false;
+        public static bool PackageEditor_BeccaCloneRefsForceFullClone {
+            get => _packageeditor_beccaclonerefsforcefullclone;
+            set => SetProperty(ref _packageeditor_beccaclonerefsforcefullclone, value);
+        }
         private static int _sequenceeditor_maxvarstringlength = 40;
         public static int SequenceEditor_MaxVarStringLength {
             get => _sequenceeditor_maxvarstringlength;
@@ -425,6 +430,7 @@ namespace LegendaryExplorer.Misc.AppSettings
             PackageEditor_ShowTreeEntrySubText = TryGetSetting(settingsJson, "packageeditor_showtreeentrysubtext", true);
             PackageEditor_ShowExperiments = TryGetSetting(settingsJson, "packageeditor_showexperiments", false);
             PackageEditor_BoundExperimentShortcuts = TryGetSetting(settingsJson, "packageeditor_boundexperimentshortcuts", new Dictionary<string, string>());
+            PackageEditor_BeccaCloneRefsForceFullClone = TryGetSetting(settingsJson, "packageeditor_beccaclonerefsforcefullclone", false);
             SequenceEditor_MaxVarStringLength = TryGetSetting(settingsJson, "sequenceeditor_maxvarstringlength", 40);
             SequenceEditor_ShowParsedInfo = TryGetSetting(settingsJson, "sequenceeditor_showparsedinfo", true);
             SequenceEditor_AutoSaveViewV2 = TryGetSetting(settingsJson, "sequenceeditor_autosaveviewv2", true);
@@ -509,6 +515,7 @@ namespace LegendaryExplorer.Misc.AppSettings
                     settingsJson["packageeditor_showtreeentrysubtext"] = PackageEditor_ShowTreeEntrySubText.ToString();
                     settingsJson["packageeditor_showexperiments"] = PackageEditor_ShowExperiments.ToString();
                     settingsJson["packageeditor_boundexperimentshortcuts"] = PackageEditor_BoundExperimentShortcuts;
+                    settingsJson["packageeditor_beccaclonerefsforcefullclone"] = PackageEditor_BeccaCloneRefsForceFullClone.ToString();
                     settingsJson["sequenceeditor_maxvarstringlength"] = SequenceEditor_MaxVarStringLength.ToString();
                     settingsJson["sequenceeditor_showparsedinfo"] = SequenceEditor_ShowParsedInfo.ToString();
                     settingsJson["sequenceeditor_autosaveviewv2"] = SequenceEditor_AutoSaveViewV2.ToString();

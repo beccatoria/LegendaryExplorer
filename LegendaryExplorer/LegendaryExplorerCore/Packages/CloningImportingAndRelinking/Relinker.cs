@@ -108,6 +108,11 @@ namespace LegendaryExplorerCore.Packages.CloningImportingAndRelinking
         public bool PortLocalizationImportsMemorySafe { get; set; }
 
         /// <summary>
+        /// If set, export relinking will not attempt to reuse existing destination exports by name/path and will instead import dependencies.
+        /// </summary>
+        public bool ForceImportExportDependencies { get; set; }
+
+        /// <summary>
         /// Invoked when an error occurs during porting. Can be null.
         /// </summary>
         public Action<string> ErrorOccurredCallback;
@@ -964,7 +969,9 @@ namespace LegendaryExplorerCore.Packages.CloningImportingAndRelinking
             // is referenced multiple times and gets relinked in as a different object. We only do material interface
             // because it's fairly easy to swap; others could probably be implemented here and in ImportExport().
             // To allow all items to substitute, use the ROP's RelinkAllowDifferingClassesInRelink item.
-            IEntry existingEntry = FindExistingEntry(instancedFullPath, relinkingExport, sourceExport, rop);
+            IEntry existingEntry = rop.ForceImportExportDependencies
+                ? null
+                : FindExistingEntry(instancedFullPath, relinkingExport, sourceExport, rop);
 
             if (existingEntry != null)
             {
@@ -1012,7 +1019,9 @@ namespace LegendaryExplorerCore.Packages.CloningImportingAndRelinking
                             // The destination IFP may have changed
                             // We should check again if it exists at this destination IFP or we will add a duplicate
                             var newIFP = parent.InstancedFullPath + '.' + sourceExport.ObjectName.Instanced;
-                            existingEntry = FindExistingEntry(newIFP, relinkingExport, sourceExport, rop);
+                            existingEntry = rop.ForceImportExportDependencies
+                                ? null
+                                : FindExistingEntry(newIFP, relinkingExport, sourceExport, rop);
                             if (existingEntry != null)
                             {
                                 // Relink to existing object

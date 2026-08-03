@@ -4066,6 +4066,7 @@ namespace LegendaryExplorer.Tools.PackageEditor
                     GenerateImportsForGlobalFiles = portingOption.PortGlobalsAsImports,
                     PortImportsMemorySafe = portingOption.PortExportsMemorySafe,
                     PortExportsAsImportsWhenPossible = portingOption.PortExportsAsImportsWhenPossible,
+                    ForceImportExportDependencies = Settings.PackageEditor_BeccaCloneRefsForceFullClone,
                 };
 
                 var relinkResults = EntryImporter.ImportAndRelinkEntries(portingOption.PortingOptionChosen, sourceEntry, Pcc,
