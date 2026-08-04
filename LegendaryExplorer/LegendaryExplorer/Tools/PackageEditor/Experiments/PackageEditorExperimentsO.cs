@@ -300,7 +300,7 @@ namespace LegendaryExplorer.Tools.PackageEditor.Experiments
 
         /// <summary>
         /// Yaw-rotates (around <paramref name="pivot"/>) and translates every world-frame InterpTrackMove key in the package.
-        /// Anchor-relative (IMF_AnchorObject) tracks are skipped. Returns how many tracks were changed.
+        /// Non-world tracks (IMF_AnchorObject and IMF_RelativeToInitial) are skipped. Returns how many tracks were changed.
         /// </summary>
         private static int TransformInterpTrackMovesInPackage(IMEPackage package, Vector3 pivot, Vector3 translation, float deltaYawDegrees, float sinYaw, float cosYaw)
         {
@@ -309,9 +309,9 @@ namespace LegendaryExplorer.Tools.PackageEditor.Experiments
             foreach (ExportEntry exp in package.Exports.Where(x => !x.IsDefaultObject && x.ClassName == "InterpTrackMove"))
             {
                 string moveFrame = exp.GetProperty<EnumProperty>("MoveFrame")?.Value;
-                if (moveFrame == "IMF_AnchorObject")
+                if (moveFrame is "IMF_AnchorObject" or "IMF_RelativeToInitial")
                 {
-                    continue; // relative to an anchor actor; moving the actor already moves these
+                    continue; // non-world frame; moving/rotating the bound actor already carries these correctly
                 }
 
                 PropertyCollection props = exp.GetProperties();
