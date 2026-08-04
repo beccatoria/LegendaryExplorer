@@ -275,32 +275,43 @@
                              VirtualizingStackPanel.IsVirtualizing="True" VirtualizingStackPanel.VirtualizationMode="Recycling">
                         <ListBox.GroupStyle>
                             <GroupStyle>
-                                <GroupStyle.HeaderTemplate>
-                                    <DataTemplate>
-                                        <DockPanel x:Name="FileGroupHeader" Background="#FFE0E0E0" Margin="0,2,0,0">
-                                            <Button DockPanel.Dock="Right" Content="X" Padding="4,0" Margin="2,0"
-                                                    Command="{Binding Data.CloseFileCommand, Source={StaticResource bindingProxy}}"
-                                                    CommandParameter="{Binding Name}" ToolTip="Close this file" FontSize="10"/>
-                                            <Button DockPanel.Dock="Right" Content="Save" Padding="4,0" Margin="2,0"
-                                                    Command="{Binding Data.SaveSingleFileCommand, Source={StaticResource bindingProxy}}"
-                                                    CommandParameter="{Binding Name}" ToolTip="Save this file" FontSize="10"/>
-                                            <Button DockPanel.Dock="Right" Content="Commit" Padding="4,0" Margin="2,0"
-                                                    Command="{Binding Data.CommitSingleFileCommand, Source={StaticResource bindingProxy}}"
-                                                    CommandParameter="{Binding Name}" ToolTip="Commit Level Editor changes for this file" FontSize="10"/>
-                                            <ToggleButton DockPanel.Dock="Right" Padding="2,0" Margin="2,0"
-                                                          IsChecked="{Binding Name.IsReadOnly, Mode=TwoWay}"
-                                                          ToolTip="Toggle read-only — actors cannot be edited when enabled">
-                                                <Grid Width="12" Height="12">
-                                                    <fa:ImageAwesome Icon="Solid_Lock" Width="12"
-                                                                     Visibility="{Binding IsChecked, RelativeSource={RelativeSource AncestorType=ToggleButton}, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                                                    <fa:ImageAwesome Icon="Solid_LockOpen" Width="12"
-                                                                     Visibility="{Binding IsChecked, RelativeSource={RelativeSource AncestorType=ToggleButton}, Converter={StaticResource BoolToVisibilityConverter}, ConverterParameter='Not'}"/>
-                                                </Grid>
-                                            </ToggleButton>
-                                            <TextBlock Text="{Binding Name.FileName, Mode=OneTime}" FontWeight="Bold" Padding="4,2" VerticalAlignment="Center"/>
-                                        </DockPanel>
-                                    </DataTemplate>
-                                </GroupStyle.HeaderTemplate>
+                                <GroupStyle.ContainerStyle>
+                                    <Style TargetType="{x:Type GroupItem}">
+                                        <Setter Property="Template">
+                                            <Setter.Value>
+                                                <ControlTemplate TargetType="{x:Type GroupItem}">
+                                                    <Expander IsExpanded="{Binding Name.IsActorListExpanded, Mode=TwoWay}" Margin="0,2,0,0">
+                                                        <Expander.Header>
+                                                            <DockPanel x:Name="FileGroupHeader" Background="#FFE0E0E0">
+                                                                <Button DockPanel.Dock="Right" Content="X" Padding="4,0" Margin="2,0"
+                                                                        Command="{Binding Data.CloseFileCommand, Source={StaticResource bindingProxy}}"
+                                                                        CommandParameter="{Binding Name}" ToolTip="Close this file" FontSize="10"/>
+                                                                <Button DockPanel.Dock="Right" Content="Save" Padding="4,0" Margin="2,0"
+                                                                        Command="{Binding Data.SaveSingleFileCommand, Source={StaticResource bindingProxy}}"
+                                                                        CommandParameter="{Binding Name}" ToolTip="Save this file" FontSize="10"/>
+                                                                <Button DockPanel.Dock="Right" Content="Commit" Padding="4,0" Margin="2,0"
+                                                                        Command="{Binding Data.CommitSingleFileCommand, Source={StaticResource bindingProxy}}"
+                                                                        CommandParameter="{Binding Name}" ToolTip="Commit Level Editor changes for this file" FontSize="10"/>
+                                                                <ToggleButton DockPanel.Dock="Right" Padding="2,0" Margin="2,0"
+                                                                              IsChecked="{Binding Name.IsReadOnly, Mode=TwoWay}"
+                                                                              ToolTip="Toggle read-only — actors cannot be edited when enabled">
+                                                                    <Grid Width="12" Height="12">
+                                                                        <fa:ImageAwesome Icon="Solid_Lock" Width="12"
+                                                                                         Visibility="{Binding IsChecked, RelativeSource={RelativeSource AncestorType=ToggleButton}, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                                                        <fa:ImageAwesome Icon="Solid_LockOpen" Width="12"
+                                                                                         Visibility="{Binding IsChecked, RelativeSource={RelativeSource AncestorType=ToggleButton}, Converter={StaticResource BoolToVisibilityConverter}, ConverterParameter='Not'}"/>
+                                                                    </Grid>
+                                                                </ToggleButton>
+                                                                <TextBlock Text="{Binding Name.FileName, Mode=OneTime}" FontWeight="Bold" Padding="4,2" VerticalAlignment="Center"/>
+                                                            </DockPanel>
+                                                        </Expander.Header>
+                                                        <ItemsPresenter/>
+                                                    </Expander>
+                                                </ControlTemplate>
+                                            </Setter.Value>
+                                        </Setter>
+                                    </Style>
+                                </GroupStyle.ContainerStyle>
                             </GroupStyle>
                         </ListBox.GroupStyle>
                         <ListBox.Resources>

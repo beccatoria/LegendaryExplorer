@@ -18,6 +18,7 @@ public class OpenLevelFile : NotifyPropertyChangedBase, IPackageUser, IDisposabl
 {
     public IMEPackage Package { get; }
     public ExportEntry LevelExport { get; }
+    public int LoadOrder { get; }
     public string FileName => Path.GetFileName(Package.FilePath);
     public string FilePath => Package.FilePath;
 
@@ -50,11 +51,19 @@ public class OpenLevelFile : NotifyPropertyChangedBase, IPackageUser, IDisposabl
         set => SetProperty(ref isReadOnly, value);
     }
 
-    public OpenLevelFile(LevelEditor owner, IMEPackage package, ExportEntry levelExport)
+    private bool isActorListExpanded = true;
+    public bool IsActorListExpanded
+    {
+        get => isActorListExpanded;
+        set => SetProperty(ref isActorListExpanded, value);
+    }
+
+    public OpenLevelFile(LevelEditor owner, IMEPackage package, ExportEntry levelExport, int loadOrder)
     {
         Owner = owner;
         Package = package;
         LevelExport = levelExport;
+        LoadOrder = loadOrder;
     }
 
     #region IPackageUser

@@ -21,7 +21,20 @@ namespace LegendaryExplorer.Tools.LevelEditor;
 public class ActorProxy : NotifyPropertyChangedBase, IDisposable, IHitProxy
 {
     public IActorEditorContext Editor;
-    public OpenLevelFile OwningFile { get; set; }
+    private OpenLevelFile _owningFile;
+    public OpenLevelFile OwningFile
+    {
+        get => _owningFile;
+        set
+        {
+            if (SetProperty(ref _owningFile, value))
+            {
+                OnPropertyChanged(nameof(OwningFileSortOrder));
+            }
+        }
+    }
+
+    public int OwningFileSortOrder => OwningFile?.LoadOrder ?? int.MaxValue;
 
     public Matrix4x4 LocalToWorld;
 
@@ -42,6 +55,7 @@ public class ActorProxy : NotifyPropertyChangedBase, IDisposable, IHitProxy
     protected IMEPackage Pcc => Export.FileRef;
 
     public string OwningFileName => System.IO.Path.GetFileName(Pcc.FilePath);
+    public int ActorUIndex => Export.UIndex;
 
     public string DisplayText { get; }
 

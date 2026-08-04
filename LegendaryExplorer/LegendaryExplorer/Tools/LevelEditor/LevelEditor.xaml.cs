@@ -117,6 +117,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
     public ObservableCollectionExtended<ActorProxy> Actors { get; } = [];
     public ICollectionView ActorsView { get; }
     private string _actorFilterText = "";
+    private int _nextFileLoadOrder;
 
     private bool _hasAnyFileOpen;
     public bool HasAnyFileOpen
@@ -469,6 +470,8 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         ActorsView = CollectionViewSource.GetDefaultView(Actors);
         ActorsView.Filter = ActorFilter;
         ActorsView.GroupDescriptions.Add(new PropertyGroupDescription(nameof(ActorProxy.OwningFile)));
+        ActorsView.SortDescriptions.Add(new SortDescription(nameof(ActorProxy.OwningFileSortOrder), ListSortDirection.Ascending));
+        ActorsView.SortDescriptions.Add(new SortDescription(nameof(ActorProxy.ActorUIndex), ListSortDirection.Ascending));
 
         LoadCommands();
         InitializeComponent();
@@ -820,7 +823,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
             return;
         }
 
-        var openFile = new OpenLevelFile(this, pcc, levelExport);
+        var openFile = new OpenLevelFile(this, pcc, levelExport, _nextFileLoadOrder++);
         // Register the OpenLevelFile as a user of the package for update notifications
         pcc.RegisterTool(openFile);
         OpenFiles.Add(openFile);
@@ -1041,9 +1044,14 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
             RenderContext.AddActor(actor);
             if (sort)
             {
-                Actors.Sort(a => a.Export.UIndex);
+                SortActorsByFileOrderThenUIndex();
             }
         }
+    }
+
+    private void SortActorsByFileOrderThenUIndex()
+    {
+        Actors.Sort(actor => (actor.OwningFileSortOrder, actor.Export.UIndex));
     }
 
     #endregion
@@ -2206,7 +2214,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
             }
             if (updated)
             {
-                Actors.Sort(a => a.Export.UIndex);
+                SortActorsByFileOrderThenUIndex();
                 UpdateGlobalDirtyState();
             }
             if (reselectUIndex is not 0)
