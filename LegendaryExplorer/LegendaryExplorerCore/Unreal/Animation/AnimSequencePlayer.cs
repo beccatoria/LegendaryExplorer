@@ -89,6 +89,20 @@ public class AnimSequencePlayer : AnimPlayer
             throw new InvalidOperationException("AnimSequence has no animation data!");
         }
 
+        // look up the animData from the AnimSequence, look up the UseTranslationBoneNames property, save it
+        var animSetData = GetAnimSetData(animSequence);
+
+        // AnimSequence.Bones (the track index -> bone name mapping) is only populated from the
+        // BioAnimSetData's TrackBoneNames when that data lives in the same package. When it is an
+        // import (common for shared gesture anim sets), Bones is filled with "???" placeholders that
+        // will never match the skeleton, leaving every bone at bind pose (a T-pose). Since GetAnimSetData
+        // resolves imports across packages, prefer its TrackBoneNames when they are available and match
+        // the number of animation tracks.
+        var trackBoneNames = animSetData?.GetProperty<ArrayProperty<NameProperty>>("TrackBoneNames")?.Select(np => np.Value.Instanced).ToList();
+        IReadOnlyList<string> boneNames = trackBoneNames is not null && trackBoneNames.Count == animSequence.Bones.Count
+            ? trackBoneNames
+            : animSequence.Bones;
+
         // Build name -> skeleton index map
         var nameToIndex = new Dictionary<string, int>(_bones.Length, StringComparer.OrdinalIgnoreCase);
         for (int i = 0; i < _bones.Length; i++)
@@ -97,16 +111,14 @@ public class AnimSequencePlayer : AnimPlayer
         }
 
         // Build reverse lookup: skeleton bone index -> anim track index
-        for (int i = 0; i < animSequence.Bones.Count; i++)
+        for (int i = 0; i < boneNames.Count; i++)
         {
-            if (nameToIndex.TryGetValue(animSequence.Bones[i], out int skelIdx))
+            if (nameToIndex.TryGetValue(boneNames[i], out int skelIdx))
             {
                 _skelToAnimMap[skelIdx] = i;
             }
         }
 
-        // look up the animData from the AnimSequence, look up the UseTranslationBoneNames property, save it
-        var animSetData = GetAnimSetData(animSequence);
         _animRotationOnly = animSetData?.GetProperty<BoolProperty>("bAnimRotationOnly")?.Value ?? true;
         _useTranslationBones = [.. animSetData?.GetProperty<ArrayProperty<NameProperty>>("UseTranslationBoneNames")?.Select(np => np.Value.Instanced) ?? []];
         _forceMeshTranslationBoneNames = [.. animSetData?.GetProperty<ArrayProperty<NameProperty>>("ForceMeshTranslationBoneNames")?.Select(np => np.Value.Instanced) ?? []];
