@@ -22,6 +22,7 @@ public class LevelEditorRenderContext : MeshRenderContext
 {
     public event Action<ActorProxy> SelectActor;
     public event Action<ActorProxy> FocusActor;
+    public event Action<BioStageOverlayMarker> SelectBioStageMarker;
     public bool LastActorSelectionWasAdditive { get; private set; }
     public List<ActorProxy> DrawList_3D = [];
     public List<UIElement> DrawList_UI = [];
@@ -40,6 +41,9 @@ public class LevelEditorRenderContext : MeshRenderContext
     public bool ShowSoundPositions;
     public bool ShowCinematicActors;
     public bool ShowDecalActors;
+    public bool ShowStageNodes;
+    public bool ShowStageCameras;
+    public ActorProxy SelectedActor;
 
     private bool IsReadOnly;
     private bool _ctrlSelectionLatched;
@@ -89,6 +93,15 @@ public class LevelEditorRenderContext : MeshRenderContext
                         RecordLeftClick(actor, x, y);
                     }
                     break;
+                case BioStageOverlayMarker marker:
+                    LastActorSelectionWasAdditive = false;
+                    SelectBioStageMarker?.Invoke(marker);
+                    TransformWidget.Attach = marker.Owner;
+                    if (button is MouseButtons.Left)
+                    {
+                        RecordLeftClick(marker.Owner, x, y);
+                    }
+                    break;
                 case AxisHitProxy axisProxy:
                     LastActorSelectionWasAdditive = false;
                     TransformWidget.CurrentAxis = axisProxy.Axis;
@@ -110,6 +123,11 @@ public class LevelEditorRenderContext : MeshRenderContext
         _ctrlSelectionLatched = false;
 
         return false;
+    }
+
+    public int RegisterHitProxy(IHitProxy hitProxy)
+    {
+        return HitProxies.Add(hitProxy);
     }
 
     private bool IsSecondClickOnSameActor(ActorProxy actor, int x, int y)

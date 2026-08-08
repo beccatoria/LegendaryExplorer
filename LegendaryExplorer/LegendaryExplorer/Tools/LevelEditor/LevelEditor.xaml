@@ -506,6 +506,71 @@
                             </StackPanel>
                         </StackPanel>
                     </GroupBox>
+                    <GroupBox Header="BioStage Overlay" Margin="5,0,5,5" BorderThickness="2"
+                              Visibility="{Binding IsBioStageActorSelected, RelativeSource={RelativeSource AncestorType={x:Type local:LevelEditor}}, Converter={StaticResource BoolToVisibilityConverter}}"
+                              DataContext="{Binding RelativeSource={RelativeSource AncestorType={x:Type local:LevelEditor}}}">
+                        <StackPanel Orientation="Vertical">
+                            <CheckBox Content="Show Stage Nodes"
+                                      IsChecked="{Binding ShowStageNodes}"
+                                      ToolTip="Show node markers from the selected BioStage skeletal mesh reference skeleton"/>
+                            <CheckBox Content="Show Stage Cameras"
+                                      IsChecked="{Binding ShowStageCameras}"
+                                      ToolTip="Show camera markers from the selected BioStage skeletal mesh reference skeleton"/>
+
+                            <Border Margin="0,6,0,0" Padding="6,4" Background="#33FFD966" BorderBrush="#99C9A100" BorderThickness="1" CornerRadius="2">
+                                <TextBlock Text="Warning: Marker edits apply to the shared stage parent asset (all instances)."
+                                           TextWrapping="Wrap"
+                                           FontSize="11"
+                                           Foreground="#FF5C4700"/>
+                            </Border>
+
+                            <Expander Header="Markers" IsExpanded="{Binding IsBioStageMarkersExpanded}" Margin="0,6,0,0"
+                                      Visibility="{Binding HasBioStageMarkers, Converter={StaticResource BoolToVisibilityConverter}}">
+                                <StackPanel Orientation="Vertical" Margin="0,4,0,0">
+                                    <ListBox ItemsSource="{Binding BioStageMarkers}"
+                                             SelectedItem="{Binding SelectedBioStageMarker, Mode=TwoWay}"
+                                             DisplayMemberPath="DisplayLabel"
+                                             MinHeight="70"
+                                             MaxHeight="140"/>
+
+                                    <StackPanel Margin="0,6,0,0"
+                                                Visibility="{Binding HasSelectedBioStageMarker, Converter={StaticResource BoolToVisibilityConverter}}">
+                                        <TextBlock Text="Selected Marker Transform" FontWeight="SemiBold" Margin="0,0,0,3"/>
+
+                                        <StackPanel Orientation="Horizontal" Margin="0,0,0,2">
+                                            <TextBlock Text="X:" Width="20" VerticalAlignment="Center"/>
+                                            <xctk:SingleUpDown Value="{Binding SelectedBioStageMarker.XPos, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                               Increment="{Binding PosIncrement, RelativeSource={RelativeSource AncestorType={x:Type local:LevelEditor}}}"
+                                                               ButtonSpinnerLocation="Left" FormatString="F3" Width="95"/>
+                                            <TextBlock Text="Y:" Width="20" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                            <xctk:SingleUpDown Value="{Binding SelectedBioStageMarker.YPos, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                               Increment="{Binding PosIncrement, RelativeSource={RelativeSource AncestorType={x:Type local:LevelEditor}}}"
+                                                               ButtonSpinnerLocation="Left" FormatString="F3" Width="95"/>
+                                            <TextBlock Text="Z:" Width="20" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                            <xctk:SingleUpDown Value="{Binding SelectedBioStageMarker.ZPos, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                               Increment="{Binding PosIncrement, RelativeSource={RelativeSource AncestorType={x:Type local:LevelEditor}}}"
+                                                               ButtonSpinnerLocation="Left" FormatString="F3" Width="95"/>
+                                        </StackPanel>
+
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="Pitch:" Width="38" VerticalAlignment="Center"/>
+                                            <xctk:SingleUpDown Value="{Binding SelectedBioStageMarker.PitchDegrees, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                               Increment="{Binding RotIncrement, RelativeSource={RelativeSource AncestorType={x:Type local:LevelEditor}}}"
+                                                               ButtonSpinnerLocation="Left" FormatString="F3" Width="95"/>
+                                            <TextBlock Text="Yaw:" Width="30" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                            <xctk:SingleUpDown Value="{Binding SelectedBioStageMarker.YawDegrees, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                               Increment="{Binding RotIncrement, RelativeSource={RelativeSource AncestorType={x:Type local:LevelEditor}}}"
+                                                               ButtonSpinnerLocation="Left" FormatString="F3" Width="95"/>
+                                            <TextBlock Text="Roll:" Width="30" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                            <xctk:SingleUpDown Value="{Binding SelectedBioStageMarker.RollDegrees, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                               Increment="{Binding RotIncrement, RelativeSource={RelativeSource AncestorType={x:Type local:LevelEditor}}}"
+                                                               ButtonSpinnerLocation="Left" FormatString="F3" Width="95"/>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Expander>
+                        </StackPanel>
+                    </GroupBox>
                     </WrapPanel>
                 </DockPanel>
 

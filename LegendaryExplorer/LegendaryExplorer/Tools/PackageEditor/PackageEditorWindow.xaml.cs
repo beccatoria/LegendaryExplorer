@@ -3208,32 +3208,35 @@ namespace LegendaryExplorer.Tools.PackageEditor
 
         private void InitializeTreeViewBackground_Completed(Task<List<TreeViewEntry>> prevTask)
         {
-            if (prevTask.Exception == null && prevTask.Result != null)
+            try
             {
-                ResetTreeView();
-                AllTreeViewNodesX.AddRange(prevTask.Result);
-            }
-
-            IsLoadingFile = false;
-            if (QueuedGotoNumber != 0)
-            {
-                //Wait for UI to render
-                Dispatcher.Invoke(new Action(() => { }), DispatcherPriority.ApplicationIdle, null);
-                BusyText = $"Navigating to {QueuedGotoNumber}";
-
-                GoToNumber(QueuedGotoNumber);
-                Goto_TextBox.Text = QueuedGotoNumber.ToString();
-                if (QueuedGotoNumber > 0)
+                if (prevTask.Exception == null && prevTask.Result != null)
                 {
-                    Interpreter_Tab.IsSelected = true;
+                    ResetTreeView();
+                    AllTreeViewNodesX.AddRange(prevTask.Result);
                 }
 
-                QueuedGotoNumber = 0;
-                IsBusy = false;
+                IsLoadingFile = false;
+                if (QueuedGotoNumber != 0)
+                {
+                    //Wait for UI to render
+                    Dispatcher.Invoke(new Action(() => { }), DispatcherPriority.ApplicationIdle, null);
+                    BusyText = $"Navigating to {QueuedGotoNumber}";
+
+                    GoToNumber(QueuedGotoNumber);
+                    Goto_TextBox.Text = QueuedGotoNumber.ToString();
+                    if (QueuedGotoNumber > 0)
+                    {
+                        Interpreter_Tab.IsSelected = true;
+                    }
+
+                    QueuedGotoNumber = 0;
+                }
             }
-            else
+            finally
             {
                 IsBusy = false;
+                IsBusyTaskbar = false;
             }
         }
 
@@ -3803,6 +3806,12 @@ namespace LegendaryExplorer.Tools.PackageEditor
             {
                 case CurrentViewMode.Tree:
                     {
+                        if (AllTreeViewNodesX.Count is 0)
+                        {
+                            QueuedGotoNumber = entryIndex;
+                            return false;
+                        }
+
                         /*if (entryIndex >= -pcc.ImportCount && entryIndex < pcc.ExportCount)
                         {
                             //List<AdvancedTreeViewItem<TreeViewItem>> noNameNodes = AllTreeViewNodes.Where(s => s.Name.Length == 0).ToList();

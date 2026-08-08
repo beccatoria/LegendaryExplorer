@@ -314,6 +314,9 @@ public class SkeletalMeshComponentProxy : MeshComponentProxy
     SkinnedMeshRenderer skinnedMeshRenderer;
     AnimSequencePlayer animPlayer;
     public bool ForceWireframeRender { get; set; }
+    public ExportEntry SkeletalMeshExport { get; private set; }
+    public SkeletalMesh SkeletalMeshBinary { get; private set; }
+    public MeshBone[] RefSkeleton { get; private set; }
 
     public SkeletalMeshComponentProxy(MeshRenderContext context, ExportEntry componentExport, ActorProxy parent) : base(context, componentExport, parent)
     {
@@ -326,7 +329,10 @@ public class SkeletalMeshComponentProxy : MeshComponentProxy
         }
         if (Properties.GetProp<ObjectProperty>("SkeletalMesh")?.ResolveToExport(Export.FileRef, context.PackageCache) is ExportEntry meshExport)
         {
+            SkeletalMeshExport = meshExport;
             SkeletalMesh skm = meshExport.GetBinaryData<SkeletalMesh>();
+            SkeletalMeshBinary = skm;
+            RefSkeleton = skm.RefSkeleton;
             if (skm.LODModels.Length > LOD)
             {
                 skm.SetMaterials(MaterialOverrides, true);

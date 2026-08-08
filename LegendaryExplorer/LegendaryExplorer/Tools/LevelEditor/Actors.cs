@@ -806,12 +806,114 @@ public class BrushProxy : ActorProxy
     public override int HitPriority => IHitProxy.WireFramePriority;
 }
 
+public sealed class BioStageOverlayMarker : NotifyPropertyChangedBase, IHitProxy
+{
+    internal BioStageActorProxy Owner { get; }
+    public int BoneIndex { get; }
+    public string BoneName { get; }
+    public bool IsCamera { get; }
+    public int SequenceNumber { get; }
+    public string MarkerCategoryText => IsCamera ? "Camera" : "Node";
+    public string DisplayLabel => $"{MarkerCategoryText} {SequenceNumber}: {BoneName}";
+    internal Matrix4x4 ComponentSpaceTransform;
+
+    public int HitID { get; set; }
+    public int HitPriority => IHitProxy.UIPriority;
+
+    public float XPos
+    {
+        get => Owner.GetMarkerLocalPosition(this).X;
+        set => Owner.SetMarkerLocalPosition(this, Owner.GetMarkerLocalPosition(this) with { X = value });
+    }
+
+    public float YPos
+    {
+        get => Owner.GetMarkerLocalPosition(this).Y;
+        set => Owner.SetMarkerLocalPosition(this, Owner.GetMarkerLocalPosition(this) with { Y = value });
+    }
+
+    public float ZPos
+    {
+        get => Owner.GetMarkerLocalPosition(this).Z;
+        set => Owner.SetMarkerLocalPosition(this, Owner.GetMarkerLocalPosition(this) with { Z = value });
+    }
+
+    public float PitchDegrees
+    {
+        get => Owner.GetMarkerRotator(this).Pitch.UnrealRotationUnitsToDegrees();
+        set
+        {
+            Rotator current = Owner.GetMarkerRotator(this);
+            Owner.SetMarkerRotator(this, new Rotator(value.DegreesToUnrealRotationUnits(), current.Yaw, current.Roll));
+        }
+    }
+
+    public float YawDegrees
+    {
+        get => Owner.GetMarkerRotator(this).Yaw.UnrealRotationUnitsToDegrees();
+        set
+        {
+            Rotator current = Owner.GetMarkerRotator(this);
+            Owner.SetMarkerRotator(this, new Rotator(current.Pitch, value.DegreesToUnrealRotationUnits(), current.Roll));
+        }
+    }
+
+    public float RollDegrees
+    {
+        get => Owner.GetMarkerRotator(this).Roll.UnrealRotationUnitsToDegrees();
+        set
+        {
+            Rotator current = Owner.GetMarkerRotator(this);
+            Owner.SetMarkerRotator(this, new Rotator(current.Pitch, current.Yaw, value.DegreesToUnrealRotationUnits()));
+        }
+    }
+
+    internal BioStageOverlayMarker(BioStageActorProxy owner, int boneIndex, string boneName, bool isCamera, int sequenceNumber)
+    {
+        Owner = owner;
+        BoneIndex = boneIndex;
+        BoneName = boneName;
+        IsCamera = isCamera;
+        SequenceNumber = sequenceNumber;
+    }
+
+    internal void NotifyTransformChanged()
+    {
+        OnPropertyChanged(nameof(XPos));
+        OnPropertyChanged(nameof(YPos));
+        OnPropertyChanged(nameof(ZPos));
+        OnPropertyChanged(nameof(PitchDegrees));
+        OnPropertyChanged(nameof(YawDegrees));
+        OnPropertyChanged(nameof(RollDegrees));
+    }
+}
+
 public class BioStageActorProxy : ActorProxy
 {
+    private static readonly int[] SevenSegmentDigitMasks =
+    [
+        0b1110111, // 0
+        0b0100100, // 1
+        0b1011101, // 2
+        0b1101101, // 3
+        0b0101110, // 4
+        0b1101011, // 5
+        0b1111011, // 6
+        0b0100101, // 7
+        0b1111111, // 8
+        0b1101111  // 9
+    ];
+
     public SkeletalMeshComponentProxy MeshComponent;
     public StaticMeshComponentProxy StaticMeshComponent;
     public BrushComponentProxy BrushComponent;
     private List<PrimitiveComponentProxy> StageComponents = [];
+    private readonly List<BioStageOverlayMarker> _stageMarkers = [];
+    private bool _stageMarkersInitialized;
+    private bool _stageMarkersDirty;
+    private Matrix4x4[] _componentSpaceBoneTransforms = [];
+
+    public IReadOnlyList<BioStageOverlayMarker> StageMarkers => _stageMarkers;
 
     public BioStageActorProxy(IActorEditorContext context, ExportEntry actorExport) : base(context, actorExport)
     {
@@ -833,6 +935,32 @@ public class BioStageActorProxy : ActorProxy
             AddComponent(context.RenderContext, ref StaticMeshComponent);
             AddComponent(context.RenderContext, ref BrushComponent);
         }
+
+        MeshComponent ??= Components.OfType<SkeletalMeshComponentProxy>().FirstOrDefault(component => component.RefSkeleton is { Length: > 0 });
+        if (MeshComponent is not null)
+        {
+            MeshComponent.ForceWireframeRender = true;
+        }
+
+        BuildStageMarkers();
+    }
+
+    public override void CommitChanges(PackageCache packageCache = null)
+    {
+        base.CommitChanges(packageCache);
+
+        if (!_stageMarkersDirty)
+        {
+            return;
+        }
+
+        if (MeshComponent?.SkeletalMeshExport is null || MeshComponent.SkeletalMeshBinary is null)
+        {
+            return;
+        }
+
+        MeshComponent.SkeletalMeshExport.WriteBinary(MeshComponent.SkeletalMeshBinary);
+        _stageMarkersDirty = false;
     }
 
     public override int HitPriority => IHitProxy.WireFramePriority;
@@ -844,6 +972,11 @@ public class BioStageActorProxy : ActorProxy
         if (pass is not (RenderPass.Base or RenderPass.Hair))
         {
             return;
+        }
+
+        if (ReferenceEquals(context.SelectedActor, this))
+        {
+            RenderStageMarkers(context);
         }
 
         bool hasRenderableStageGeometry = Components.Any(c => c is BrushComponentProxy or StaticMeshComponentProxy or SkeletalMeshComponentProxy);
@@ -887,6 +1020,349 @@ public class BioStageActorProxy : ActorProxy
         context.Primitives.AddLine(p011, p111, color, HitID);
         context.Primitives.AddLine(p101, p111, color, HitID);
         context.Primitives.AddLine(p110, p111, color, HitID);
+    }
+
+    private void BuildStageMarkers()
+    {
+        if (_stageMarkersInitialized)
+        {
+            return;
+        }
+
+        _stageMarkersInitialized = true;
+
+        if (MeshComponent?.RefSkeleton is not { Length: > 0 })
+        {
+            return;
+        }
+
+        MeshBone[] refSkeleton = MeshComponent.RefSkeleton;
+        _componentSpaceBoneTransforms = new Matrix4x4[refSkeleton.Length];
+        int nodeSequence = 0;
+        int cameraSequence = 0;
+        for (int i = 0; i < refSkeleton.Length; i++)
+        {
+            MeshBone bone = refSkeleton[i];
+            string boneName = bone.Name.Instanced;
+            bool isCamera = IsStageCameraBoneName(boneName);
+            if (!isCamera && !IsStageNodeBoneName(boneName))
+            {
+                continue;
+            }
+
+            int sequenceNumber = isCamera ? ++cameraSequence : ++nodeSequence;
+            var marker = new BioStageOverlayMarker(this, i, boneName, isCamera, sequenceNumber);
+            if (Editor?.RenderContext is not null)
+            {
+                marker.HitID = Editor.RenderContext.RegisterHitProxy(marker);
+            }
+            _stageMarkers.Add(marker);
+        }
+
+        UpdateComponentSpaceTransforms();
+    }
+
+    private void RenderStageMarkers(LevelEditorRenderContext context)
+    {
+        if (!context.ShowStageNodes && !context.ShowStageCameras)
+        {
+            return;
+        }
+
+        BuildStageMarkers();
+        if (_stageMarkers.Count is 0)
+        {
+            return;
+        }
+
+        UpdateComponentSpaceTransforms();
+
+        Matrix4x4 meshToWorld = MeshComponent?.LocalToWorld ?? LocalToWorld;
+        foreach (BioStageOverlayMarker marker in _stageMarkers)
+        {
+            if (marker.IsCamera && !context.ShowStageCameras)
+            {
+                continue;
+            }
+
+            if (!marker.IsCamera && !context.ShowStageNodes)
+            {
+                continue;
+            }
+
+            Matrix4x4 markerToWorld = marker.ComponentSpaceTransform * meshToWorld;
+            Vector3 markerPosition = markerToWorld.Translation;
+            float markerSize = context.Camera.IsOrthographic
+                ? 18f
+                : Math.Clamp(Vector3.Distance(markerPosition, context.Camera.Position) * 0.0065f, 8f, 52f);
+
+            if (marker.IsCamera)
+            {
+                RenderCameraMarker(context, marker, markerToWorld, markerPosition, markerSize);
+            }
+            else
+            {
+                RenderNodeMarker(context, marker, markerToWorld, markerPosition, markerSize);
+            }
+
+            RenderMarkerNumber(context, marker, markerToWorld, markerPosition, markerSize);
+        }
+    }
+
+    private void RenderMarkerNumber(LevelEditorRenderContext context, BioStageOverlayMarker marker, Matrix4x4 markerToWorld, Vector3 markerPosition, float markerSize)
+    {
+        Vector3 upAxis = GetAxis(markerToWorld, Vector3.UnitZ);
+        Vector3 rightAxis = context.Camera.CameraRight;
+        Vector3 textUp = context.Camera.CameraUp;
+        float textScale = markerSize * 0.6f;
+        Vector3 anchor = markerPosition + upAxis * (markerSize * 0.9f) + rightAxis * (textScale * 0.15f);
+
+        Vector4 color = marker.IsCamera
+            ? new Vector4(1.0f, 0.93f, 0.20f, 1f)
+            : new Vector4(1.0f, 1.0f, 1.0f, 1f);
+
+        Vector3 shadowOffset = rightAxis * (textScale * 0.06f) - textUp * (textScale * 0.06f);
+        DrawNumber(context, marker.SequenceNumber, anchor + shadowOffset, rightAxis, textUp, textScale * 1.08f, new Vector4(0f, 0f, 0f, 1f), marker.HitID);
+
+        DrawNumber(context, marker.SequenceNumber, anchor, rightAxis, textUp, textScale, color, marker.HitID);
+    }
+
+    private static void DrawNumber(LevelEditorRenderContext context, int value, Vector3 anchor, Vector3 rightAxis, Vector3 upAxis, float scale, Vector4 color, int hitId)
+    {
+        string text = Math.Max(0, value).ToString();
+        float digitAdvance = scale * 0.85f;
+        float centeredOffset = (text.Length - 1) * digitAdvance * 0.5f;
+        Vector3 start = anchor - rightAxis * centeredOffset;
+
+        for (int i = 0; i < text.Length; i++)
+        {
+            if (!char.IsDigit(text[i]))
+            {
+                continue;
+            }
+
+            DrawSevenSegmentDigit(context, text[i] - '0', start + rightAxis * (i * digitAdvance), rightAxis, upAxis, scale, color, hitId);
+        }
+    }
+
+    private static void DrawSevenSegmentDigit(LevelEditorRenderContext context, int digit, Vector3 origin, Vector3 rightAxis, Vector3 upAxis, float scale, Vector4 color, int hitId)
+    {
+        if ((uint)digit >= (uint)SevenSegmentDigitMasks.Length)
+        {
+            return;
+        }
+
+        int mask = SevenSegmentDigitMasks[digit];
+
+        Vector2 topLeft = new(-0.30f, 0.50f);
+        Vector2 topRight = new(0.30f, 0.50f);
+        Vector2 midLeft = new(-0.30f, 0.00f);
+        Vector2 midRight = new(0.30f, 0.00f);
+        Vector2 bottomLeft = new(-0.30f, -0.50f);
+        Vector2 bottomRight = new(0.30f, -0.50f);
+
+        if ((mask & (1 << 0)) != 0) DrawGlyphLine(context, origin, rightAxis, upAxis, topLeft, topRight, scale, color, hitId);      // top
+        if ((mask & (1 << 1)) != 0) DrawGlyphLine(context, origin, rightAxis, upAxis, topLeft, midLeft, scale, color, hitId);       // upper-left
+        if ((mask & (1 << 2)) != 0) DrawGlyphLine(context, origin, rightAxis, upAxis, topRight, midRight, scale, color, hitId);     // upper-right
+        if ((mask & (1 << 3)) != 0) DrawGlyphLine(context, origin, rightAxis, upAxis, midLeft, midRight, scale, color, hitId);      // middle
+        if ((mask & (1 << 4)) != 0) DrawGlyphLine(context, origin, rightAxis, upAxis, midLeft, bottomLeft, scale, color, hitId);     // lower-left
+        if ((mask & (1 << 5)) != 0) DrawGlyphLine(context, origin, rightAxis, upAxis, midRight, bottomRight, scale, color, hitId);   // lower-right
+        if ((mask & (1 << 6)) != 0) DrawGlyphLine(context, origin, rightAxis, upAxis, bottomLeft, bottomRight, scale, color, hitId); // bottom
+    }
+
+    private static void DrawGlyphLine(LevelEditorRenderContext context, Vector3 origin, Vector3 rightAxis, Vector3 upAxis, Vector2 a, Vector2 b, float scale, Vector4 color, int hitId)
+    {
+        Vector3 p1 = origin + rightAxis * (a.X * scale) + upAxis * (a.Y * scale);
+        Vector3 p2 = origin + rightAxis * (b.X * scale) + upAxis * (b.Y * scale);
+        context.Primitives.AddLine(p1, p2, color, hitId);
+    }
+
+    private void UpdateComponentSpaceTransforms()
+    {
+        if (MeshComponent?.RefSkeleton is not { Length: > 0 } refSkeleton)
+        {
+            return;
+        }
+
+        if (_componentSpaceBoneTransforms.Length != refSkeleton.Length)
+        {
+            _componentSpaceBoneTransforms = new Matrix4x4[refSkeleton.Length];
+        }
+
+        for (int i = 0; i < refSkeleton.Length; i++)
+        {
+            MeshBone bone = refSkeleton[i];
+            Matrix4x4 localTransform = CreateBoneLocalTransform(bone);
+            int parentIndex = bone.ParentIndex;
+            if ((uint)parentIndex < (uint)i)
+            {
+                _componentSpaceBoneTransforms[i] = localTransform * _componentSpaceBoneTransforms[parentIndex];
+            }
+            else
+            {
+                _componentSpaceBoneTransforms[i] = localTransform;
+            }
+        }
+
+        foreach (BioStageOverlayMarker marker in _stageMarkers)
+        {
+            if ((uint)marker.BoneIndex < (uint)_componentSpaceBoneTransforms.Length)
+            {
+                marker.ComponentSpaceTransform = _componentSpaceBoneTransforms[marker.BoneIndex];
+            }
+        }
+    }
+
+    internal Vector3 GetMarkerLocalPosition(BioStageOverlayMarker marker)
+    {
+        if (MeshComponent?.RefSkeleton is not { Length: > 0 } refSkeleton || (uint)marker.BoneIndex >= (uint)refSkeleton.Length)
+        {
+            return Vector3.Zero;
+        }
+
+        return refSkeleton[marker.BoneIndex].Position;
+    }
+
+    internal Rotator GetMarkerRotator(BioStageOverlayMarker marker)
+    {
+        if (MeshComponent?.RefSkeleton is not { Length: > 0 } refSkeleton || (uint)marker.BoneIndex >= (uint)refSkeleton.Length)
+        {
+            return new Rotator(0, 0, 0);
+        }
+
+        Quaternion orientation = refSkeleton[marker.BoneIndex].Orientation;
+        if (orientation.LengthSquared() <= 0.0001f)
+        {
+            orientation = Quaternion.Identity;
+        }
+        else
+        {
+            orientation = Quaternion.Normalize(orientation);
+        }
+
+        return Rotator.FromQuaternion(orientation);
+    }
+
+    internal void SetMarkerLocalPosition(BioStageOverlayMarker marker, Vector3 newPosition)
+    {
+        if (IsReadOnly || MeshComponent?.RefSkeleton is not { Length: > 0 } refSkeleton || (uint)marker.BoneIndex >= (uint)refSkeleton.Length)
+        {
+            return;
+        }
+
+        MeshBone bone = refSkeleton[marker.BoneIndex];
+        if (bone.Position == newPosition)
+        {
+            return;
+        }
+
+        bone.Position = newPosition;
+        _stageMarkersDirty = true;
+        MarkDirty();
+        UpdateComponentSpaceTransforms();
+        marker.NotifyTransformChanged();
+    }
+
+    internal void SetMarkerRotator(BioStageOverlayMarker marker, Rotator rotator)
+    {
+        if (IsReadOnly || MeshComponent?.RefSkeleton is not { Length: > 0 } refSkeleton || (uint)marker.BoneIndex >= (uint)refSkeleton.Length)
+        {
+            return;
+        }
+
+        MeshBone bone = refSkeleton[marker.BoneIndex];
+        Quaternion newOrientation = Quaternion.Normalize(rotator.ToQuaternion());
+        if (bone.Orientation == newOrientation)
+        {
+            return;
+        }
+
+        bone.Orientation = newOrientation;
+        _stageMarkersDirty = true;
+        MarkDirty();
+        UpdateComponentSpaceTransforms();
+        marker.NotifyTransformChanged();
+    }
+
+    private void RenderNodeMarker(LevelEditorRenderContext context, BioStageOverlayMarker marker, Matrix4x4 markerToWorld, Vector3 markerPosition, float markerSize)
+    {
+        Vector4 nodeColor = new(0.23f, 0.90f, 0.43f, 1f);
+        float half = markerSize * 0.5f;
+        Vector3 xAxis = GetAxis(markerToWorld, Vector3.UnitX);
+        Vector3 yAxis = GetAxis(markerToWorld, Vector3.UnitY);
+        Vector3 zAxis = GetAxis(markerToWorld, Vector3.UnitZ);
+
+        context.Primitives.AddLine(markerPosition - xAxis * half, markerPosition + xAxis * half, nodeColor, marker.HitID);
+        context.Primitives.AddLine(markerPosition - yAxis * half, markerPosition + yAxis * half, nodeColor, marker.HitID);
+        context.Primitives.AddLine(markerPosition - zAxis * half, markerPosition + zAxis * half, nodeColor, marker.HitID);
+    }
+
+    private void RenderCameraMarker(LevelEditorRenderContext context, BioStageOverlayMarker marker, Matrix4x4 markerToWorld, Vector3 markerPosition, float markerSize)
+    {
+        Vector4 cameraColor = new(0.30f, 0.62f, 1f, 1f);
+        Vector3 forward = GetAxis(markerToWorld, Vector3.UnitX);
+        Vector3 right = GetAxis(markerToWorld, Vector3.UnitY);
+        Vector3 up = GetAxis(markerToWorld, Vector3.UnitZ);
+
+        Vector3 tip = markerPosition + forward * (markerSize * 1.8f);
+        Vector3 nearCenter = markerPosition + forward * (markerSize * 0.75f);
+        Vector3 topLeft = nearCenter + up * (markerSize * 0.45f) - right * (markerSize * 0.65f);
+        Vector3 topRight = nearCenter + up * (markerSize * 0.45f) + right * (markerSize * 0.65f);
+        Vector3 bottomLeft = nearCenter - up * (markerSize * 0.45f) - right * (markerSize * 0.65f);
+        Vector3 bottomRight = nearCenter - up * (markerSize * 0.45f) + right * (markerSize * 0.65f);
+
+        context.Primitives.AddLine(markerPosition, tip, cameraColor, marker.HitID);
+        context.Primitives.AddLine(markerPosition, topLeft, cameraColor, marker.HitID);
+        context.Primitives.AddLine(markerPosition, topRight, cameraColor, marker.HitID);
+        context.Primitives.AddLine(markerPosition, bottomLeft, cameraColor, marker.HitID);
+        context.Primitives.AddLine(markerPosition, bottomRight, cameraColor, marker.HitID);
+
+        context.Primitives.AddLine(topLeft, topRight, cameraColor, marker.HitID);
+        context.Primitives.AddLine(topRight, bottomRight, cameraColor, marker.HitID);
+        context.Primitives.AddLine(bottomRight, bottomLeft, cameraColor, marker.HitID);
+        context.Primitives.AddLine(bottomLeft, topLeft, cameraColor, marker.HitID);
+
+        context.Primitives.AddLine(topLeft, tip, cameraColor, marker.HitID);
+        context.Primitives.AddLine(topRight, tip, cameraColor, marker.HitID);
+        context.Primitives.AddLine(bottomLeft, tip, cameraColor, marker.HitID);
+        context.Primitives.AddLine(bottomRight, tip, cameraColor, marker.HitID);
+    }
+
+    private static Matrix4x4 CreateBoneLocalTransform(MeshBone bone)
+    {
+        Quaternion orientation = bone.Orientation;
+        if (orientation.LengthSquared() <= 0.0001f)
+        {
+            orientation = Quaternion.Identity;
+        }
+        else
+        {
+            orientation = Quaternion.Normalize(orientation);
+        }
+
+        return Matrix4x4.CreateFromQuaternion(orientation) * Matrix4x4.CreateTranslation(bone.Position);
+    }
+
+    private static bool IsStageNodeBoneName(string name)
+    {
+        return name.Contains("node", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsStageCameraBoneName(string name)
+    {
+        return name.StartsWith("cam", StringComparison.OrdinalIgnoreCase)
+            || name.Contains("camera", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static Vector3 GetAxis(Matrix4x4 transform, Vector3 fallback)
+    {
+        Vector3 axis = Vector3.TransformNormal(fallback, transform);
+        if (axis.LengthSquared() <= 0.0001f)
+        {
+            return fallback;
+        }
+
+        return Vector3.Normalize(axis);
     }
 }
 public class SFXStuntActorProxy : ActorProxy

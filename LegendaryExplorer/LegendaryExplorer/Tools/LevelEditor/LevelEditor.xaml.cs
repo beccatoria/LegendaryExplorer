@@ -80,6 +80,8 @@ public class RecentViewState
     public bool ShowSoundPositions { get; set; }
     public bool ShowCinematicActors { get; set; }
     public bool ShowDecalActors { get; set; }
+    public bool ShowStageNodes { get; set; } = true;
+    public bool ShowStageCameras { get; set; } = true;
     public bool ShowCollision { get; set; }
 }
 
@@ -147,6 +149,8 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
     private bool _isUpdatingGroupSelection;
     private int _groupableSelectionCount;
     private ActorTransformGroup _activeTransformGroup;
+    private BioStageOverlayMarker _selectedBioStageMarker;
+    private bool _isBioStageMarkersExpanded;
 
     public ActorTransformGroup ActiveTransformGroup
     {
@@ -197,6 +201,39 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         }
     }
 
+    public bool IsBioStageActorSelected => selectedActor is BioStageActorProxy;
+    public IReadOnlyList<BioStageOverlayMarker> BioStageMarkers => (selectedActor as BioStageActorProxy)?.StageMarkers ?? Array.Empty<BioStageOverlayMarker>();
+    public bool HasBioStageMarkers => BioStageMarkers.Count > 0;
+
+    public BioStageOverlayMarker SelectedBioStageMarker
+    {
+        get => _selectedBioStageMarker;
+        set
+        {
+            if (value is not null && !ReferenceEquals(selectedActor, value.Owner))
+            {
+                SelectActor(value.Owner, false);
+            }
+
+            if (SetProperty(ref _selectedBioStageMarker, value))
+            {
+                OnPropertyChanged(nameof(HasSelectedBioStageMarker));
+                if (value is not null)
+                {
+                    IsBioStageMarkersExpanded = true;
+                }
+            }
+        }
+    }
+
+    public bool HasSelectedBioStageMarker => SelectedBioStageMarker is not null;
+
+    public bool IsBioStageMarkersExpanded
+    {
+        get => _isBioStageMarkersExpanded;
+        set => SetProperty(ref _isBioStageMarkersExpanded, value);
+    }
+
     private void RunWithoutSelectionFocus(Action action)
     {
         _selectionFocusSuppressionDepth++;
@@ -235,6 +272,20 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
                 SyncCategoryWithVisibleSetWhenActive(value, actor => actor.IsLight);
             }
         }
+    }
+
+    private bool _showStageNodes = true;
+    public bool ShowStageNodes
+    {
+        get => _showStageNodes;
+        set => SetProperty(ref _showStageNodes, value);
+    }
+
+    private bool _showStageCameras = true;
+    public bool ShowStageCameras
+    {
+        get => _showStageCameras;
+        set => SetProperty(ref _showStageCameras, value);
     }
 
     private int _lightRenderDistance = 1000;
@@ -519,6 +570,8 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         RenderContext.ShowSoundPositions = ShowSoundPositions;
         RenderContext.ShowCinematicActors = ShowCinematicActors;
         RenderContext.ShowDecalActors = ShowDecalActors;
+        RenderContext.ShowStageNodes = ShowStageNodes;
+        RenderContext.ShowStageCameras = ShowStageCameras;
         Span<RenderPass> passes = ShowCollision
             ? [RenderPass.Base, RenderPass.Hair, RenderPass.Collision]
             : [RenderPass.Base, RenderPass.Hair];
@@ -705,6 +758,21 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         FocusOnBounds(actor.GetBounds());
     }
 
+    private void ViewportBioStageMarkerSelect(BioStageOverlayMarker marker)
+    {
+        if (marker is null)
+        {
+            return;
+        }
+
+        if (!ReferenceEquals(selectedActor, marker.Owner))
+        {
+            SelectActor(marker.Owner, false);
+        }
+
+        SelectedBioStageMarker = marker;
+    }
+
     private void SelectActor(ActorProxy actor, bool focus)
     {
         var prev = selectedActor;
@@ -729,6 +797,20 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
                 RenderContext.TransformWidget.Attach = null;
                 _preEditSnapshot = null;
             }
+
+            RenderContext.SelectedActor = selectedActor;
+            if (selectedActor is not BioStageActorProxy)
+            {
+                SelectedBioStageMarker = null;
+            }
+            else if (SelectedBioStageMarker is not null && !ReferenceEquals(SelectedBioStageMarker.Owner, selectedActor))
+            {
+                SelectedBioStageMarker = null;
+            }
+
+            OnPropertyChanged(nameof(BioStageMarkers));
+            OnPropertyChanged(nameof(HasBioStageMarkers));
+            OnPropertyChanged(nameof(IsBioStageActorSelected));
         }
     }
 
@@ -1124,8 +1206,14 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
             {
                 var p = new PackageEditorWindow();
                 p.Show();
-                p.LoadFile(SelectedActor.Export.FileRef.FilePath, SelectedActor.Export.UIndex);
-                p.Activate();
+
+                IMEPackage actorPackage = SelectedActor.Export.FileRef;
+                int uIndex = SelectedActor.Export.UIndex;
+                p.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+                {
+                    p.LoadPackage(actorPackage, uIndex);
+                    p.Activate();
+                }));
             }
         }, () => PackageIsLoaded() && SelectedActor is not null);
         OpenRecentSetCommand = new RelayCommand(obj => { if (obj is RecentFileSet set) OpenRecentFileSet(set); });
@@ -2799,6 +2887,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         RenderContext.RenderScene -= RenderScene;
         RenderContext.SelectActor -= ViewportActorSelect;
         RenderContext.FocusActor -= ViewportActorFocus;
+        RenderContext.SelectBioStageMarker -= ViewportBioStageMarkerSelect;
 
         UndoHistory.PropertyChanged -= UndoHistory_PropertyChanged;
         UndoHistory.Clear();
@@ -2812,6 +2901,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         RenderContext.RenderScene += RenderScene;
         RenderContext.SelectActor += ViewportActorSelect;
         RenderContext.FocusActor += ViewportActorFocus;
+        RenderContext.SelectBioStageMarker += ViewportBioStageMarkerSelect;
 
         if (!string.IsNullOrEmpty(FileQueuedForLoad))
         {
@@ -2959,6 +3049,8 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
             ShowSoundPositions = ShowSoundPositions,
             ShowCinematicActors = ShowCinematicActors,
             ShowDecalActors = ShowDecalActors,
+            ShowStageNodes = ShowStageNodes,
+            ShowStageCameras = ShowStageCameras,
             ShowCollision = ShowCollision
         };
     }
@@ -2979,6 +3071,8 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         ShowSoundPositions = viewState.ShowSoundPositions;
         ShowCinematicActors = viewState.ShowCinematicActors;
         ShowDecalActors = viewState.ShowDecalActors;
+        ShowStageNodes = viewState.ShowStageNodes;
+        ShowStageCameras = viewState.ShowStageCameras;
         ShowCollision = viewState.ShowCollision;
 
         VisibleSetDistance = viewState.VisibleSetDistance;
