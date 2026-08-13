@@ -128,8 +128,8 @@ namespace LegendaryExplorer.Tools.AssetDatabase
         public List<ParticleSysRecord> Particles { get; set; } = new();
         public List<TextureRecord> Textures { get; set; } = new();
         public List<GUIElement> GUIElements { get; set; } = new();
-        public List<Conversation> Conversations { get; set; } = new();
-        public List<ConvoLine> Lines { get; set; } = new();
+        public List<LegacyConversationV9> Conversations { get; set; } = new();
+        public List<LegacyConvoLineV9> Lines { get; set; } = new();
         public PlotUsageDB PlotUsages { get; set; } = new();
 
         public AssetDB ToAssetDB()
@@ -153,8 +153,8 @@ namespace LegendaryExplorer.Tools.AssetDatabase
             db.Particles.AddRange(Particles ?? []);
             db.Textures.AddRange(Textures ?? []);
             db.GUIElements.AddRange(GUIElements ?? []);
-            db.Conversations.AddRange(Conversations ?? []);
-            db.Lines.AddRange(Lines ?? []);
+            db.Conversations.AddRange((Conversations ?? []).Select(c => c.ToConversation()));
+            db.Lines.AddRange((Lines ?? []).Select(l => l.ToConvoLine()));
 
             return db;
         }
@@ -180,11 +180,85 @@ namespace LegendaryExplorer.Tools.AssetDatabase
             legacy.Particles.AddRange(db.Particles ?? []);
             legacy.Textures.AddRange(db.Textures ?? []);
             legacy.GUIElements.AddRange(db.GUIElements ?? []);
-            legacy.Conversations.AddRange(db.Conversations ?? []);
-            legacy.Lines.AddRange(db.Lines ?? []);
+            legacy.Conversations.AddRange((db.Conversations ?? []).Select(LegacyConversationV9.FromConversation));
+            legacy.Lines.AddRange((db.Lines ?? []).Select(LegacyConvoLineV9.FromConvoLine));
 
             return legacy;
         }
+
+    public class LegacyConversationV9
+    {
+        public string ConvName { get; set; }
+
+        public bool IsAmbient { get; set; }
+
+        public FileKeyExportPair ConvFile { get; set; }
+
+        public LegacyConversationV9(string convName, bool isAmbient, FileKeyExportPair convFile)
+        {
+            ConvName = convName;
+            IsAmbient = isAmbient;
+            ConvFile = convFile;
+        }
+
+        public LegacyConversationV9()
+        { }
+
+        public Conversation ToConversation()
+        {
+            return new Conversation(ConvName, IsAmbient, ConvFile);
+        }
+
+        public static LegacyConversationV9 FromConversation(Conversation conversation)
+        {
+            if (conversation is null)
+            {
+                return new LegacyConversationV9();
+            }
+
+            return new LegacyConversationV9(conversation.ConvName, conversation.IsAmbient, conversation.ConvFile);
+        }
+    }
+
+    public class LegacyConvoLineV9
+    {
+        public int StrRef { get; set; }
+
+        public string Speaker { get; set; }
+
+        public string Line { get; set; }
+
+        public string Convo { get; set; }
+
+        public LegacyConvoLineV9(int strRef, string speaker, string line, string convo)
+        {
+            StrRef = strRef;
+            Speaker = speaker;
+            Line = line;
+            Convo = convo;
+        }
+
+        public LegacyConvoLineV9()
+        { }
+
+        public ConvoLine ToConvoLine()
+        {
+            return new ConvoLine(StrRef, Speaker, Convo)
+            {
+                Line = Line
+            };
+        }
+
+        public static LegacyConvoLineV9 FromConvoLine(ConvoLine line)
+        {
+            if (line is null)
+            {
+                return new LegacyConvoLineV9();
+            }
+
+            return new LegacyConvoLineV9(line.StrRef, line.Speaker, line.Line, line.Convo);
+        }
+    }
     }
 
     public interface IAssetRecord
@@ -609,6 +683,7 @@ namespace LegendaryExplorer.Tools.AssetDatabase
         public bool IsAmbient { get; set; }
 
         public FileKeyExportPair ConvFile { get; set; } //file, export
+
         public Conversation(string ConvName, bool IsAmbient, FileKeyExportPair ConvFile)
         {
             this.ConvName = ConvName;
@@ -625,6 +700,25 @@ namespace LegendaryExplorer.Tools.AssetDatabase
         public FileKeyExportPair() : this(default, default) { }
     }
 
+    public class ConvoLineOccurrence
+    {
+        public string Convo { get; set; }
+
+        public FileKeyExportPair ConvFile { get; set; }
+
+        public bool IsAmbient { get; set; }
+
+        public ConvoLineOccurrence(string convo, FileKeyExportPair convFile, bool isAmbient)
+        {
+            Convo = convo;
+            ConvFile = convFile;
+            IsAmbient = isAmbient;
+        }
+
+        public ConvoLineOccurrence()
+        { }
+    }
+
     public class ConvoLine
     {
         public int StrRef { get; set; }
@@ -634,6 +728,8 @@ namespace LegendaryExplorer.Tools.AssetDatabase
         public string Line { get; set; }
 
         public string Convo { get; set; }
+
+        public List<ConvoLineOccurrence> Occurrences { get; set; } = new();
 
         public ConvoLine(int StrRef, string Speaker, string Convo)
         {

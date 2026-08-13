@@ -838,8 +838,10 @@
                                                 <Image Source="{StaticResource iconSoundplorer16}" Width="64"/>
                                             </MenuItem.Icon>
                                         </MenuItem>
-                                        <MenuItem Header="Open in Windows Explorer" Command="{Binding OpenInWindowsExplorerCommand}" ToolTip="Opens this file in Windows Explorer."/>
                                         <Separator/>
+                                        <MenuItem Header="Choose Conversation Location" Command="{Binding SelectLineLocationCommand}" ToolTip="Choose which conversation/file location should be used for this selected line."/>
+                                        <Separator/>
+                                        <MenuItem Header="Open in Windows Explorer" Command="{Binding OpenInWindowsExplorerCommand}" ToolTip="Opens this file in Windows Explorer."/>
                                         <MenuItem Header="Copy Line to Clipboard" Command="{Binding CopyToClipboardCommand}" CommandParameter="Line" ToolTip="Copy this line's text to the clipboard."/>
                                         <MenuItem Header="Copy StringRef to Clipboard" Command="{Binding CopyToClipboardCommand}" CommandParameter="StrRef" ToolTip="Copy this line's String Reference to the clipboard."/>
                                     </ContextMenu>
@@ -851,13 +853,13 @@
                                     <TextBlock Text="Conversation:" FontSize="14"/>
                                     <TextBlock Text="{Binding CurrentConvo.Item1}" FontSize="14" Margin="3"/>
                                     <TextBlock Text="Found In:" FontSize="14" Margin="0,5,0,0"/>
-                                    <StackPanel Orientation="Horizontal">
-                                        <TextBlock Text="{Binding CurrentConvo.Item2}" FontSize="14" Margin="3"/>
-                                        <TextBlock Text=" #" FontSize="14" Margin="0,5,0,0"/>
-                                        <TextBlock Text="{Binding CurrentConvo.Item3}" FontSize="14" Margin="3"/>
-                                    </StackPanel>
-                                    <TextBlock Text="{Binding CurrentConvo.Item4}" FontSize="14" Margin="3"/>
-                                    <TextBlock Text="(Ambient)" FontSize="14" Margin="3" Visibility="{Binding CurrentConvo.Item5, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                    <ItemsControl ItemsSource="{Binding CurrentConvoLocations}" Margin="3,0,0,0">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding}" FontSize="14" Margin="0,2,0,0" TextWrapping="Wrap"/>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
                                     <StackPanel Orientation="Horizontal" Margin="3">
                                         <Button x:Name="btn_OpenConvoPackEd" Command="{Binding OpenUsagePkgCommand}" ToolTip="Opens this conversation in Package Editor." Margin="3" Padding="2" Height="40" Width="40">
                                             <Button.Content>

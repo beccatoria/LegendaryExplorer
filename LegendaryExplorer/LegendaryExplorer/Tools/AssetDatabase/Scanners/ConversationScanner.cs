@@ -15,9 +15,11 @@ namespace LegendaryExplorer.Tools.AssetDatabase.Scanners
         public override void ScanExport(ExportScanInfo e, ConcurrentAssetDB db, AssetDBScanOptions options)
         {
             if (e.IsDefault) return;
-            if (e.ClassName == "BioConversation" && !db.GeneratedConvo.ContainsKey(e.Export.ObjectName.Instanced))
+            if (e.ClassName == "BioConversation")
             {
                 bool IsAmbient = true;
+                string convoName = e.Export.ObjectName.Instanced;
+                var convoFile = new FileKeyExportPair(e.FileKey, e.Export.UIndex);
 
                 var speakers = GetSpeakers(e.Export, e.Properties);
 
@@ -39,10 +41,10 @@ namespace LegendaryExplorer.Tools.AssetDatabase.Scanners
                     if (IsAmbient)
                         IsAmbient = ambientLine;
 
-                    var newLine = new ConvoLine(linestrref, speakers[speakerindex], e.Export.ObjectName.Instanced);
+                    var newLine = new ConvoLine(linestrref, speakers[speakerindex], convoName);
                     if (HasTLKLine(newLine, e.Export.FileRef))
                     {
-                        db.GeneratedLines.TryAdd(linestrref.ToString(), newLine);
+                        AddLineOccurrence(db, linestrref.ToString(), newLine, convoFile, IsAmbient);
                     }
                 }
 
@@ -62,16 +64,40 @@ namespace LegendaryExplorer.Tools.AssetDatabase.Scanners
                         if (IsAmbient)
                             IsAmbient = ambientLine;
 
-                        ConvoLine newLine = new(linestrref, "Shepard", e.Export.ObjectName.Instanced);
+                        ConvoLine newLine = new(linestrref, "Shepard", convoName);
                         if (HasTLKLine(newLine, e.Export.FileRef))
                         {
-                            db.GeneratedLines.TryAdd(linestrref.ToString(), newLine);
+                            AddLineOccurrence(db, linestrref.ToString(), newLine, convoFile, IsAmbient);
                         }
                     }
                 }
 
-                var newConv = new Conversation(e.Export.ObjectName.Instanced, IsAmbient, new FileKeyExportPair(e.FileKey, e.Export.UIndex));
-                db.GeneratedConvo.TryAdd(e.Export.InstancedFullPath.ToLower(), newConv);
+                string convoKey = convoName.ToLowerInvariant();
+                if (!db.GeneratedConvo.ContainsKey(convoKey))
+                {
+                    db.GeneratedConvo.TryAdd(convoKey, new Conversation(convoName, IsAmbient, convoFile));
+                }
+            }
+        }
+
+        private static void AddLineOccurrence(ConcurrentAssetDB db, string lineKey, ConvoLine newLine, FileKeyExportPair convoFile, bool isAmbient)
+        {
+            var occurrence = new ConvoLineOccurrence(newLine.Convo, convoFile, isAmbient);
+            newLine.Occurrences.Add(occurrence);
+
+            if (db.GeneratedLines.TryAdd(lineKey, newLine))
+            {
+                return;
+            }
+
+            var existingLine = db.GeneratedLines[lineKey];
+            lock (existingLine)
+            {
+                existingLine.Occurrences ??= new List<ConvoLineOccurrence>();
+                if (!existingLine.Occurrences.Any(o => o.Convo == occurrence.Convo && o.ConvFile.FileKey == occurrence.ConvFile.FileKey && o.ConvFile.UIndex == occurrence.ConvFile.UIndex))
+                {
+                    existingLine.Occurrences.Add(occurrence);
+                }
             }
         }
 

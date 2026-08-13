@@ -31,6 +31,7 @@ using LegendaryExplorerCore.TLK;
 using Microsoft.WindowsAPICodePack.Taskbar;
 using BinaryPack;
 using LegendaryExplorer.GameInterop;
+using LegendaryExplorer.Dialogs;
 using LegendaryExplorer.SharedUI.Controls;
 using LegendaryExplorer.Tools.AssetDatabase.Filters;
 using LegendaryExplorer.Tools.AssetViewer;
@@ -156,6 +157,11 @@ namespace LegendaryExplorer.Tools.AssetDatabase
 
         public record FileDirPair(string FileName, string Directory, int Mount);
 
+        private sealed record LineLocationChoice(string DisplayName, Tuple<string, string, int, string, bool> ConvoInfo)
+        {
+            public override string ToString() => DisplayName;
+        }
+
         private ConcurrentAssetDB GeneratedDB = new();
 
         /// <summary>
@@ -216,6 +222,7 @@ namespace LegendaryExplorer.Tools.AssetDatabase
             get => _currentConvo;
             set => SetProperty(ref _currentConvo, value);
         }
+        public ObservableCollectionExtended<string> CurrentConvoLocations { get; } = new();
         public ObservableCollectionExtended<string> SpeakerList { get; } = new();
         private bool _isGettingTLKs;
         public bool IsGettingTLKs
@@ -245,6 +252,7 @@ namespace LegendaryExplorer.Tools.AssetDatabase
         public ICommand OpenInPlotDBCommand { get; set; }
         public ICommand OpenPEDefinitionCommand { get; set; }
         public ICommand ChangeLocalizationCommand { get; set; }
+        public ICommand SelectLineLocationCommand { get; set; }
 
         private bool CanCancelDump(object obj)
         {
@@ -312,6 +320,11 @@ namespace LegendaryExplorer.Tools.AssetDatabase
             return currentView == 5 && CurrentGame == MEGame.ME3 && lstbx_Anims.SelectedIndex >= 0 && !((lstbx_Anims.SelectedItem as AnimationRecord)?.IsAmbPerf ?? true);
         }
 
+        private bool CanUseLineLocationCommands(object obj)
+        {
+            return currentView == 8 && lstbx_Lines.SelectedIndex >= 0;
+        }
+
         private bool IsAnimSequenceSelected() => currentView == 5 && lstbx_Anims.SelectedIndex >= 0 && !((lstbx_Anims.SelectedItem as AnimationRecord)?.IsAmbPerf ?? true);
 
         private bool IsPlotElementSelected() => GetSelectedPlotRecord() != null;
@@ -356,6 +369,7 @@ namespace LegendaryExplorer.Tools.AssetDatabase
             OpenInPlotDBCommand = new GenericCommand(OpenInPlotDB, IsPlotElementSelected);
             OpenPEDefinitionCommand = new GenericCommand(OpenPEDefinitionInToolset, IsPlotElementSelected);
             ChangeLocalizationCommand = new RelayCommand((e) => { Localization = (MELocalization)e; });
+            SelectLineLocationCommand = new RelayCommand(SelectLineLocation, CanUseLineLocationCommands);
         }
 
         private void AssetDB_Loaded(object sender, RoutedEventArgs e)
@@ -580,6 +594,7 @@ namespace LegendaryExplorer.Tools.AssetDatabase
             FileListFilter.IsSelected = false;
             expander_CustomFiles.IsExpanded = false;
             SpeakerList.ClearEx();
+            CurrentConvoLocations.ClearEx();
             FilterBox.Clear();
             Filter();
         }
@@ -1024,14 +1039,14 @@ namespace LegendaryExplorer.Tools.AssetDatabase
 
             if (tool == "SoundExplorer" && currentView == 8)
             {
-                if (CurrentConvo.Item1 == null && lstbx_Lines.SelectedItem is ConvoLine selectedLine)
+                if (lstbx_Lines.SelectedItem is ConvoLine selectedLine && CurrentConvo.Item1 == null)
                 {
-                    var convo = CurrentDataBase.Conversations.FirstOrDefault(x => x.ConvName == selectedLine.Convo);
-                    if (convo != null)
+                    if (!TryResolveLineConversationLocation(selectedLine, false, out var convoInfo))
                     {
-                        (string fileName, int directoryKey) = CurrentDataBase.FileList[convo.ConvFile.FileKey];
-                        CurrentConvo = new Tuple<string, string, int, string, bool>(convo.ConvName, fileName, convo.ConvFile.UIndex, CurrentDataBase.ContentDir[directoryKey], convo.IsAmbient);
+                        return;
                     }
+
+                    CurrentConvo = convoInfo;
                 }
                 TryOpenSelectedLineAudioInSoundExplorer();
                 return;
@@ -1474,19 +1489,171 @@ namespace LegendaryExplorer.Tools.AssetDatabase
         private void lstbx_Lines_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             e.Handled = true;
-            if (currentView == 8 && lstbx_Lines.SelectedIndex >= 0)
+            if (currentView == 8 && lstbx_Lines.SelectedItem is ConvoLine selectedLine)
             {
-                var newline = (ConvoLine)lstbx_Lines.SelectedItem;
-                var convo = CurrentDataBase.Conversations.FirstOrDefault(x => x.ConvName == newline.Convo);
-                if (convo != null)
+                if (TryResolveLineConversationLocation(selectedLine, false, out var convoInfo))
                 {
-                    (string fileName, int directoryKey) = CurrentDataBase.FileList[convo.ConvFile.FileKey];
-                    CurrentConvo = new Tuple<string, string, int, string, bool>(convo.ConvName, fileName, convo.ConvFile.UIndex, CurrentDataBase.ContentDir[directoryKey], convo.IsAmbient);
+                    CurrentConvo = convoInfo;
+                    UpdateCurrentConvoLocations(selectedLine);
                     ToggleLinePlayback();
                     return;
                 }
             }
-            CurrentConvo = new Tuple<string, string, int, string, bool>(null, null, 0, null, false);
+            CurrentConvo = new Tuple<string, string, int, string, bool>(null, null, -1, null, false);
+            CurrentConvoLocations.ClearEx();
+        }
+
+        private void SelectLineLocation(object obj)
+        {
+            if (lstbx_Lines.SelectedItem is not ConvoLine selectedLine)
+            {
+                MessageBox.Show("No conversation line is selected.");
+                return;
+            }
+
+            if (!TryResolveLineConversationLocation(selectedLine, true, out var convoInfo))
+            {
+                return;
+            }
+
+            CurrentConvo = convoInfo;
+            UpdateCurrentConvoLocations(selectedLine);
+            ToggleLinePlayback();
+        }
+
+        private bool TryResolveLineConversationLocation(ConvoLine line, bool promptForLocation, out Tuple<string, string, int, string, bool> convoInfo)
+        {
+            convoInfo = null;
+            List<LineLocationChoice> choices = GetLineLocationChoices(line);
+            if (choices.Count == 0)
+            {
+                MessageBox.Show("No conversation location data was found for this line.");
+                return false;
+            }
+
+            var selectedChoice = choices[0];
+            if (promptForLocation && choices.Count > 1)
+            {
+                var selectedDisplay = InputComboBoxDialog.GetValue(this,
+                    "Choose a conversation location:",
+                    "Conversation location selector",
+                    choices,
+                    selectedChoice.DisplayName);
+
+                if (string.IsNullOrWhiteSpace(selectedDisplay))
+                {
+                    return false;
+                }
+
+                selectedChoice = choices.FirstOrDefault(c => c.DisplayName == selectedDisplay);
+                if (selectedChoice is null)
+                {
+                    MessageBox.Show("The selected location could not be resolved.");
+                    return false;
+                }
+            }
+
+            convoInfo = selectedChoice.ConvoInfo;
+            return true;
+        }
+
+        private List<LineLocationChoice> GetLineLocationChoices(ConvoLine line)
+        {
+            List<LineLocationChoice> choices = [];
+            HashSet<string> seen = new(StringComparer.OrdinalIgnoreCase);
+
+            void AddChoice(string convoName, FileKeyExportPair convFile, bool isAmbient)
+            {
+                if (convFile is null)
+                {
+                    return;
+                }
+
+                int fileKey = convFile.FileKey;
+                if (fileKey < 0 || fileKey >= CurrentDataBase.FileList.Count)
+                {
+                    return;
+                }
+
+                (string fileName, int directoryKey) = CurrentDataBase.FileList[fileKey];
+                if (directoryKey < 0 || directoryKey >= CurrentDataBase.ContentDir.Count)
+                {
+                    return;
+                }
+
+                string contentDir = CurrentDataBase.ContentDir[directoryKey];
+                int mount = fileKey >= 0 && fileKey < FileListExtended.Count ? FileListExtended[fileKey].Mount : -1;
+                string dedupeKey = $"{convoName}|{fileKey}|{convFile.UIndex}";
+                if (!seen.Add(dedupeKey))
+                {
+                    return;
+                }
+
+                string mountText = mount >= 0 ? $" mount {mount}" : string.Empty;
+                string ambientText = isAmbient ? " (Ambient)" : string.Empty;
+                string display = $"{convoName} - {fileName} #{convFile.UIndex} [{contentDir}{mountText}]{ambientText}";
+                choices.Add(new LineLocationChoice(display, new Tuple<string, string, int, string, bool>(convoName, fileName, convFile.UIndex, contentDir, isAmbient)));
+            }
+
+            foreach (var occurrence in line.Occurrences ?? [])
+            {
+                AddChoice(occurrence.Convo, occurrence.ConvFile, occurrence.IsAmbient);
+            }
+
+            if (choices.Count == 0)
+            {
+                var convo = CurrentDataBase.Conversations.FirstOrDefault(x => x.ConvName == line.Convo);
+                if (convo != null)
+                {
+                    AddChoice(convo.ConvName, convo.ConvFile, convo.IsAmbient);
+                }
+            }
+
+            return choices;
+        }
+
+        private void UpdateCurrentConvoLocations(ConvoLine line)
+        {
+            CurrentConvoLocations.ClearEx();
+            if (line == null)
+            {
+                return;
+            }
+
+            HashSet<string> seenFileNames = new(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var occurrence in line.Occurrences ?? [])
+            {
+                int fileKey = occurrence?.ConvFile?.FileKey ?? -1;
+                if (fileKey < 0 || fileKey >= CurrentDataBase.FileList.Count)
+                {
+                    continue;
+                }
+
+                string fileName = CurrentDataBase.FileList[fileKey].FileName;
+                if (seenFileNames.Add(fileName))
+                {
+                    CurrentConvoLocations.Add(fileName);
+                }
+            }
+
+            if (CurrentConvoLocations.Count == 0)
+            {
+                if (!string.IsNullOrWhiteSpace(CurrentConvo.Item2) && seenFileNames.Add(CurrentConvo.Item2))
+                {
+                    CurrentConvoLocations.Add(CurrentConvo.Item2);
+                }
+            }
+
+            if (CurrentConvoLocations.Count == 0)
+            {
+                var convo = CurrentDataBase.Conversations.FirstOrDefault(x => x.ConvName == line.Convo);
+                int fileKey = convo?.ConvFile?.FileKey ?? -1;
+                if (fileKey >= 0 && fileKey < CurrentDataBase.FileList.Count)
+                {
+                    CurrentConvoLocations.Add(CurrentDataBase.FileList[fileKey].FileName);
+                }
+            }
         }
 
         private void PETabControl_SelectionChanged(object sender, SelectionChangedEventArgs e)
