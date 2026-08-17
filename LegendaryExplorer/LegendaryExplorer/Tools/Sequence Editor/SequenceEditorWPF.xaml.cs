@@ -40,6 +40,7 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Threading;
 using Color = System.Drawing.Color;
@@ -58,8 +59,23 @@ namespace LegendaryExplorer.Tools.Sequence_Editor
         public ObservableCollectionExtended<SObj> SelectedObjects { get; } = new();
         public ObservableCollectionExtended<ExportEntry> SequenceExports { get; } = new();
         public ObservableCollectionExtended<TreeViewEntry> TreeViewRootNodes { get; } = new();
+        public CollectionViewSource CurrentObjectsViewSource { get; }
         public string CurrentFile;
         public string JSONpath;
+
+        private string _currentObjectsSearchText;
+
+        public string CurrentObjectsSearchText
+        {
+            get => _currentObjectsSearchText;
+            set
+            {
+                if (SetProperty(ref _currentObjectsSearchText, value))
+                {
+                    CurrentObjectsViewSource.View?.Refresh();
+                }
+            }
+        }
 
         private bool _useSavedViews = true; // Should probably be a global setting
 
@@ -102,6 +118,8 @@ namespace LegendaryExplorer.Tools.Sequence_Editor
 
         public SequenceEditorWPF() : base("Sequence Editor")
         {
+            CurrentObjectsViewSource = new CollectionViewSource { Source = CurrentObjects };
+            CurrentObjectsViewSource.Filter += CurrentObjectsViewSource_OnFilter;
             LoadCommands();
             DataContext = this;
             StatusText = "Select package file to load";
@@ -190,6 +208,8 @@ namespace LegendaryExplorer.Tools.Sequence_Editor
         public ICommand DesignerCreateOutputCommand { get; set; }
         public ICommand DesignerCreateExternCommand { get; set; }
         public ICommand OpenHighestMountedCommand { get; set; }
+        public ICommand ClearCurrentObjectsSearchCommand { get; set; }
+        public ICommand FocusCurrentObjectsSearchCommand { get; set; }
 
         private void LoadCommands()
         {
@@ -220,10 +240,48 @@ namespace LegendaryExplorer.Tools.Sequence_Editor
                 new GenericCommand(() => SharedPackageTools.ComparePackageToAnother(this, entryDoubleClick),
                     PackageIsLoaded);
             OpenHighestMountedCommand = new GenericCommand(OpenHighestMountedVersion, IsLoadedPackageME);
+            ClearCurrentObjectsSearchCommand = new GenericCommand(ClearCurrentObjectsSearch);
+            FocusCurrentObjectsSearchCommand = new GenericCommand(FocusCurrentObjectsSearch);
 
             DesignerCreateExternCommand = new GenericCommand(CreateExtern, () => SelectedSequence != null);
             DesignerCreateInputCommand = new GenericCommand(CreateInput, () => SelectedSequence != null);
             DesignerCreateOutputCommand = new GenericCommand(CreateOutput, () => SelectedSequence != null);
+        }
+
+        private void CurrentObjectsViewSource_OnFilter(object sender, FilterEventArgs e)
+        {
+            if (e.Item is not SObj obj)
+            {
+                e.Accepted = false;
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(CurrentObjectsSearchText))
+            {
+                e.Accepted = true;
+                return;
+            }
+
+            string filterText = CurrentObjectsSearchText.Trim();
+            string objectName = obj.Export?.ObjectName.Instanced ?? string.Empty;
+            string exportNumber = obj.Export?.UIndex.ToString() ?? string.Empty;
+
+            e.Accepted = objectName.Contains(filterText, StringComparison.OrdinalIgnoreCase)
+                         || exportNumber.Contains(filterText, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private void ClearCurrentObjectsSearch()
+        {
+            CurrentObjectsSearchText = string.Empty;
+        }
+
+        private void FocusCurrentObjectsSearch()
+        {
+            if (FindName("CurrentObjectsSearchTextBox") is TextBox textBox)
+            {
+                textBox.Focus();
+                textBox.SelectAll();
+            }
         }
 
         private int GetKismetLoggerASIId(MEGame game)
