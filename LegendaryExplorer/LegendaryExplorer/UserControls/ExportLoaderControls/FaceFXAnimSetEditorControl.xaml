@@ -6,6 +6,7 @@
              xmlns:exportLoaderControls="clr-namespace:LegendaryExplorer.UserControls.ExportLoaderControls"
              xmlns:sharedToolControls="clr-namespace:LegendaryExplorer.UserControls.SharedToolControls"
              xmlns:Converters="clr-namespace:LegendaryExplorer.SharedUI.Converters"
+              xmlns:xctk="http://schemas.xceed.com/wpf/xaml/toolkit"
              xmlns:forms="clr-namespace:System.Windows.Forms;assembly=System.Windows.Forms"
              mc:Ignorable="d" 
              Loaded="FaceFXAnimSetEditorControl_OnLoaded"
@@ -17,6 +18,7 @@
     </exportLoaderControls:ExportLoaderControl.Resources>
     <exportLoaderControls:ExportLoaderControl.InputBindings>
         <KeyBinding Command="{Binding AddKeyWithZeroWeightCommand}" Key="G" />
+        <KeyBinding Command="{Binding FocusAnimationSearchCommand}" Key="F" Modifiers="Control" />
     </exportLoaderControls:ExportLoaderControl.InputBindings>
     <Grid>
         <Grid.ColumnDefinitions>
@@ -110,12 +112,28 @@
         </WindowsFormsHost>-->
         </Grid>
         <GridSplitter Grid.Row="1" Grid.RowSpan="2" Width="5" HorizontalAlignment="Stretch" Grid.Column="1"/>
-        <Label Content="Animations" Grid.Row="0" Grid.Column="2"/>
-        <ListBox x:Name="animationListBox" Grid.Column="2" Grid.Row="1" Grid.RowSpan="2" ItemsSource="{Binding Animations}"
-                SelectionChanged="animationListBox_SelectionChanged" 
-                 AllowDrop="True" PreviewMouseLeftButtonDown="animationListBox_PreviewMouseLeftButtonDown" MouseMove="animationListBox_MouseMove"
-                 DragEnter="animationListBox_DragEnter" Drop="animationListBox_Drop" HorizontalContentAlignment="Stretch"
-                 HorizontalAlignment="Stretch" SelectedItem="{Binding SelectedAnimation}">
+        <Grid Grid.Column="2" Grid.Row="0" Grid.RowSpan="3">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+            <Label Content="Animations" Grid.Row="0"/>
+            <Grid Grid.Row="1" Margin="0,0,0,4">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <xctk:WatermarkTextBox x:Name="animationSearchTextBox" Grid.Column="0" Watermark="Search tracks..."
+                                       Text="{Binding AnimationSearchText, UpdateSourceTrigger=PropertyChanged}"/>
+                <Button Grid.Column="1" Content="✕" Width="22" Margin="4,0,0,0"
+                        Command="{Binding ClearAnimationSearchCommand}" ToolTip="Clear search"/>
+            </Grid>
+            <ListBox x:Name="animationListBox" Grid.Row="2" ItemsSource="{Binding AnimationsViewSource.View}"
+                    SelectionChanged="animationListBox_SelectionChanged" 
+                     AllowDrop="True" PreviewMouseLeftButtonDown="animationListBox_PreviewMouseLeftButtonDown" MouseMove="animationListBox_MouseMove"
+                     DragEnter="animationListBox_DragEnter" Drop="animationListBox_Drop" HorizontalContentAlignment="Stretch"
+                     HorizontalAlignment="Stretch" SelectedItem="{Binding SelectedAnimation}">
             <ListBox.ContextMenu>
                 <ContextMenu>
                     <MenuItem Header="Add Animation" Click="AddAnimation_Click"/>
@@ -155,7 +173,8 @@
                     </DataTemplate.Triggers>
                 </DataTemplate>
             </ListBox.ItemTemplate>
-        </ListBox>
+            </ListBox>
+        </Grid>
         <GridSplitter Width="5" HorizontalAlignment="Stretch" Grid.Row="0" Grid.RowSpan="3" Grid.Column="3"/>
         <Grid Grid.Column="4" Grid.Row="0" Grid.RowSpan="2">
             <Grid.RowDefinitions>

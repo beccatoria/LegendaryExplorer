@@ -24,6 +24,7 @@ using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Data;
 using System.Windows.Media;
 using System.Xml.Linq;
 using Point = System.Windows.Point;
@@ -123,7 +124,11 @@ namespace LegendaryExplorer.UserControls.ExportLoaderControls
         {
             InitializeComponent();
             DataContext = this;
+            AnimationsViewSource = new CollectionViewSource { Source = Animations };
+            AnimationsViewSource.Filter += AnimationsViewSource_OnFilter;
             AddKeyWithZeroWeightCommand = new GenericCommand(() => graph.AddKeyAtZero_MousePosition());
+            FocusAnimationSearchCommand = new GenericCommand(FocusAnimationSearchTextBox);
+            ClearAnimationSearchCommand = new GenericCommand(ClearAnimationSearch);
         }
 
         public IFaceFXBinary FaceFX;
@@ -199,6 +204,51 @@ namespace LegendaryExplorer.UserControls.ExportLoaderControls
 
         public ObservableCollectionExtended<Animation> Animations { get; } = [];
 
+        public CollectionViewSource AnimationsViewSource { get; }
+
+        private string _animationSearchText;
+        public string AnimationSearchText
+        {
+            get => _animationSearchText;
+            set
+            {
+                if (SetProperty(ref _animationSearchText, value))
+                {
+                    RefreshAnimationFilter();
+                }
+            }
+        }
+
+        private void AnimationsViewSource_OnFilter(object sender, FilterEventArgs e)
+        {
+            e.Accepted = e.Item is Animation animation && AnimationMatchesFilter(animation);
+        }
+
+        private bool AnimationMatchesFilter(Animation animation)
+        {
+            if (animation is null)
+            {
+                return false;
+            }
+
+            if (string.IsNullOrWhiteSpace(AnimationSearchText))
+            {
+                return true;
+            }
+
+            return animation.Name?.Contains(AnimationSearchText, StringComparison.OrdinalIgnoreCase) == true;
+        }
+
+        private void RefreshAnimationFilter()
+        {
+            AnimationsViewSource?.View?.Refresh();
+            if (SelectedAnimation != null && !AnimationMatchesFilter(SelectedAnimation))
+            {
+                SelectedAnimation = null;
+                graph.Clear();
+            }
+        }
+
         Animation _selectedAnimation;
         public Animation SelectedAnimation
         {
@@ -221,6 +271,20 @@ namespace LegendaryExplorer.UserControls.ExportLoaderControls
         }
 
         public ICommand AddKeyWithZeroWeightCommand { get; set; }
+        public ICommand FocusAnimationSearchCommand { get; set; }
+        public ICommand ClearAnimationSearchCommand { get; set; }
+
+        private void FocusAnimationSearchTextBox()
+        {
+            animationSearchTextBox.Focus();
+            animationSearchTextBox.SelectAll();
+        }
+
+        private void ClearAnimationSearch()
+        {
+            AnimationSearchText = string.Empty;
+            FocusAnimationSearchTextBox();
+        }
         #region ExportLoaderControl
 
         public override bool CanParse(ExportEntry exportEntry) => (exportEntry.ClassName == "FaceFXAnimSet" || (exportEntry.ClassName == "FaceFXAsset" && exportEntry.Game != MEGame.ME2)) && !exportEntry.IsDefaultObject;
@@ -493,6 +557,7 @@ namespace LegendaryExplorer.UserControls.ExportLoaderControls
                 });
                 pos += animLength;
             }
+            RefreshAnimationFilter();
             graph.Clear();
         }
 
@@ -643,10 +708,16 @@ namespace LegendaryExplorer.UserControls.ExportLoaderControls
                         if (!(e.OriginalSource is ScrollViewer) && SelectedAnimation != null)
                         {
                             Animation a = SelectedAnimation;
+                            int selectedAnimationIndex = Animations.IndexOf(a);
+                            if (selectedAnimationIndex < 0 || selectedAnimationIndex >= SelectedLine.NumKeys.Count)
+                            {
+                                return;
+                            }
+
                             var dragDropObject = new FaceFXAnimDragDropObject
                             {
                                 anim = a,
-                                group = SelectedLine.NumKeys[animationListBox.SelectedIndex],
+                                group = SelectedLine.NumKeys[selectedAnimationIndex],
                                 fromDlg = SelectedLine.NameAsString,
                                 fromAnimset = CurrentLoadedExport.InstancedFullPath
                             };
@@ -688,7 +759,12 @@ namespace LegendaryExplorer.UserControls.ExportLoaderControls
 
         private void DeleteAnim_Click(object sender, RoutedEventArgs e)
         {
-            Animations.RemoveAt(animationListBox.SelectedIndex);
+            if (SelectedAnimation is null)
+            {
+                return;
+            }
+
+            Animations.Remove(SelectedAnimation);
             SaveChanges();
         }
 
@@ -1658,6 +1734,7 @@ namespace LegendaryExplorer.UserControls.ExportLoaderControls
             if (!string.IsNullOrEmpty(newName))
             {
                 SelectedAnimation.Name = newName;
+                RefreshAnimationFilter();
                 SaveChanges();
             }
         }
