@@ -457,6 +457,19 @@ public static class ToolSet
             category = "Cinematic Tools",
             description = "Interp Editor is a simplified version of UDK’s Matinee Editor. It loads interpdata objects and displays their children as tracks on a timeline, allowing the user to visualize the game content associated with a specific scene."
         });
+        set.Add(new Tool
+        {
+            name = "Interp Preview (M1 Experimental)",
+            type = typeof(InterpPreviewShellWindow),
+            icon = Application.Current.FindResource("iconPlaceholder") as ImageSource,
+            open = () =>
+            {
+                (new InterpPreviewShellWindow()).Show();
+            },
+            tags = ["utility", "dialogue", "matinee", "cutscene", "preview", "interpdata", "level"],
+            category = "Cinematic Tools",
+            description = "Interp Preview Shell is a standalone Scene3D preview window for loading level packages and validating static/skeletal actor rendering independent of dialogue playback."
+        });
 #if DEBUG
         set.Add(new Tool
         {
