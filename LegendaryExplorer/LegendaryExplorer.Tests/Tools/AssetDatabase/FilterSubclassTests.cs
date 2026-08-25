@@ -70,6 +70,24 @@ namespace LegendaryExplorer.Tests.Tools.AssetDatabase
         }
 
         [TestMethod]
+        public void TestVolumeMeshClassification()
+        {
+            var triggerVolume = new MeshRecord("Trigger", false, false, MeshRecord.TriggerVolumeBoneCountSentinel);
+            var blockingVolume = new MeshRecord("Blocking", false, false, MeshRecord.BlockingVolumeBoneCountSentinel);
+            var staticMesh = new MeshRecord("Static", false, false, 0);
+
+            Assert.IsTrue(triggerVolume.IsTriggerVolume);
+            Assert.IsFalse(triggerVolume.IsBlockingVolume);
+            Assert.IsTrue(triggerVolume.IsVolume);
+
+            Assert.IsFalse(blockingVolume.IsTriggerVolume);
+            Assert.IsTrue(blockingVolume.IsBlockingVolume);
+            Assert.IsTrue(blockingVolume.IsVolume);
+
+            Assert.IsFalse(staticMesh.IsVolume);
+        }
+
+        [TestMethod]
         public void TestMaterialTextureTypeSearch()
         {
             var material = new MaterialRecord(

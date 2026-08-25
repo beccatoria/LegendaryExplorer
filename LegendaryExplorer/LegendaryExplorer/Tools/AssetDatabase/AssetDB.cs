@@ -507,6 +507,7 @@ namespace LegendaryExplorer.Tools.AssetDatabase
     public class MeshRecord : IAssetRecord
     {
         public const int TriggerVolumeBoneCountSentinel = -1;
+        public const int BlockingVolumeBoneCountSentinel = -2;
 
         public string MeshName { get; set; }
 
@@ -518,6 +519,12 @@ namespace LegendaryExplorer.Tools.AssetDatabase
 
         [IgnoredMember]
         public bool IsTriggerVolume => !IsSkeleton && BoneCount == TriggerVolumeBoneCountSentinel;
+
+        [IgnoredMember]
+        public bool IsBlockingVolume => !IsSkeleton && BoneCount == BlockingVolumeBoneCountSentinel;
+
+        [IgnoredMember]
+        public bool IsVolume => IsTriggerVolume || IsBlockingVolume;
 
         [IgnoredMember] public IEnumerable<IAssetUsage> AssetUsages => Usages;
         public List<MeshUsage> Usages { get; set; } = new();
@@ -534,6 +541,11 @@ namespace LegendaryExplorer.Tools.AssetDatabase
                 if (IsTriggerVolume)
                 {
                     return $"{MeshName} (Trigger Volume)";
+                }
+
+                if (IsBlockingVolume)
+                {
+                    return $"{MeshName} (Blocking Volume)";
                 }
 
                 return MeshName;

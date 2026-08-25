@@ -49,7 +49,7 @@ namespace LegendaryExplorer.Tools.AssetDatabase.Filters
                 new PredicateSpecification<AnimationRecord>("Only Performances (ME3)", ar => ar.IsAmbPerf),
             }, searchPredicate: t => t.Record.AnimSequence.ToLower().Contains(t.SearchText.ToLower()));
 
-            var defaultMeshFilter = new PredicateSpecification<MeshRecord>("Hide Trigger Volumes", mr => !mr.IsTriggerVolume,
+            var defaultMeshFilter = new PredicateSpecification<MeshRecord>("Hide Trigger/Blocking Volumes", mr => !mr.IsVolume,
                 "Default filter to keep regular mesh browsing uncluttered");
             defaultMeshFilter.IsSelected = true;
 
@@ -58,8 +58,9 @@ namespace LegendaryExplorer.Tools.AssetDatabase.Filters
                 fileList,
                 defaultMeshFilter,
                 new PredicateSpecification<MeshRecord>("Only Skeletal Meshes", mr => mr.IsSkeleton),
-                new PredicateSpecification<MeshRecord>("Only Static Meshes", mr => !mr.IsSkeleton && !mr.IsTriggerVolume),
+                new PredicateSpecification<MeshRecord>("Only Static Meshes", mr => !mr.IsSkeleton && !mr.IsVolume),
                 new PredicateSpecification<MeshRecord>("Only Trigger Volumes", mr => mr.IsTriggerVolume),
+                new PredicateSpecification<MeshRecord>("Only Blocking Volumes", mr => mr.IsBlockingVolume),
             }, searchPredicate: MeshSearch);
 
             ParticleFilter = new SingleOptionFilter<ParticleSysRecord>(new IAssetSpecification<ParticleSysRecord>[]

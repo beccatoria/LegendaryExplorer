@@ -75,6 +75,10 @@ namespace LegendaryExplorer.Tools.AssetDatabase.Scanners
                 return;
             }
 
+            int volumeSentinel = ownerExport.ClassName.Contains("BlockingVolume", StringComparison.OrdinalIgnoreCase)
+                ? MeshRecord.BlockingVolumeBoneCountSentinel
+                : MeshRecord.TriggerVolumeBoneCountSentinel;
+
             var volumeUsage = new MeshUsage(e.FileKey, e.Export.UIndex, e.IsMod);
             string ownerLabel = $"{ownerExport.ObjectName.Instanced} ({ownerExport.ClassName}) [{e.FileName}]";
             string volumeKey = $"volume::{e.FileKey}::{ownerExport.UIndex}";
@@ -89,7 +93,7 @@ namespace LegendaryExplorer.Tools.AssetDatabase.Scanners
             }
             else
             {
-                var volumeMeshRecord = new MeshRecord(ownerLabel, false, e.IsMod, MeshRecord.TriggerVolumeBoneCountSentinel);
+                var volumeMeshRecord = new MeshRecord(ownerLabel, false, e.IsMod, volumeSentinel);
                 volumeMeshRecord.Usages.Add(volumeUsage);
 
                 if (!db.GeneratedMeshes.TryAdd(volumeKey, volumeMeshRecord))

@@ -1791,7 +1791,7 @@ namespace LegendaryExplorer.Tools.AssetDatabase
                 if (uexpIdx <= meshPcc.ExportCount)
                 {
                     var meshExp = meshPcc.GetUExport(uexpIdx);
-                    bool canRenderSelection = selecteditem.IsTriggerVolume
+                    bool canRenderSelection = selecteditem.IsVolume
                         ? meshExp.ClassName == "BrushComponent"
                         : meshExp.ObjectName == selecteditem.MeshName;
 
@@ -3038,7 +3038,7 @@ namespace LegendaryExplorer.Tools.AssetDatabase
         {
             if (sender is FrameworkElement elem && elem.DataContext is MeshRecord psr)
             {
-                if (psr.IsTriggerVolume)
+                if (psr.IsVolume)
                 {
                     return;
                 }
