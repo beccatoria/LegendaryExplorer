@@ -1404,13 +1404,15 @@ namespace LegendaryExplorer.Tools.AssetDatabase
             {
                 FilterBox.Clear();
                 Filter();
+                FilterBox.ToolTip = "Filter and find assets";
                 switch (currentView)
                 {
                     case 2:
                         FilterBox.Watermark = "Search (name/package) or tex: norm,diff,spec";
                         break;
                     case 4:
-                        FilterBox.Watermark = "Search (by texture name or CRC if compiled)";
+                        FilterBox.Watermark = "Search tex/CRC or size: 4096x4096";
+                        FilterBox.ToolTip = "Texture size search syntax: 4096x4096 or size: 4096x4096";
                         break;
                     case 9:
                         FilterBox.Watermark = "Search (by remote event name)";

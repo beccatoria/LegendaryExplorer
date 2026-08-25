@@ -96,7 +96,7 @@
     <xctk:BusyIndicator x:Name="dbBusyIndicator" IsBusy="{Binding IsBusy, FallbackValue=False}">
         <DockPanel>
             <DockPanel DockPanel.Dock="Top">
-                <xctk:WatermarkTextBox DockPanel.Dock="Right" Watermark="Search" Name="FilterBox" Width="300" KeyUp="FilterBox_KeyUp" ToolTip="Filter and find classes" HorizontalAlignment="Right" HorizontalContentAlignment="Left" IsEnabled="True">
+                <xctk:WatermarkTextBox DockPanel.Dock="Right" Watermark="Search" Name="FilterBox" Width="300" KeyUp="FilterBox_KeyUp" ToolTip="Filter and find assets. Texture size syntax: 4096x4096 or size: 4096x4096" HorizontalAlignment="Right" HorizontalContentAlignment="Left" IsEnabled="True">
                 </xctk:WatermarkTextBox>
                 <Menu Name="TopDock">
                     <MenuItem Header="Database" Padding="4" >

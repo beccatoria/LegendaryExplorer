@@ -33,6 +33,8 @@
         </ContextMenu>
         <ContextMenu x:Key="replynodeContextMenu" Closed="ContextMenu_Closed">
             <MenuItem Header="Edit Links" Name="replyLinkEditContextMenu" Command="{Binding NodeEditCommand}" CommandParameter="Reply" ToolTip="Edit Links order and details"/>
+            <MenuItem Header="Open in Interp Preview" Command="{Binding OpenInCommand}" CommandParameter="InterpPreviewLine"
+                      ToolTip="Open the selected line in Interp Preview."/>
             <Separator />
             <MenuItem Header="Add Reply" Command="{Binding NodeAddCommand}" CommandParameter="AddReply" ToolTip="Create a new clean reply"/>
             <MenuItem Header="Clone Reply" Command="{Binding NodeAddCommand}" CommandParameter="CloneReply" ToolTip="Create a new reply as a duplicate of this one"/>
@@ -53,6 +55,8 @@
         </ContextMenu>
         <ContextMenu x:Key="entrynodeContextMenu" Closed="ContextMenu_Closed">
             <MenuItem Header="Edit Links" Name="entryLinkEditContextMenu" Command="{Binding NodeEditCommand}" CommandParameter="Entry" ToolTip="Edit Links order and details"/>
+            <MenuItem Header="Open in Interp Preview" Command="{Binding OpenInCommand}" CommandParameter="InterpPreviewLine"
+                      ToolTip="Open the selected line in Interp Preview."/>
             <Separator />
             <MenuItem Header="Add Entry" Command="{Binding NodeAddCommand}" CommandParameter="AddEntry" ToolTip="Create a new clean entry"/>
             <MenuItem Header="Clone Entry" Command="{Binding NodeAddCommand}" CommandParameter="CloneEntry" ToolTip="Create a new entry as a duplicate of this one"/>
@@ -851,6 +855,14 @@
                                                         DockPanel.Dock="Right" ToolTip="Open this line in interpeditor">
                                                     <Button.Content>
                                                         <fa:ImageAwesome Icon="Solid_SlidersH" Width="16" Height="16"
+                                                                         Foreground="DarkBlue" />
+                                                    </Button.Content>
+                                                </Button>
+                                                <Button Name="OpenLinePreview_Button" Command="{Binding OpenInCommand}"
+                                                        CommandParameter="InterpPreviewLine" Padding="3"
+                                                        DockPanel.Dock="Right" ToolTip="Open this line in Interp Preview">
+                                                    <Button.Content>
+                                                        <fa:ImageAwesome Icon="Solid_Play" Width="16" Height="16"
                                                                          Foreground="DarkBlue" />
                                                     </Button.Content>
                                                 </Button>

@@ -3088,6 +3088,27 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
             _visibleActorSet.UnionWith(viewState.VisibleActorKeys);
         }
 
+        if ((viewState.UseVisibleSetOnly || viewState.ObjectRenderMode is ObjectRenderMode.VisibleSetOnly)
+            && _visibleActorSet.Count > 0)
+        {
+            HashSet<string> currentActorKeys = Actors
+                .Where(IsVisibleSetCandidate)
+                .Select(GetActorVisibilityKey)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            int matchedKeys = _visibleActorSet.Count(key => currentActorKeys.Contains(key));
+            if (matchedKeys == 0)
+            {
+                _visibleActorSet.Clear();
+                _hasUserEditedVisibleSets = false;
+                viewState.UseVisibleSetOnly = false;
+                viewState.ObjectRenderMode = ObjectRenderMode.Full;
+                viewState.VisibleActorKeys.Clear();
+                viewState.HiddenActorClasses?.Clear();
+                SaveRecentSets();
+            }
+        }
+
         ObjectRenderMode = viewState.ObjectRenderMode;
         UseVisibleSetOnly = viewState.UseVisibleSetOnly;
 

@@ -88,15 +88,36 @@ namespace LegendaryExplorer.Tools.AssetDatabase.Filters
             text = text.ToLower();
             bool showThis = tr.TextureName.ToLower().Contains(text) || tr.CRC.ToLower().Contains(text) || tr.ParentPackage.ToLower().Contains(text);
 
-            if (!showThis && text.StartsWith("size: ") && text.Contains('x') && text.Length > 6)
+            if (!showThis && TryParseSizeQuery(text, out int xVal, out int yVal))
             {
-                var sr = text.Remove(0, 6).ToLower().Split("x");
-                if (int.TryParse(sr[0], out int xVal) && int.TryParse(sr[1], out int yVal))
-                {
-                    showThis = tr.SizeX == xVal && tr.SizeY == yVal;
-                }
+                showThis = tr.SizeX == xVal && tr.SizeY == yVal;
             }
             return showThis;
+        }
+
+        private static bool TryParseSizeQuery(string searchText, out int sizeX, out int sizeY)
+        {
+            sizeX = 0;
+            sizeY = 0;
+
+            if (string.IsNullOrWhiteSpace(searchText))
+            {
+                return false;
+            }
+
+            var sizeText = searchText.Trim();
+            if (sizeText.StartsWith("size:"))
+            {
+                sizeText = sizeText.Substring(5).Trim();
+            }
+
+            var split = sizeText.Split('x');
+            if (split.Length != 2)
+            {
+                return false;
+            }
+
+            return int.TryParse(split[0].Trim(), out sizeX) && int.TryParse(split[1].Trim(), out sizeY);
         }
     }
 }

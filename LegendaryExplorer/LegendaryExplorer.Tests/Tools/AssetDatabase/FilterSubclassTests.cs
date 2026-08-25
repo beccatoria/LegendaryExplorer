@@ -31,6 +31,9 @@ namespace LegendaryExplorer.Tests.Tools.AssetDatabase
             var r2 = new TextureRecord("Name", "RandomPackage", false, false,
                 "format", "LOD", 512, 1024, "ABCDE");
 
+            var r3 = new TextureRecord("Name", "RandomPackage", false, false,
+                "format", "LOD", 2048, 1024, "ABCDE");
+
             Assert.IsTrue(TextureFilter.TextureSearch(("name", r1))); // Can search against name
             Assert.IsTrue(TextureFilter.TextureSearch(("ompack", r1))); // Parent Package
             Assert.IsTrue(TextureFilter.TextureSearch(("ABCDE", r1))); // Or CRC
@@ -44,6 +47,12 @@ namespace LegendaryExplorer.Tests.Tools.AssetDatabase
 
             Assert.IsTrue(TextureFilter.TextureSearch(("size: 512x1024", r2)));
             Assert.IsFalse(TextureFilter.TextureSearch(("size: 1024x512", r2)));
+
+            // Direct WxH search without size: prefix
+            Assert.IsTrue(TextureFilter.TextureSearch(("512x512", r1)));
+            Assert.IsTrue(TextureFilter.TextureSearch((" 512X512 ", r1)));
+            Assert.IsFalse(TextureFilter.TextureSearch(("1024x512", r1)));
+            Assert.IsTrue(TextureFilter.TextureSearch(("2048x1024", r3)));
         }
 
         [TestMethod]

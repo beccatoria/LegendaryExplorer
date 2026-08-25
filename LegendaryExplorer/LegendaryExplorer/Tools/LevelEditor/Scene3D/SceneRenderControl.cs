@@ -469,7 +469,6 @@ public sealed class SceneRenderControl : ContentControl, IDisposable, INotifyPro
     {
         if (_shouldRender && Context is { IsReady: true })
         {
-            //Debug.WriteLine("Rendering");
             D3DImage?.RequestRender();
         }
     }

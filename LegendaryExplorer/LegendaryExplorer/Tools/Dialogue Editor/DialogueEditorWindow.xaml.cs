@@ -58,6 +58,8 @@ namespace LegendaryExplorer.DialogueEditor
     public partial class DialogueEditorWindow : WPFBase, IRecents
     {
         #region Declarations
+        private InterpPreviewShellWindow _interpPreviewWindow;
+
         private struct SaveData
         {
             public int index;
@@ -68,6 +70,117 @@ namespace LegendaryExplorer.DialogueEditor
             {
                 index = i;
             }
+        }
+
+        private async void OpenInInterpPreview_Clicked(ConversationExtended conversation, DialogueNodeExtended node)
+        {
+            InterpPreviewShellWindow preview = GetOrCreateInterpPreviewWindow();
+
+            string levelPath = ResolveLevelFilePathForPreview();
+            if (!string.IsNullOrWhiteSpace(levelPath))
+            {
+                bool loaded = await preview.TryLoadLevelAsync(levelPath).ConfigureAwait(true);
+                StatusText = loaded
+                    ? $"Interp Preview auto-load: {levelPath}"
+                    : $"Interp Preview level load failed: {levelPath}";
+            }
+            else
+            {
+                StatusText = "Interp Preview auto-load: no level path resolved. Use Open Level in Interp Preview.";
+            }
+
+            InterpPreviewDialogueResolution resolution = preview.ResolveDialogueNode(conversation, node);
+            if (!resolution.IsResolved)
+            {
+                MessageBox.Show("Interp Preview could not resolve InterpData for the selected node. See Diagnostics panel in Interp Preview for details.", "Interp Preview", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+
+            BringPreviewToFront(preview);
+        }
+
+        private InterpPreviewShellWindow GetOrCreateInterpPreviewWindow()
+        {
+            if (_interpPreviewWindow is not null && _interpPreviewWindow.IsLoaded)
+            {
+                if (_interpPreviewWindow.WindowState == WindowState.Minimized)
+                {
+                    _interpPreviewWindow.WindowState = WindowState.Normal;
+                }
+                return _interpPreviewWindow;
+            }
+
+            _interpPreviewWindow = new InterpPreviewShellWindow
+            {
+                ShowActivated = false
+            };
+            _interpPreviewWindow.Closed += (_, _) => _interpPreviewWindow = null;
+            _interpPreviewWindow.Show();
+            return _interpPreviewWindow;
+        }
+
+        private void BringPreviewToFront(InterpPreviewShellWindow preview)
+        {
+            if (preview is null)
+            {
+                return;
+            }
+
+            void ActivatePreviewWindow()
+            {
+                if (!preview.IsLoaded)
+                {
+                    return;
+                }
+
+                if (preview.WindowState == WindowState.Minimized)
+                {
+                    preview.WindowState = WindowState.Normal;
+                }
+
+                bool wasTopmost = preview.Topmost;
+                preview.Topmost = true;
+                preview.Activate();
+                preview.Focus();
+                preview.Topmost = wasTopmost;
+            }
+
+            Dispatcher.BeginInvoke(new Action(ActivatePreviewWindow), DispatcherPriority.ApplicationIdle);
+        }
+
+        private string ResolveLevelFilePathForPreview()
+        {
+            if (Pcc == null)
+            {
+                return null;
+            }
+
+            string packageDirectory = Path.GetDirectoryName(Pcc.FilePath);
+            if (!string.IsNullOrWhiteSpace(Level) && !string.IsNullOrWhiteSpace(packageDirectory))
+            {
+                string siblingLevelPath = Path.Combine(packageDirectory, Level);
+                if (File.Exists(siblingLevelPath))
+                {
+                    return siblingLevelPath;
+                }
+            }
+
+            string rootPath = Pcc.Game switch
+            {
+                MEGame.ME1 => ME1Directory.DefaultGamePath,
+                MEGame.ME2 => ME2Directory.DefaultGamePath,
+                MEGame.ME3 => ME3Directory.DefaultGamePath,
+                MEGame.LE1 => LE1Directory.DefaultGamePath,
+                MEGame.LE2 => LE2Directory.DefaultGamePath,
+                MEGame.LE3 => LE3Directory.DefaultGamePath,
+                _ => null
+            };
+
+            if (string.IsNullOrWhiteSpace(rootPath) || string.IsNullOrWhiteSpace(Level) || !Directory.Exists(rootPath))
+            {
+                return null;
+            }
+
+            return Directory.GetFiles(rootPath, Level, SearchOption.AllDirectories).FirstOrDefault();
         }
 
         private enum ESaveViewMode
@@ -3390,6 +3503,12 @@ namespace LegendaryExplorer.DialogueEditor
                         OpenInInterpViewer_Clicked(SelectedDialogueNode.InterpData);
                     }
                     break;
+                case "InterpPreviewLine":
+                    if (SelectedConv != null && SelectedDialogueNode != null)
+                    {
+                        OpenInInterpPreview_Clicked(SelectedConv, SelectedDialogueNode);
+                    }
+                    break;
                 default:
                     OpenInToolkit(tool);
                     break;
@@ -3414,6 +3533,7 @@ namespace LegendaryExplorer.DialogueEditor
                 "SoundP_StreamM" => SelectedDialogueNode?.WwiseStream_Male != null,
                 "SoundP_StreamF" => SelectedDialogueNode?.WwiseStream_Female != null,
                 "InterpEdLine" => SelectedDialogueNode?.InterpData != null,
+                "InterpPreviewLine" => SelectedDialogueNode != null,
                 _ => true
             };
         }
