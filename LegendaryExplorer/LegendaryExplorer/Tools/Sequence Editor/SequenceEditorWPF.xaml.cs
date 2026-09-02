@@ -1223,8 +1223,7 @@ namespace LegendaryExplorer.Tools.Sequence_Editor
                 if (selectedExports.Count == 1 &&
                     CurrentObjects.FirstOrDefault(obj => obj.Export == selectedExports[0]) is SObj selectedObj)
                 {
-                    panToSelection = false;
-                    CurrentObjects_ListBox.SelectedItem = selectedObj;
+                    SetSelectedObjectsFromSource(new[] { selectedObj }, allowPanToSelection: false);
                 }
 
                 if (fromFile)
@@ -1394,7 +1393,7 @@ namespace LegendaryExplorer.Tools.Sequence_Editor
                     warnedOfReload = true;
                 }
 
-                var selectedIndex = (CurrentObjects_ListBox.SelectedItem as SObj)?.Export.UIndex ?? 0;
+                var selectedIndex = GetPrimarySelectedObject()?.Export.UIndex ?? 0;
                 using var fStream = File.OpenRead(fileOnDisk);
                 LoadFileFromStream(fStream, fileOnDisk, selectedIndex);
                 Title += " (NOT SHARED WITH OTHER WINDOWS)";
@@ -1638,7 +1637,7 @@ namespace LegendaryExplorer.Tools.Sequence_Editor
             }
             else
             {
-                CurrentObjects_ListBox.SelectedItems.Clear();
+                SetSelectedObjectsFromSource(Array.Empty<SObj>(), allowPanToSelection: false);
             }
         }
 
@@ -1733,6 +1732,94 @@ namespace LegendaryExplorer.Tools.Sequence_Editor
         private ExportEntry ExportQueuedForFocusing;
         private bool AllowWindowRefocus = true;
         private static readonly Color GraphEditorBackColor = Color.FromArgb(167, 167, 167);
+
+        private SObj GetPrimarySelectedObject()
+        {
+            return SelectedObjects.FirstOrDefault() ?? (CurrentObjects_ListBox?.SelectedItem as SObj);
+        }
+
+        private void SetSelectedObjectsFromSource(IEnumerable<SObj> objectsToSelect, bool allowPanToSelection = true)
+        {
+            panToSelection = allowPanToSelection;
+            List<SObj> selectedEntries = objectsToSelect?
+                .Where(obj => obj != null)
+                .Distinct()
+                .ToList() ?? new();
+
+            if (SelectedObjects.Except(selectedEntries).ToList() is List<SObj> deselectedEntries)
+            {
+                SelectedObjects.RemoveRange(deselectedEntries);
+                foreach (SObj obj in deselectedEntries)
+                {
+                    obj.IsSelected = false;
+                }
+            }
+
+            if (selectedEntries.Except(SelectedObjects).ToList() is List<SObj> selectedObjects)
+            {
+                SelectedObjects.AddRange(selectedObjects);
+                foreach (SObj obj in selectedObjects)
+                {
+                    obj.IsSelected = true;
+                }
+            }
+
+            SyncCurrentObjectsListSelection();
+            RefreshSelectionState();
+        }
+
+        private void SyncCurrentObjectsListSelection()
+        {
+            if (CurrentObjects_ListBox == null)
+            {
+                return;
+            }
+
+            CurrentObjects_ListBox.SelectionChanged -= CurrentObjectsList_SelectedItemChanged;
+            try
+            {
+                CurrentObjects_ListBox.SelectedItems.Clear();
+                foreach (SObj selectedObject in SelectedObjects)
+                {
+                    if (CurrentObjectsViewSource.View?.Contains(selectedObject) ?? true)
+                    {
+                        CurrentObjects_ListBox.SelectedItems.Add(selectedObject);
+                    }
+                }
+            }
+            finally
+            {
+                CurrentObjects_ListBox.SelectionChanged += CurrentObjectsList_SelectedItemChanged;
+            }
+        }
+
+        private void RefreshSelectionState()
+        {
+            if (SelectedObjects.Count == 1)
+            {
+                Properties_InterpreterWPF.LoadExport(SelectedObjects[0].Export);
+            }
+            else if (!(Properties_InterpreterWPF.CurrentLoadedExport?.IsSequence() ?? false))
+            {
+                Properties_InterpreterWPF.UnloadExport();
+            }
+
+            if (SelectedObjects.Any() && panToSelection)
+            {
+                if (SelectedObjects.Count == 1)
+                {
+                    graphEditor.Camera.AnimateViewToCenterBounds(SelectedObjects[0].GlobalFullBounds, false, 100);
+                }
+                else
+                {
+                    RectangleF boundingBox = SelectedObjects.Select(obj => obj.GlobalFullBounds).BoundingRect();
+                    graphEditor.Camera.AnimateViewToCenterBounds(boundingBox, true, 200);
+                }
+            }
+
+            panToSelection = true;
+            graphEditor.Refresh();
+        }
 
         private void saveView(bool toFile = true)
         {
@@ -2190,7 +2277,7 @@ namespace LegendaryExplorer.Tools.Sequence_Editor
         /// <param name="trash">If the object should be trashed. Most times this is desirable, however if an object is being moved to another sequence, this is not desirable.</param>
         private void RemoveFromSequence(bool trash)
         {
-            if (CurrentObjects_ListBox.SelectedItem is SObj sObj)
+            if (GetPrimarySelectedObject() is SObj sObj)
             {
                 //remove incoming connections
                 switch (sObj)
@@ -2248,32 +2335,30 @@ namespace LegendaryExplorer.Tools.Sequence_Editor
                 obj.PosAtDragStart = obj.GlobalFullBounds;
                 if (e.Button == System.Windows.Forms.MouseButtons.Right)
                 {
-                    panToSelection = false;
-                    if (SelectedObjects.Count > 1)
+                    if (SelectedObjects.Count > 1 || !obj.IsSelected)
                     {
-                        CurrentObjects_ListBox.SelectedItems.Clear();
-                        panToSelection = false;
+                        SetSelectedObjectsFromSource(new[] { obj }, allowPanToSelection: false);
                     }
 
-                    CurrentObjects_ListBox.SelectedItem = obj;
                     OpenNodeContextMenu(obj);
                 }
                 else if (e.Shift || e.Control)
                 {
-                    panToSelection = false;
+                    var updatedSelection = SelectedObjects.ToList();
                     if (obj.IsSelected)
                     {
-                        CurrentObjects_ListBox.SelectedItems.Remove(obj);
+                        updatedSelection.Remove(obj);
                     }
                     else
                     {
-                        CurrentObjects_ListBox.SelectedItems.Add(obj);
+                        updatedSelection.Add(obj);
                     }
+
+                    SetSelectedObjectsFromSource(updatedSelection, allowPanToSelection: false);
                 }
                 else if (!obj.IsSelected)
                 {
-                    panToSelection = false;
-                    CurrentObjects_ListBox.SelectedItem = obj;
+                    SetSelectedObjectsFromSource(new[] { obj }, allowPanToSelection: false);
                 }
             }
         }
@@ -2287,14 +2372,7 @@ namespace LegendaryExplorer.Tools.Sequence_Editor
                     if (!e.Shift && !e.Control)
                     {
                         if (SelectedObjects.Count == 1 && obj.IsSelected) return;
-                        panToSelection = false;
-                        if (SelectedObjects.Count > 1)
-                        {
-                            CurrentObjects_ListBox.SelectedItems.Clear();
-                            panToSelection = false;
-                        }
-
-                        CurrentObjects_ListBox.SelectedItem = obj;
+                        SetSelectedObjectsFromSource(new[] { obj }, allowPanToSelection: false);
                     }
                 }
             }
@@ -2336,7 +2414,7 @@ namespace LegendaryExplorer.Tools.Sequence_Editor
 
         private void OpenInPackageEditor_Clicked(object sender, RoutedEventArgs e)
         {
-            if (CurrentObjects_ListBox.SelectedItem is SObj obj)
+            if (GetPrimarySelectedObject() is SObj obj)
             {
                 AllowWindowRefocus =
                     false; //prevents flicker effect when windows try to focus and then package editor activates
@@ -2349,7 +2427,7 @@ namespace LegendaryExplorer.Tools.Sequence_Editor
 
         private void OpenReferencedObjectInPackageEditor_Clicked(object sender, RoutedEventArgs e)
         {
-            if (CurrentObjects_ListBox.SelectedItem is SVar sVar &&
+            if (GetPrimarySelectedObject() is SVar sVar &&
                 sVar.Export.GetProperty<ObjectProperty>("ObjValue") is ObjectProperty objProp)
             {
                 AllowWindowRefocus =
@@ -2372,7 +2450,7 @@ namespace LegendaryExplorer.Tools.Sequence_Editor
 
         private void CloneObject_Clicked(object sender, RoutedEventArgs e)
         {
-            if (CurrentObjects_ListBox.SelectedItem is SObj obj)
+            if (GetPrimarySelectedObject() is SObj obj)
             {
                 ExportEntry clonedExport = KismetHelper.CloneObject(obj.Export, SelectedSequence);
                 customSaveData[clonedExport.UIndex] =
@@ -2393,51 +2471,7 @@ namespace LegendaryExplorer.Tools.Sequence_Editor
 
         private void CurrentObjectsList_SelectedItemChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (e.RemovedItems?.Cast<SObj>().ToList() is List<SObj> deselectedEntries)
-            {
-                SelectedObjects.RemoveRange(deselectedEntries);
-                foreach (SObj obj in deselectedEntries)
-                {
-                    obj.IsSelected = false;
-                }
-            }
-
-            if (e.AddedItems?.Cast<SObj>().ToList() is IList<SObj> selectedEntries)
-            {
-                SelectedObjects.AddRange(selectedEntries);
-                foreach (SObj obj in selectedEntries)
-                {
-                    obj.IsSelected = true;
-                }
-            }
-
-            if (SelectedObjects.Count == 1)
-            {
-                Properties_InterpreterWPF.LoadExport(SelectedObjects[0].Export);
-            }
-            else if (!(Properties_InterpreterWPF.CurrentLoadedExport?.IsSequence() ?? false))
-            {
-                Properties_InterpreterWPF.UnloadExport();
-            }
-
-            if (SelectedObjects.Any())
-            {
-                if (panToSelection)
-                {
-                    if (SelectedObjects.Count == 1)
-                    {
-                        graphEditor.Camera.AnimateViewToCenterBounds(SelectedObjects[0].GlobalFullBounds, false, 100);
-                    }
-                    else
-                    {
-                        RectangleF boundingBox = SelectedObjects.Select(obj => obj.GlobalFullBounds).BoundingRect();
-                        graphEditor.Camera.AnimateViewToCenterBounds(boundingBox, true, 200);
-                    }
-                }
-            }
-
-            panToSelection = true;
-            graphEditor.Refresh();
+            SetSelectedObjectsFromSource(CurrentObjects_ListBox.SelectedItems.Cast<SObj>(), panToSelection);
         }
 
         private void SaveImage()
@@ -2507,7 +2541,7 @@ namespace LegendaryExplorer.Tools.Sequence_Editor
 
         private void OpenInInterpViewer_Clicked(object sender, RoutedEventArgs e)
         {
-            if (CurrentObjects_ListBox.SelectedItem is SObj obj)
+            if (GetPrimarySelectedObject() is SObj obj)
             {
                 int uIndex;
                 ExportEntry exportEntry = obj.Export;
@@ -2538,7 +2572,7 @@ namespace LegendaryExplorer.Tools.Sequence_Editor
 
         private void OpenInDialogueEditor_Clicked(object sender, RoutedEventArgs e)
         {
-            if (CurrentObjects_ListBox.SelectedItem is SObj obj &&
+            if (GetPrimarySelectedObject() is SObj obj &&
                 (obj.Export.ClassName.EndsWith("SeqAct_StartConversation") ||
                  obj.Export.ClassName.EndsWith("StartAmbientConv")) &&
                 obj.Export.GetProperty<ObjectProperty>("Conv") is ObjectProperty conv)
@@ -2701,8 +2735,11 @@ namespace LegendaryExplorer.Tools.Sequence_Editor
                         var nodes = TreeViewRootNodes.SelectMany(node => node.FlattenTree())
                             .ToList(); // This is to debug selection failures
                         SelectedItem = nodes.First(node => node.UIndex == sequence.UIndex);
-                        CurrentObjects_ListBox.SelectedItem =
-                            CurrentObjects.FirstOrDefault(x => x.Export == expToNavigateTo);
+                        if (CurrentObjects.FirstOrDefault(x => x.Export == expToNavigateTo) is SObj selectedObj)
+                        {
+                            SetSelectedObjectsFromSource(new[] { selectedObj }, allowPanToSelection: false);
+                        }
+
                         break;
                     }
                 }
@@ -2711,7 +2748,7 @@ namespace LegendaryExplorer.Tools.Sequence_Editor
 
         private void PlotEditorMenuItem_Click(object sender, RoutedEventArgs e)
         {
-            if (CurrentObjects_ListBox.SelectedItem is SAction sAction &&
+            if (GetPrimarySelectedObject() is SAction sAction &&
                 sAction.Export.ClassName == "BioSeqAct_PMExecuteTransition" &&
                 sAction.Export.GetProperty<IntProperty>("m_nIndex")?.Value is int m_nIndex)
             {
@@ -2790,7 +2827,7 @@ namespace LegendaryExplorer.Tools.Sequence_Editor
 
         private void RepointIncomingReferences_Click(object sender, RoutedEventArgs e)
         {
-            if (CurrentObjects_ListBox.SelectedItem is SVar sVar)
+            if (GetPrimarySelectedObject() is SVar sVar)
             {
                 if (EntrySelector.GetEntry<ExportEntry>(this, Pcc) is ExportEntry export)
                 {
@@ -2855,7 +2892,7 @@ namespace LegendaryExplorer.Tools.Sequence_Editor
 
         private void EditComment_Click(object sender, RoutedEventArgs e)
         {
-            if (CurrentObjects_ListBox.SelectedItem is SObj sObj)
+            if (GetPrimarySelectedObject() is SObj sObj)
             {
                 var comments = sObj.Export.GetProperty<ArrayProperty<StrProperty>>("m_aObjComment") ??
                                new ArrayProperty<StrProperty>("m_aObjComment");
@@ -2885,7 +2922,7 @@ namespace LegendaryExplorer.Tools.Sequence_Editor
 
         private void GotoSequenceReference_Clicked(object sender, RoutedEventArgs e)
         {
-            if (CurrentObjects_ListBox.SelectedItem is SAction sAction &&
+            if (GetPrimarySelectedObject() is SAction sAction &&
                 (sAction.Export.ClassName is "SequenceReference" or "Sequence"))
             {
                 GoToExport(sAction.Export);
@@ -2894,7 +2931,7 @@ namespace LegendaryExplorer.Tools.Sequence_Editor
 
         private void AddToLogString_Click(object sender, RoutedEventArgs e)
         {
-            if (CurrentObjects_ListBox.SelectedItem is SAction sAction &&
+            if (GetPrimarySelectedObject() is SAction sAction &&
                 sAction.Export.ClassName == "SeqAct_Log")
             {
                 var result = PromptDialog.Prompt(this, "Enter the string to log", "Enter string");
@@ -2913,7 +2950,7 @@ namespace LegendaryExplorer.Tools.Sequence_Editor
 
         private void CreateSeqLogForObject_Click(object sender, RoutedEventArgs e)
         {
-            if (CurrentObjects_ListBox.SelectedItem is SVar sVar)
+            if (GetPrimarySelectedObject() is SVar sVar)
             {
                 var result = PromptDialog.Prompt(this, "Enter the string to log alongside this", "Enter string");
                 if (!string.IsNullOrWhiteSpace(result))
@@ -3021,7 +3058,7 @@ namespace LegendaryExplorer.Tools.Sequence_Editor
 
         private void OpenClassDefinitionInPackageEditor_Clicked(object sender, RoutedEventArgs e)
         {
-            if (CurrentObjects_ListBox.SelectedItem is SObj obj && obj.Export != null)
+            if (GetPrimarySelectedObject() is SObj obj && obj.Export != null)
             {
                 // Get class of the object
                 var objClass = obj.Export.Class;
@@ -3130,7 +3167,7 @@ namespace LegendaryExplorer.Tools.Sequence_Editor
 
         private void CopyInstancedFullPath_Clicked(object sender, RoutedEventArgs e)
         {
-            if (CurrentObjects_ListBox.SelectedItem is SObj obj)
+            if (GetPrimarySelectedObject() is SObj obj)
             {
                 Clipboard.SetText(obj.Export.InstancedFullPath);
             }
@@ -3138,7 +3175,7 @@ namespace LegendaryExplorer.Tools.Sequence_Editor
 
         private void ExtractSequence_Clicked(object sender, RoutedEventArgs e)
         {
-            if (CurrentObjects_ListBox.SelectedItem is SAction sAction &&
+            if (GetPrimarySelectedObject() is SAction sAction &&
                 (sAction.Export.ClassName is "SequenceReference" or "Sequence"))
             {
                 var seqExp = sAction.Export;
@@ -3173,7 +3210,7 @@ namespace LegendaryExplorer.Tools.Sequence_Editor
 
         private void TrimVariableLinks_Clicked(object sender, RoutedEventArgs e)
         {
-            if (CurrentObjects_ListBox.SelectedItem is SObj sAction && sAction.Export != null)
+            if (GetPrimarySelectedObject() is SObj sAction && sAction.Export != null)
             {
                 KismetHelper.TrimVariableLinks(sAction.Export);
             }
@@ -3183,7 +3220,7 @@ namespace LegendaryExplorer.Tools.Sequence_Editor
 
         private void AddSwitchOutlinksMenuItem_Clicked(object sender, RoutedEventArgs e)
         {
-            if (CurrentObjects_ListBox.SelectedItem is SObj sAction && sAction.Export != null)
+            if (GetPrimarySelectedObject() is SObj sAction && sAction.Export != null)
             {
                 var result = PromptDialog.Prompt(this, "How many outlinks would you like to add?",
                     "Add switch outlinks", "1", true);
