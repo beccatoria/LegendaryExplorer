@@ -77,6 +77,7 @@
                     <MenuItem Header="Open" Command="{Binding OpenFileCommand}" InputGestureText="Ctrl+O" ToolTip="Open a level file (replaces current)"/>
                     <MenuItem Header="Add File..." Command="{Binding AddFileCommand}" InputGestureText="Ctrl+Shift+O" ToolTip="Add another level file to the scene"/>
                     <MenuItem Header="Load Related Levels" Command="{Binding LoadRelatedLevelsCommand}" ToolTip="Load all related level files for the current level" IsEnabled="{Binding HasAnyFileOpen}"/>
+                    <MenuItem Header="Open in Interp Preview" Command="{Binding OpenInInterpPreviewCommand}" ToolTip="Open the currently loaded level set in Interp Preview" IsEnabled="{Binding HasAnyFileOpen}"/>
                     <Separator />
                     <MenuItem Header="Save All" Command="{Binding SaveFileCommand}" InputGestureText="Ctrl+S" ToolTip="Save all open files in-place" IsEnabled="{Binding HasAnyFileOpen}"/>
                     <MenuItem Header="Save As..." Command="{Binding SaveAsCommand}" InputGestureText="Ctrl+Shift+S" ToolTip="Save selected file to another location" IsEnabled="{Binding HasAnyFileOpen}"/>

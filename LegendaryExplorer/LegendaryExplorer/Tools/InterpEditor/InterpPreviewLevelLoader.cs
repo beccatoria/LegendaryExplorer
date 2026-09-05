@@ -18,6 +18,7 @@ public sealed class InterpPreviewLevelLoader : IInterpPreviewLevelLoader
         string fullPath = Path.GetFullPath(path);
 
         IMEPackage package = MEPackageHandler.OpenMEPackage(fullPath);
+        List<ActorProxy> actors = null;
         try
         {
             ExportEntry levelExport = package.Exports.FirstOrDefault(export => export.ClassName == "Level");
@@ -27,58 +28,80 @@ public sealed class InterpPreviewLevelLoader : IInterpPreviewLevelLoader
             }
 
             Level level = levelExport.GetBinaryData<Level>();
-            List<ActorProxy> actors = LoadActors(level, actorEditorContext);
+            actors = LoadActors(level, actorEditorContext);
             cancellationToken.ThrowIfCancellationRequested();
             return new InterpPreviewLoadedLevel(fullPath, package, actors);
         }
         catch
         {
+            DisposeActors(actors);
             package.Dispose();
             throw;
+        }
+    }
+
+    private static void DisposeActors(IEnumerable<ActorProxy> actors)
+    {
+        if (actors is null)
+        {
+            return;
+        }
+
+        foreach (ActorProxy actor in actors)
+        {
+            actor?.Dispose();
         }
     }
 
     private static List<ActorProxy> LoadActors(Level level, IActorEditorContext actorEditorContext)
     {
         var actors = new List<ActorProxy>();
-        IEnumerable<ExportEntry> actorExports = level.Actors.Where(level.Export.FileRef.IsUExport).Select(level.Export.FileRef.GetUExport);
-        foreach (ExportEntry actorExport in actorExports)
+        try
         {
-            if (actorExport.ClassName == "StaticMeshCollectionActor")
+            IEnumerable<ExportEntry> actorExports = level.Actors.Where(level.Export.FileRef.IsUExport).Select(level.Export.FileRef.GetUExport);
+            foreach (ExportEntry actorExport in actorExports)
             {
-                var collection = actorExport.GetBinaryData<StaticMeshCollectionActor>();
-                for (int index = 0; index < collection.Components.Count; index++)
+                if (actorExport.ClassName == "StaticMeshCollectionActor")
                 {
-                    if (level.Export.FileRef.TryGetUExport(collection.Components[index], out ExportEntry component))
+                    var collection = actorExport.GetBinaryData<StaticMeshCollectionActor>();
+                    for (int index = 0; index < collection.Components.Count; index++)
                     {
-                        actors.Add(new StaticMeshComponentActorProxy(actorEditorContext, component, collection, index));
+                        if (level.Export.FileRef.TryGetUExport(collection.Components[index], out ExportEntry component))
+                        {
+                            actors.Add(new StaticMeshComponentActorProxy(actorEditorContext, component, collection, index));
+                        }
                     }
                 }
-            }
-            else if (actorExport.ClassName == "StaticLightCollectionActor")
-            {
-                var collection = actorExport.GetBinaryData<StaticLightCollectionActor>();
-                for (int index = 0; index < collection.Components.Count; index++)
+                else if (actorExport.ClassName == "StaticLightCollectionActor")
                 {
-                    if (!level.Export.FileRef.TryGetUExport(collection.Components[index], out ExportEntry lightExport))
+                    var collection = actorExport.GetBinaryData<StaticLightCollectionActor>();
+                    for (int index = 0; index < collection.Components.Count; index++)
                     {
-                        continue;
-                    }
+                        if (!level.Export.FileRef.TryGetUExport(collection.Components[index], out ExportEntry lightExport))
+                        {
+                            continue;
+                        }
 
-                    actors.Add(new StaticLightComponentActorProxy(actorEditorContext, lightExport, collection, index));
+                        actors.Add(new StaticLightComponentActorProxy(actorEditorContext, lightExport, collection, index));
+                    }
+                }
+                else if (ActorProxy.Create(actorEditorContext, actorExport) is { } actor)
+                {
+                    actors.Add(actor);
                 }
             }
-            else if (ActorProxy.Create(actorEditorContext, actorExport) is { } actor)
+
+            foreach (ActorProxy actor in actors)
             {
-                actors.Add(actor);
+                actor.ResolveAttachment(actors);
             }
-        }
 
-        foreach (ActorProxy actor in actors)
+            return actors.OrderBy(actor => actor.Export.UIndex).ToList();
+        }
+        catch
         {
-            actor.ResolveAttachment(actors);
+            DisposeActors(actors);
+            throw;
         }
-
-        return actors.OrderBy(actor => actor.Export.UIndex).ToList();
     }
 }

@@ -1459,13 +1459,28 @@ public abstract class CollectionActorComponentProxy : ActorProxy
 {
     public ExportEntry CollectionActorExport { get; }
 
-    protected CollectionActorComponentProxy(IActorEditorContext context, StaticCollectionActor collectionActor, ExportEntry componentActor, int index) : base(componentActor)
+    protected CollectionActorComponentProxy(IActorEditorContext context, StaticCollectionActor collectionActor, ExportEntry componentActor, int index)
+        : this(
+            context,
+            collectionActor.Export,
+            componentActor,
+            collectionActor.LocalToWorldTransforms[index],
+            collectionActor.GetDecomposedTransformationForIndex(index))
+    {
+    }
+
+    protected CollectionActorComponentProxy(
+        IActorEditorContext context,
+        ExportEntry collectionActorExport,
+        ExportEntry componentActor,
+        Matrix4x4 localToWorld,
+        (Vector3 location, Vector3 scale, Rotator rotation) transform) : base(componentActor)
     {
         Editor = context;
-        CollectionActorExport = collectionActor.Export;
+        CollectionActorExport = collectionActorExport;
 
-        LocalToWorld = collectionActor.LocalToWorldTransforms[index];
-        (location, drawScale3D, rotation) = collectionActor.GetDecomposedTransformationForIndex(index);
+        LocalToWorld = localToWorld;
+        (location, drawScale3D, rotation) = transform;
         if (drawScale3D.X == drawScale3D.Y && drawScale3D.X == drawScale3D.Z)
         {
             drawScale = drawScale3D.X;
@@ -1503,6 +1518,23 @@ public class StaticMeshComponentActorProxy : CollectionActorComponentProxy
 {
     public StaticMeshComponentActorProxy(IActorEditorContext context, ExportEntry smcExport, StaticMeshCollectionActor smca, int smcaIndex) : base(context, smca, smcExport, smcaIndex)
     {
+        InitializeComponent(context, smcExport);
+    }
+
+    internal StaticMeshComponentActorProxy(
+        IActorEditorContext context,
+        ExportEntry collectionExport,
+        ExportEntry smcExport,
+        Matrix4x4 localToWorld,
+        Vector3 location,
+        Vector3 scale,
+        Rotator rotation) : base(context, collectionExport, smcExport, localToWorld, (location, scale, rotation))
+    {
+        InitializeComponent(context, smcExport);
+    }
+
+    private void InitializeComponent(IActorEditorContext context, ExportEntry smcExport)
+    {
         var staticMeshComponentProxy = PrimitiveComponentProxy.Create(context.RenderContext, smcExport, this);
         Components.Add(staticMeshComponentProxy);
         IsVolumetricMesh = (staticMeshComponentProxy as StaticMeshComponentProxy)?.IsVolumetric ?? false;
@@ -1514,6 +1546,23 @@ public class StaticLightComponentActorProxy : CollectionActorComponentProxy
     public LightComponentProxy LightComponent;
 
     public StaticLightComponentActorProxy(IActorEditorContext context, ExportEntry lightComponentExport, StaticLightCollectionActor slca, int slcaIndex) : base(context, slca, lightComponentExport, slcaIndex)
+    {
+        InitializeComponent(context, lightComponentExport);
+    }
+
+    internal StaticLightComponentActorProxy(
+        IActorEditorContext context,
+        ExportEntry collectionExport,
+        ExportEntry lightComponentExport,
+        Matrix4x4 localToWorld,
+        Vector3 location,
+        Vector3 scale,
+        Rotator rotation) : base(context, collectionExport, lightComponentExport, localToWorld, (location, scale, rotation))
+    {
+        InitializeComponent(context, lightComponentExport);
+    }
+
+    private void InitializeComponent(IActorEditorContext context, ExportEntry lightComponentExport)
     {
         IsLight = true;
         if (PrimitiveComponentProxy.Create(context.RenderContext, lightComponentExport, this) is LightComponentProxy lightComponentProxy)

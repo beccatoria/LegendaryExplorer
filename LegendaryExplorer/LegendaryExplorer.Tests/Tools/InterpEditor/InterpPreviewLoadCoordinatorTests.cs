@@ -94,6 +94,149 @@ public class InterpPreviewLoadCoordinatorTests
         Assert.AreEqual(2, levelLoader.Calls);
     }
 
+    [TestMethod]
+    public async Task LoadLevelAsync_ReturnsSuperseded_AndDisposesPreparedResource_WhenCanContinueTurnsFalseAfterPrepare()
+    {
+        var session = new StubSession();
+        var dispatcher = new InterpPreviewInlineDispatcher();
+        var prepared = new InterpPreviewPreparedResource("C:\\Test\\Prepared.pcc", package: null, descriptors: Array.Empty<InterpPreviewActorBuildDescriptor>());
+        var preparer = new StubPackagePreparer { Result = InterpPreviewPrepareResult.Prepared(prepared) };
+        var realizer = new StubActorRealizer();
+        using var coordinator = new InterpPreviewLoadCoordinator(preparer, realizer, dispatcher, session);
+
+        int canContinueCalls = 0;
+        InterpPreviewLoadResult result = await coordinator.LoadLevelAsync(
+            "C:\\Test\\Prepared.pcc",
+            replace: false,
+            actorEditorContext: null,
+            onReplace: null,
+            canContinue: () => Interlocked.Increment(ref canContinueCalls) == 1);
+
+        Assert.AreEqual(InterpPreviewLoadOutcome.Superseded, result.Outcome);
+        Assert.IsTrue(prepared.IsDisposed);
+        Assert.AreEqual(0, realizer.Calls);
+    }
+
+    [TestMethod]
+    public async Task LoadLevelAsync_ReturnsFailed_AndDisposesPreparedResource_WhenRealizationFails()
+    {
+        var session = new StubSession();
+        var dispatcher = new InterpPreviewInlineDispatcher();
+        var prepared = new InterpPreviewPreparedResource("C:\\Test\\Prepared.pcc", package: null, descriptors: Array.Empty<InterpPreviewActorBuildDescriptor>());
+        var preparer = new StubPackagePreparer { Result = InterpPreviewPrepareResult.Prepared(prepared) };
+        var realizer = new StubActorRealizer
+        {
+            Result = InterpPreviewRealizeResult.Failed(new InvalidOperationException("realize failed"))
+        };
+        using var coordinator = new InterpPreviewLoadCoordinator(preparer, realizer, dispatcher, session);
+
+        InterpPreviewLoadResult result = await coordinator.LoadLevelAsync(
+            "C:\\Test\\Prepared.pcc",
+            replace: false,
+            actorEditorContext: null,
+            onReplace: null,
+            canContinue: () => true);
+
+        Assert.AreEqual(InterpPreviewLoadOutcome.Failed, result.Outcome);
+        Assert.IsNotNull(result.Error);
+        Assert.IsTrue(prepared.IsDisposed);
+        Assert.AreEqual(1, realizer.Calls);
+    }
+
+    [TestMethod]
+    public async Task LoadLevelAsync_ReturnsFailed_AndDisposesPreparedResource_WhenRealizerThrowsDuringConstruction()
+    {
+        var session = new StubSession();
+        var dispatcher = new InterpPreviewInlineDispatcher();
+        var prepared = new InterpPreviewPreparedResource("C:\\Test\\Prepared.pcc", package: null, descriptors: Array.Empty<InterpPreviewActorBuildDescriptor>());
+        var preparer = new StubPackagePreparer { Result = InterpPreviewPrepareResult.Prepared(prepared) };
+        var realizer = new StubActorRealizer
+        {
+            ExceptionToThrow = new InvalidOperationException("partial construction failed")
+        };
+        using var coordinator = new InterpPreviewLoadCoordinator(preparer, realizer, dispatcher, session);
+
+        InterpPreviewLoadResult result = await coordinator.LoadLevelAsync(
+            "C:\\Test\\Prepared.pcc",
+            replace: false,
+            actorEditorContext: null,
+            onReplace: null,
+            canContinue: () => true);
+
+        Assert.AreEqual(InterpPreviewLoadOutcome.Failed, result.Outcome);
+        Assert.IsNotNull(result.Error);
+        Assert.IsTrue(prepared.IsDisposed);
+        Assert.AreEqual(1, realizer.Calls);
+    }
+
+    [TestMethod]
+    public async Task LoadLevelAsync_ReturnsSuperseded_WithoutPreparing_WhenCanContinueFalseBeforeWork()
+    {
+        var session = new StubSession();
+        var dispatcher = new InterpPreviewInlineDispatcher();
+        var preparer = new StubPackagePreparer
+        {
+            Result = InterpPreviewPrepareResult.Prepared(new InterpPreviewPreparedResource(
+                "C:\\Test\\Prepared.pcc",
+                package: null,
+                descriptors: Array.Empty<InterpPreviewActorBuildDescriptor>()))
+        };
+        var realizer = new StubActorRealizer();
+        using var coordinator = new InterpPreviewLoadCoordinator(preparer, realizer, dispatcher, session);
+
+        InterpPreviewLoadResult result = await coordinator.LoadLevelAsync(
+            "C:\\Test\\Prepared.pcc",
+            replace: false,
+            actorEditorContext: null,
+            onReplace: null,
+            canContinue: () => false);
+
+        Assert.AreEqual(InterpPreviewLoadOutcome.Superseded, result.Outcome);
+        Assert.AreEqual(0, realizer.Calls);
+    }
+
+    [TestMethod]
+    public async Task LoadLevelAsync_ReturnsCancelled_WhenPrepareCancels_AndSkipsRealization()
+    {
+        var session = new StubSession();
+        var dispatcher = new InterpPreviewInlineDispatcher();
+        var preparer = new StubPackagePreparer { Result = InterpPreviewPrepareResult.Cancelled() };
+        var realizer = new StubActorRealizer();
+        using var coordinator = new InterpPreviewLoadCoordinator(preparer, realizer, dispatcher, session);
+
+        InterpPreviewLoadResult result = await coordinator.LoadLevelAsync(
+            "C:\\Test\\Prepared.pcc",
+            replace: false,
+            actorEditorContext: null,
+            onReplace: null,
+            canContinue: () => true);
+
+        Assert.AreEqual(InterpPreviewLoadOutcome.Cancelled, result.Outcome);
+        Assert.AreEqual(0, realizer.Calls);
+    }
+
+    [TestMethod]
+    public async Task LoadLevelAsync_ReturnsSuperseded_AndDisposesPreparedResource_WhenRealizerSupersedes()
+    {
+        var session = new StubSession();
+        var dispatcher = new InterpPreviewInlineDispatcher();
+        var prepared = new InterpPreviewPreparedResource("C:\\Test\\Prepared.pcc", package: null, descriptors: Array.Empty<InterpPreviewActorBuildDescriptor>());
+        var preparer = new StubPackagePreparer { Result = InterpPreviewPrepareResult.Prepared(prepared) };
+        var realizer = new StubActorRealizer { Result = InterpPreviewRealizeResult.Superseded() };
+        using var coordinator = new InterpPreviewLoadCoordinator(preparer, realizer, dispatcher, session);
+
+        InterpPreviewLoadResult result = await coordinator.LoadLevelAsync(
+            "C:\\Test\\Prepared.pcc",
+            replace: false,
+            actorEditorContext: null,
+            onReplace: null,
+            canContinue: () => true);
+
+        Assert.AreEqual(InterpPreviewLoadOutcome.Superseded, result.Outcome);
+        Assert.AreEqual(1, realizer.Calls);
+        Assert.IsTrue(prepared.IsDisposed);
+    }
+
     private sealed class StubLevelLoader : IInterpPreviewLevelLoader
     {
         public int Calls { get; private set; }
@@ -116,11 +259,59 @@ public class InterpPreviewLoadCoordinatorTests
         public bool ContainsLevelPathResult { get; set; }
         public IList<ActorProxy> Actors { get; } = new List<ActorProxy>();
         public int LoadedLevelCount => 0;
+        public int TotalResourceCount => 0;
+        public int LookupKeyCount => 0;
+        public IReadOnlyList<string> LoadedLevelPaths => [];
 
         public bool ContainsLevelPath(string fullPath) => ContainsLevelPathResult;
-        public void AddLevel(InterpPreviewLoadedLevel loadedLevel) { }
+        public bool ContainsResource(InterpPreviewResourceKey key) => false;
+        public IReadOnlyList<ActorProxy> FindActorsByLookup(string lookup) => [];
+        public InterpPreviewSessionCommitResult CommitLevel(InterpPreviewLoadedLevel loadedLevel, bool replace)
+        {
+            IReadOnlyList<ActorProxy> added = replace
+                ? ReplaceAllWithLevel(loadedLevel)
+                : AddLevel(loadedLevel);
+            return new InterpPreviewSessionCommitResult(added, [], []);
+        }
+
+        public IReadOnlyList<ActorProxy> AddLevel(InterpPreviewLoadedLevel loadedLevel) => [];
+        public IReadOnlyList<ActorProxy> ReplaceAllWithLevel(InterpPreviewLoadedLevel loadedLevel) => [];
         public void ClearLevels() { }
         public void Dispose() { }
+    }
+
+    private sealed class StubPackagePreparer : IInterpPreviewPackagePreparer
+    {
+        public InterpPreviewPrepareResult Result { get; set; } = InterpPreviewPrepareResult.Cancelled();
+
+        public Task<InterpPreviewPrepareResult> PrepareAsync(string path, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult(Result);
+        }
+    }
+
+    private sealed class StubActorRealizer : IInterpPreviewActorRealizer
+    {
+        public int Calls { get; private set; }
+        public InterpPreviewRealizeResult Result { get; set; } = InterpPreviewRealizeResult.Cancelled();
+        public Exception ExceptionToThrow { get; set; }
+
+        public Task<InterpPreviewRealizeResult> RealizeAsync(
+            InterpPreviewPreparedResource preparedResource,
+            IActorEditorContext actorEditorContext,
+            Func<bool> canContinue,
+            CancellationToken cancellationToken)
+        {
+            Calls++;
+            cancellationToken.ThrowIfCancellationRequested();
+            if (ExceptionToThrow is not null)
+            {
+                throw ExceptionToThrow;
+            }
+
+            return Task.FromResult(Result);
+        }
     }
 
     private sealed class BlockingUntilCancelledLoader : IInterpPreviewLevelLoader

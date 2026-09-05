@@ -7,6 +7,13 @@ namespace LegendaryExplorer.Tools.InterpEditor;
 public interface IInterpPreviewLoadCoordinator : IDisposable
 {
     Task<InterpPreviewLoadResult> LoadLevelAsync(string path, bool replace, IActorEditorContext actorEditorContext, Action onReplace);
+    Task<InterpPreviewLoadResult> LoadLevelAsync(
+        string path,
+        bool replace,
+        IActorEditorContext actorEditorContext,
+        Action onReplace,
+        Func<bool> canContinue)
+        => LoadLevelAsync(path, replace, actorEditorContext, onReplace);
     void CancelPendingLoad();
 }
 
@@ -15,6 +22,7 @@ public enum InterpPreviewLoadOutcome
     Loaded,
     Duplicate,
     Cancelled,
+    Superseded,
     Failed
 }
 
@@ -34,5 +42,6 @@ public sealed class InterpPreviewLoadResult
     public static InterpPreviewLoadResult Loaded(InterpPreviewLoadedLevel loadedLevel) => new(InterpPreviewLoadOutcome.Loaded, loadedLevel, null);
     public static InterpPreviewLoadResult Duplicate() => new(InterpPreviewLoadOutcome.Duplicate, null, null);
     public static InterpPreviewLoadResult Cancelled() => new(InterpPreviewLoadOutcome.Cancelled, null, null);
+    public static InterpPreviewLoadResult Superseded() => new(InterpPreviewLoadOutcome.Superseded, null, null);
     public static InterpPreviewLoadResult Failed(Exception error) => new(InterpPreviewLoadOutcome.Failed, null, error);
 }

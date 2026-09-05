@@ -29,6 +29,9 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Media3D;
 using System.Windows.Threading;
+using InterpPreviewLauncherRequest = LegendaryExplorer.Tools.InterpEditor.InterpPreviewLauncherRequest;
+using InterpPreviewWindowResolver = LegendaryExplorer.Tools.InterpEditor.InterpPreviewWindowResolver;
+using InterpPreviewShellWindow = LegendaryExplorer.Tools.InterpEditor.InterpPreviewShellWindow;
 
 namespace LegendaryExplorer.Tools.LevelEditor;
 
@@ -109,6 +112,8 @@ public sealed class ActorTransformGroup
 
 public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditorContext
 {
+    private InterpPreviewShellWindow _interpPreviewWindow;
+
     private static readonly Regex CoordinatePasteRegex = new(@"([XYZ])\s*=\s*(-?\d+(?:[\.,]\d+)?)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static Vector3? copiedCoordinates;
     private static Rotator? copiedRotation;
@@ -1176,6 +1181,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
     public ICommand GroupSelectedActorsCommand { get; set; }
     public ICommand UngroupActorsCommand { get; set; }
     public ICommand ReselectGroupCommand { get; set; }
+    public ICommand OpenInInterpPreviewCommand { get; set; }
     private void LoadCommands()
     {
         OpenFileCommand = new GenericCommand(OpenFile);
@@ -1217,6 +1223,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
             }
         }, () => PackageIsLoaded() && SelectedActor is not null);
         OpenRecentSetCommand = new RelayCommand(obj => { if (obj is RecentFileSet set) OpenRecentFileSet(set); });
+        OpenInInterpPreviewCommand = new GenericCommand(OpenInInterpPreview, PackageIsLoaded);
         UndoCommand = new GenericCommand(Undo, () => UndoHistory.CanUndo);
         RedoCommand = new GenericCommand(Redo, () => UndoHistory.CanRedo);
         ToggleOrthoViewCommand = new GenericCommand(() => IsOrthographicView = !IsOrthographicView, CanUseSingleKeyShortcut);
@@ -1236,6 +1243,99 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         GroupSelectedActorsCommand = new GenericCommand(CreateActorGroupFromSelection, () => PackageIsLoaded() && GetGroupableSelectedActors().Count >= 2);
         UngroupActorsCommand = new GenericCommand(UngroupActors, () => PackageIsLoaded() && HasActiveTransformGroup);
         ReselectGroupCommand = new GenericCommand(ReselectActiveGroup, () => PackageIsLoaded() && HasActiveTransformGroup);
+    }
+
+    private async void OpenInInterpPreview()
+    {
+        if (OpenFiles.Count == 0)
+        {
+            return;
+        }
+
+        InterpPreviewShellWindow preview = GetOrCreateInterpPreviewWindow();
+        List<string> paths = OpenFiles
+            .Select(f => f.FilePath)
+            .Where(path => !string.IsNullOrWhiteSpace(path) && File.Exists(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (paths.Count == 0)
+        {
+            StatusBar_LeftMostText.Text = "Interp Preview: no valid level files to load.";
+            BringPreviewToFront(preview);
+            return;
+        }
+
+        var result = await preview.ExecuteLauncherRequestAsync(new InterpPreviewLauncherRequest(paths)
+        {
+            ReplaceOnFirstLevel = true
+        }).ConfigureAwait(true);
+
+        StatusBar_LeftMostText.Text = result.HadFailure
+            ? $"Interp Preview loaded {result.LoadedCount}/{result.TotalCount} level(s)."
+            : $"Interp Preview loaded {result.LoadedCount} level(s).";
+
+        BringPreviewToFront(preview);
+    }
+
+    private InterpPreviewShellWindow GetOrCreateInterpPreviewWindow()
+    {
+        InterpPreviewShellWindow resolved = InterpPreviewWindowResolver.ResolveOrCreate(
+            _interpPreviewWindow,
+            InterpPreviewShellWindow.TryGetOpenWindow(),
+            () =>
+            {
+                var created = new InterpPreviewShellWindow
+                {
+                    ShowActivated = false
+                };
+                created.Show();
+                return created;
+            },
+            window => window is { IsLoaded: true },
+            window =>
+            {
+                if (window is not null && window.WindowState == WindowState.Minimized)
+                {
+                    window.WindowState = WindowState.Normal;
+                }
+            });
+
+        if (resolved is not null)
+        {
+            _interpPreviewWindow = resolved;
+        }
+
+        return _interpPreviewWindow;
+    }
+
+    private void BringPreviewToFront(InterpPreviewShellWindow preview)
+    {
+        if (preview is null)
+        {
+            return;
+        }
+
+        void ActivatePreviewWindow()
+        {
+            if (!preview.IsLoaded)
+            {
+                return;
+            }
+
+            if (preview.WindowState == WindowState.Minimized)
+            {
+                preview.WindowState = WindowState.Normal;
+            }
+
+            bool wasTopmost = preview.Topmost;
+            preview.Topmost = true;
+            preview.Activate();
+            preview.Focus();
+            preview.Topmost = wasTopmost;
+        }
+
+        Dispatcher.BeginInvoke(new Action(ActivatePreviewWindow), DispatcherPriority.ApplicationIdle);
     }
 
     #endregion

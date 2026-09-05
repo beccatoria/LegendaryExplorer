@@ -155,7 +155,7 @@ namespace LegendaryExplorer.Tools.AFCCompactorWindow
                     }).Select(x => getDlcDependencyForAFC(x.AFCName)).Distinct().ToList();
                 if (finalAfcPath != null && File.Exists(finalAfcPath))
                 {
-                    LegendaryExplorerCoreUtilities.OpenAndSelectFileInExplorer(finalAfcPath);
+                    System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{Path.GetFullPath(finalAfcPath)}\"");
                 }
                 return (compactionResult, dependencyList);
             }).ContinueWithOnUIThread(prevTask =>

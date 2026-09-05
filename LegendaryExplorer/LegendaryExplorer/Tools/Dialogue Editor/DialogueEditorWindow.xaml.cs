@@ -11,6 +11,7 @@ using LegendaryExplorer.Tools.PackageEditor;
 using LegendaryExplorer.Tools.Sequence_Editor;
 using LegendaryExplorer.Tools.Soundplorer;
 using LegendaryExplorer.Tools.TlkManagerNS;
+using LegendaryExplorer.Tools.LevelEditor;
 using LegendaryExplorer.UnrealExtensions;
 using LegendaryExplorer.UnrealExtensions.Classes;
 using LegendaryExplorer.UserControls.SharedToolControls;
@@ -58,7 +59,6 @@ namespace LegendaryExplorer.DialogueEditor
     public partial class DialogueEditorWindow : WPFBase, IRecents
     {
         #region Declarations
-        private InterpPreviewShellWindow _interpPreviewWindow;
 
         private struct SaveData
         {
@@ -76,21 +76,29 @@ namespace LegendaryExplorer.DialogueEditor
         {
             InterpPreviewShellWindow preview = GetOrCreateInterpPreviewWindow();
 
-            string levelPath = ResolveLevelFilePathForPreview();
-            if (!string.IsNullOrWhiteSpace(levelPath))
+            IReadOnlyList<string> levelPaths = ResolveLevelFilePathsForPreview();
+            InterpPreviewLauncherRequest request = new(levelPaths)
             {
-                bool loaded = await preview.TryLoadLevelAsync(levelPath).ConfigureAwait(true);
-                StatusText = loaded
-                    ? $"Interp Preview auto-load: {levelPath}"
-                    : $"Interp Preview level load failed: {levelPath}";
+                ReplaceOnFirstLevel = true,
+                Conversation = conversation,
+                Node = node,
+                EnsurePlayerContext = true,
+                ResolveDialogue = true
+            };
+
+            InterpPreviewLauncherResult result = await preview.ExecuteLauncherRequestAsync(request).ConfigureAwait(true);
+            if (levelPaths.Count > 0)
+            {
+                StatusText = result.HadFailure
+                    ? $"Interp Preview auto-load: loaded {result.LoadedCount}/{result.TotalCount} level files."
+                    : $"Interp Preview auto-load: loaded {result.LoadedCount} level files.";
             }
             else
             {
                 StatusText = "Interp Preview auto-load: no level path resolved. Use Open Level in Interp Preview.";
             }
 
-            InterpPreviewDialogueResolution resolution = preview.ResolveDialogueNode(conversation, node);
-            if (!resolution.IsResolved)
+            if (result.DialogueResolution is not { IsResolved: true })
             {
                 MessageBox.Show("Interp Preview could not resolve InterpData for the selected node. See Diagnostics panel in Interp Preview for details.", "Interp Preview", MessageBoxButton.OK, MessageBoxImage.Information);
             }
@@ -100,22 +108,26 @@ namespace LegendaryExplorer.DialogueEditor
 
         private InterpPreviewShellWindow GetOrCreateInterpPreviewWindow()
         {
-            if (_interpPreviewWindow is not null && _interpPreviewWindow.IsLoaded)
-            {
-                if (_interpPreviewWindow.WindowState == WindowState.Minimized)
+            return InterpPreviewWindowResolver.ResolveOrCreate(
+                current: null,
+                existing: InterpPreviewShellWindow.TryGetOpenWindow(),
+                factory: () =>
                 {
-                    _interpPreviewWindow.WindowState = WindowState.Normal;
-                }
-                return _interpPreviewWindow;
-            }
-
-            _interpPreviewWindow = new InterpPreviewShellWindow
-            {
-                ShowActivated = false
-            };
-            _interpPreviewWindow.Closed += (_, _) => _interpPreviewWindow = null;
-            _interpPreviewWindow.Show();
-            return _interpPreviewWindow;
+                    InterpPreviewShellWindow preview = new InterpPreviewShellWindow
+                    {
+                        ShowActivated = false
+                    };
+                    preview.Show();
+                    return preview;
+                },
+                isUsable: window => window is { IsLoaded: true },
+                normalize: window =>
+                {
+                    if (window is not null && window.WindowState == WindowState.Minimized)
+                    {
+                        window.WindowState = WindowState.Normal;
+                    }
+                });
         }
 
         private void BringPreviewToFront(InterpPreviewShellWindow preview)
@@ -181,6 +193,27 @@ namespace LegendaryExplorer.DialogueEditor
             }
 
             return Directory.GetFiles(rootPath, Level, SearchOption.AllDirectories).FirstOrDefault();
+        }
+
+        private IReadOnlyList<string> ResolveLevelFilePathsForPreview()
+        {
+            List<string> levelEditorPaths = Application.Current?.Windows
+                .OfType<LevelEditor>()
+                .Where(window => window.Game == Pcc?.Game)
+                .SelectMany(window => window.OpenFiles.Select(open => open.FilePath))
+                .Where(path => !string.IsNullOrWhiteSpace(path) && File.Exists(path))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (levelEditorPaths is { Count: > 0 })
+            {
+                return levelEditorPaths;
+            }
+
+            string fallbackPath = ResolveLevelFilePathForPreview();
+            return string.IsNullOrWhiteSpace(fallbackPath)
+                ? []
+                : [fallbackPath];
         }
 
         private enum ESaveViewMode

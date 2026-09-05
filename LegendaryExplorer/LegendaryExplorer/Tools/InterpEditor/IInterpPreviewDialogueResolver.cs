@@ -1,6 +1,8 @@
+using System;
 using System.Collections.Generic;
 using LegendaryExplorerCore.Dialogue;
 using LegendaryExplorerCore.Packages;
+using LegendaryExplorer.Tools.LevelEditor;
 
 namespace LegendaryExplorer.Tools.InterpEditor;
 
@@ -11,6 +13,9 @@ public interface IInterpPreviewDialogueResolver
 
 public sealed class InterpPreviewDialogueResolutionRequest
 {
+    private Func<string, IReadOnlyList<ActorProxy>> _loadedSceneActorLookup;
+    private IReadOnlyList<string> _loadedLevelPaths = [];
+
     public InterpPreviewDialogueResolutionRequest(ConversationExtended conversation, DialogueNodeExtended node)
     {
         Conversation = conversation;
@@ -19,6 +24,23 @@ public sealed class InterpPreviewDialogueResolutionRequest
 
     public ConversationExtended Conversation { get; }
     public DialogueNodeExtended Node { get; }
+    public IReadOnlyList<string> LoadedLevelPaths => _loadedLevelPaths;
+    public bool PreferFemalePlayer { get; internal set; } = true;
+
+    public IReadOnlyList<ActorProxy> FindLoadedSceneActors(string lookup)
+    {
+        return _loadedSceneActorLookup?.Invoke(lookup) ?? [];
+    }
+
+    internal void SetLoadedSceneActorLookup(Func<string, IReadOnlyList<ActorProxy>> lookup)
+    {
+        _loadedSceneActorLookup = lookup;
+    }
+
+    internal void SetLoadedLevelPaths(IReadOnlyList<string> loadedLevelPaths)
+    {
+        _loadedLevelPaths = loadedLevelPaths ?? [];
+    }
 }
 
 public sealed class InterpPreviewDialogueResolution
