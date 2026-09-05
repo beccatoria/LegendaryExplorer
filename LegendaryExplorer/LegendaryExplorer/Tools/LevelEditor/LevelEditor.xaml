@@ -220,6 +220,21 @@
                             </TextBlock.ContextMenu>
                         </TextBlock>
                     </Grid>
+                    <CheckBox Content="Turbo Move"
+                              IsChecked="{Binding TurboCameraMovementEnabled}"
+                              ToolTip="Multiply camera movement speed for large levels"
+                              VerticalAlignment="Center"
+                              Margin="8,0,0,0"/>
+                    <TextBlock Text="Turbo x"
+                               VerticalAlignment="Center"
+                               Margin="8,0,4,0"/>
+                    <xctk:IntegerUpDown Value="{Binding TurboCameraMovementMultiplier}"
+                                        Minimum="1"
+                                        Maximum="100"
+                                        Width="56"
+                                        VerticalContentAlignment="Center"
+                                        IsEnabled="{Binding TurboCameraMovementEnabled}"
+                                        ToolTip="Turbo multiplier. Defaults to 10x."/>
                     <Separator Style="{StaticResource {x:Static ToolBar.SeparatorStyleKey}}" />
                     <CheckBox Content="Top Down"
                               ToolTip="Toggle top-down orthographic view (Numpad 5)"

@@ -86,6 +86,8 @@ public class RecentViewState
     public bool ShowStageNodes { get; set; } = true;
     public bool ShowStageCameras { get; set; } = true;
     public bool ShowCollision { get; set; }
+    public bool TurboCameraMovementEnabled { get; set; }
+    public int TurboCameraMovementMultiplier { get; set; } = 10;
 }
 
 public enum ObjectRenderMode
@@ -409,6 +411,33 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         }
     }
 
+    private bool _turboCameraMovementEnabled;
+    public bool TurboCameraMovementEnabled
+    {
+        get => _turboCameraMovementEnabled;
+        set
+        {
+            if (SetProperty(ref _turboCameraMovementEnabled, value))
+            {
+                RenderContext.TurboCameraMovementEnabled = value;
+            }
+        }
+    }
+
+    private int _turboCameraMovementMultiplier = 10;
+    public int TurboCameraMovementMultiplier
+    {
+        get => _turboCameraMovementMultiplier;
+        set
+        {
+            int clampedValue = Math.Max(1, value);
+            if (SetProperty(ref _turboCameraMovementMultiplier, clampedValue))
+            {
+                RenderContext.TurboCameraMovementMultiplier = clampedValue;
+            }
+        }
+    }
+
     private string _cameraCoordinates = "Camera X=0.0 | Y=0.0 | Z=0.0";
     public string CameraCoordinates
     {
@@ -535,6 +564,8 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
 
         SceneViewer.Context = RenderContext;
         RenderContext.ShowDebugStatsOverlay = ShowCameraCoordinates;
+        RenderContext.TurboCameraMovementEnabled = TurboCameraMovementEnabled;
+        RenderContext.TurboCameraMovementMultiplier = TurboCameraMovementMultiplier;
         UndoHistory.PropertyChanged += UndoHistory_PropertyChanged;
     }
 
@@ -3151,7 +3182,9 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
             ShowDecalActors = ShowDecalActors,
             ShowStageNodes = ShowStageNodes,
             ShowStageCameras = ShowStageCameras,
-            ShowCollision = ShowCollision
+            ShowCollision = ShowCollision,
+            TurboCameraMovementEnabled = TurboCameraMovementEnabled,
+            TurboCameraMovementMultiplier = TurboCameraMovementMultiplier
         };
     }
 
@@ -3174,6 +3207,8 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         ShowStageNodes = viewState.ShowStageNodes;
         ShowStageCameras = viewState.ShowStageCameras;
         ShowCollision = viewState.ShowCollision;
+        TurboCameraMovementEnabled = viewState.TurboCameraMovementEnabled;
+        TurboCameraMovementMultiplier = viewState.TurboCameraMovementMultiplier <= 0 ? 10 : viewState.TurboCameraMovementMultiplier;
 
         VisibleSetDistance = viewState.VisibleSetDistance;
         _hasUserEditedVisibleSets = viewState.HasUserEditedVisibleSets;

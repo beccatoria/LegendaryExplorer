@@ -129,9 +129,12 @@ public class MeshRenderContext : RenderContext
     private KeyStates PressedKeys;
     private MouseButtons PressedMouseButton;
     public float CameraSpeed { get; set; } = 500.0f; // Units per second
+    public bool TurboCameraMovementEnabled { get; set; }
+    public float TurboCameraMovementMultiplier { get; set; } = DefaultTurboMoveMultiplier;
     private const float KeyTapMoveSeconds = 0.045f;
     private const float FastMoveMultiplier = 4.0f;
     private const float SlowMoveMultiplier = 0.25f;
+    private const float DefaultTurboMoveMultiplier = 10.0f;
     private const float FirstPersonRotationSensitivity = 0.014f;
     private const float OrbitRotationSensitivity = 0.014f;
     private const float MouseZoomSensitivity = 0.015f;
@@ -299,14 +302,30 @@ public class MeshRenderContext : RenderContext
         }
     }
 
-    private static float GetCameraMovementSpeedMultiplier()
+    private float GetCameraMovementSpeedMultiplier()
     {
+        float movementSpeedMultiplier;
         if (Keyboard.Modifiers.HasFlag(ModifierKeys.Shift))
         {
-            return SlowMoveMultiplier;
+            movementSpeedMultiplier = SlowMoveMultiplier;
+        }
+        else
+        {
+            movementSpeedMultiplier = Keyboard.Modifiers.HasFlag(ModifierKeys.Control) ? FastMoveMultiplier : 1f;
         }
 
-        return Keyboard.Modifiers.HasFlag(ModifierKeys.Control) ? FastMoveMultiplier : 1f;
+        if (TurboCameraMovementEnabled)
+        {
+            float turboMultiplier = TurboCameraMovementMultiplier;
+            if (!float.IsFinite(turboMultiplier) || turboMultiplier <= 0f)
+            {
+                turboMultiplier = DefaultTurboMoveMultiplier;
+            }
+
+            movementSpeedMultiplier *= turboMultiplier;
+        }
+
+        return movementSpeedMultiplier;
     }
 
     public override void Render()
