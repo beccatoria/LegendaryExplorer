@@ -54,6 +54,11 @@ namespace LegendaryExplorer.UserControls.ExportLoaderControls
 
         private void GetJPEXInstallationStatus()
         {
+            if (JPEXIsInstalled && !string.IsNullOrWhiteSpace(JPEXExecutableLocation) && File.Exists(JPEXExecutableLocation))
+            {
+                return;
+            }
+
             string foundExecutable = null;
             try
             {
