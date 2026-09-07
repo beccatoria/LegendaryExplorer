@@ -3305,6 +3305,8 @@ namespace LegendaryExplorer.DialogueEditor
                 if (GotoBox.SelectedItem is DiagNode dnode)
                 {
                     DialogueNode_Selected(dnode);
+                    graphEditor.Camera.AnimateViewToCenterBounds(dnode.GlobalFullBounds, false, 100);
+                    graphEditor.Refresh();
                 }
                 if (GotoBox.SelectedItem is DObj o)
                 {

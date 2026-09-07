@@ -2661,21 +2661,24 @@ namespace LegendaryExplorer.Tools.Sequence_Editor
 
         private void GoToExport(int UIndex)
         {
-            if (Pcc != null)
+            if (Pcc == null)
             {
-                ExportEntry exp = Pcc.GetUExport(UIndex);
-                if (exp != null)
-                {
-                    if (!IsLoaded)
-                    {
-                        ExportQueuedForFocusing = exp;
-                    }
-                    else
-                    {
-                        GoToExport(exp);
-                    }
-                }
+                return;
             }
+
+            ExportEntry exp = Pcc.GetUExport(UIndex);
+            if (exp == null)
+            {
+                return;
+            }
+
+            if (!IsLoaded)
+            {
+                ExportQueuedForFocusing = exp;
+                return;
+            }
+
+            GoToExport(exp);
         }
 
         private void GoToExport(ExportEntry expToNavigateTo, bool goIntoSequences = true)
@@ -2706,43 +2709,38 @@ namespace LegendaryExplorer.Tools.Sequence_Editor
                     .FirstOrDefault(node => node.UIndex == expToNavigateTo.UIndex);
                 return;
             }
-            else
+
+            foreach (ExportEntry exp in SequenceExports)
             {
-                // Find which sequence contains this object
-                foreach (ExportEntry exp in SequenceExports)
+                ExportEntry sequence = exp;
+                if (sequence.ClassName == "SequenceReference")
                 {
-
-                    // Get the export for the sequence we will look for objects in
-                    ExportEntry sequence = exp;
-                    if (sequence.ClassName == "SequenceReference")
+                    var sequenceprop = sequence.GetProperty<ObjectProperty>("oSequenceReference");
+                    if (sequenceprop != null)
                     {
-                        var sequenceprop = sequence.GetProperty<ObjectProperty>("oSequenceReference");
-                        if (sequenceprop != null)
-                        {
-                            sequence = Pcc.GetUExport(sequenceprop.Value);
-                        }
-                        else
-                        {
-                            return;
-                        }
+                        sequence = Pcc.GetUExport(sequenceprop.Value);
                     }
-
-                    // Enumerate the objects in the sequence to see if what we are looking for is in this sequence
-                    var seqObjs = sequence.GetProperty<ArrayProperty<ObjectProperty>>("SequenceObjects");
-                    if (seqObjs != null && seqObjs.Any(objProp => objProp.Value == expToNavigateTo.UIndex))
+                    else
                     {
-                        //This is our sequence
-                        var nodes = TreeViewRootNodes.SelectMany(node => node.FlattenTree())
-                            .ToList(); // This is to debug selection failures
-                        SelectedItem = nodes.First(node => node.UIndex == sequence.UIndex);
-                        if (CurrentObjects.FirstOrDefault(x => x.Export == expToNavigateTo) is SObj selectedObj)
-                        {
-                            SetSelectedObjectsFromSource(new[] { selectedObj }, allowPanToSelection: false);
-                        }
-
-                        break;
+                        return;
                     }
                 }
+
+                var seqObjs = sequence.GetProperty<ArrayProperty<ObjectProperty>>("SequenceObjects");
+                if (seqObjs == null || !seqObjs.Any(objProp => objProp.Value == expToNavigateTo.UIndex))
+                {
+                    continue;
+                }
+
+                var nodes = TreeViewRootNodes.SelectMany(node => node.FlattenTree()).ToList();
+                SelectedItem = nodes.First(node => node.UIndex == sequence.UIndex);
+
+                if (CurrentObjects.FirstOrDefault(x => x.Export == expToNavigateTo) is SObj selectedObj)
+                {
+                    SetSelectedObjectsFromSource(new[] { selectedObj });
+                }
+
+                break;
             }
         }
 
