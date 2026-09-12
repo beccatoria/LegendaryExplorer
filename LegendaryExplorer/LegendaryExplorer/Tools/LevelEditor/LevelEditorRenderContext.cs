@@ -44,6 +44,7 @@ public class LevelEditorRenderContext : MeshRenderContext
     public bool ShowStageNodes;
     public bool ShowStageCameras;
     public ActorProxy SelectedActor;
+    public BioStageOverlayMarker SelectedBioStageMarker;
 
     private bool IsReadOnly;
     private bool _ctrlSelectionLatched;

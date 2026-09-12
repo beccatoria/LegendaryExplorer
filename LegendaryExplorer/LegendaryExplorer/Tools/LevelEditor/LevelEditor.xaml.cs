@@ -224,6 +224,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
 
             if (SetProperty(ref _selectedBioStageMarker, value))
             {
+                RenderContext.SelectedBioStageMarker = value;
                 OnPropertyChanged(nameof(HasSelectedBioStageMarker));
                 if (value is not null)
                 {

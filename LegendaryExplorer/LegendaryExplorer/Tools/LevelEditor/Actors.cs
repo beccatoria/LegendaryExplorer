@@ -813,6 +813,7 @@ public sealed class BioStageOverlayMarker : NotifyPropertyChangedBase, IHitProxy
     public string BoneName { get; }
     public bool IsCamera { get; }
     public int SequenceNumber { get; }
+    public int OverlayNumber { get; }
     public string MarkerCategoryText => IsCamera ? "Camera" : "Node";
     public string DisplayLabel => $"{MarkerCategoryText} {SequenceNumber}: {BoneName}";
     internal Matrix4x4 ComponentSpaceTransform;
@@ -868,13 +869,14 @@ public sealed class BioStageOverlayMarker : NotifyPropertyChangedBase, IHitProxy
         }
     }
 
-    internal BioStageOverlayMarker(BioStageActorProxy owner, int boneIndex, string boneName, bool isCamera, int sequenceNumber)
+    internal BioStageOverlayMarker(BioStageActorProxy owner, int boneIndex, string boneName, bool isCamera, int sequenceNumber, int overlayNumber)
     {
         Owner = owner;
         BoneIndex = boneIndex;
         BoneName = boneName;
         IsCamera = isCamera;
         SequenceNumber = sequenceNumber;
+        OverlayNumber = overlayNumber;
     }
 
     internal void NotifyTransformChanged()
@@ -1051,7 +1053,8 @@ public class BioStageActorProxy : ActorProxy
             }
 
             int sequenceNumber = isCamera ? ++cameraSequence : ++nodeSequence;
-            var marker = new BioStageOverlayMarker(this, i, boneName, isCamera, sequenceNumber);
+            int overlayNumber = isCamera ? sequenceNumber : ResolveNodeOverlayNumber(boneName, sequenceNumber);
+            var marker = new BioStageOverlayMarker(this, i, boneName, isCamera, sequenceNumber, overlayNumber);
             if (Editor?.RenderContext is not null)
             {
                 marker.HitID = Editor.RenderContext.RegisterHitProxy(marker);
@@ -1095,21 +1098,28 @@ public class BioStageActorProxy : ActorProxy
             float markerSize = context.Camera.IsOrthographic
                 ? 18f
                 : Math.Clamp(Vector3.Distance(markerPosition, context.Camera.Position) * 0.0065f, 8f, 52f);
+            bool isSelectedMarker = ReferenceEquals(context.SelectedBioStageMarker, marker);
+            float markerRenderSize = isSelectedMarker ? markerSize * 1.2f : markerSize;
 
             if (marker.IsCamera)
             {
-                RenderCameraMarker(context, marker, markerToWorld, markerPosition, markerSize);
+                RenderCameraMarker(context, marker, markerToWorld, markerPosition, markerRenderSize);
             }
             else
             {
-                RenderNodeMarker(context, marker, markerToWorld, markerPosition, markerSize);
+                RenderNodeMarker(context, marker, markerToWorld, markerPosition, markerRenderSize);
             }
 
-            RenderMarkerNumber(context, marker, markerToWorld, markerPosition, markerSize);
+            if (isSelectedMarker)
+            {
+                RenderSelectedMarkerHighlight(context, marker, markerPosition, markerRenderSize);
+            }
+
+            RenderMarkerNumber(context, marker, markerToWorld, markerPosition, markerRenderSize, isSelectedMarker);
         }
     }
 
-    private void RenderMarkerNumber(LevelEditorRenderContext context, BioStageOverlayMarker marker, Matrix4x4 markerToWorld, Vector3 markerPosition, float markerSize)
+    private void RenderMarkerNumber(LevelEditorRenderContext context, BioStageOverlayMarker marker, Matrix4x4 markerToWorld, Vector3 markerPosition, float markerSize, bool isSelectedMarker)
     {
         Vector3 upAxis = GetAxis(markerToWorld, Vector3.UnitZ);
         Vector3 rightAxis = context.Camera.CameraRight;
@@ -1117,14 +1127,36 @@ public class BioStageActorProxy : ActorProxy
         float textScale = markerSize * 0.6f;
         Vector3 anchor = markerPosition + upAxis * (markerSize * 0.9f) + rightAxis * (textScale * 0.15f);
 
-        Vector4 color = marker.IsCamera
-            ? new Vector4(1.0f, 0.93f, 0.20f, 1f)
-            : new Vector4(1.0f, 1.0f, 1.0f, 1f);
+        Vector4 color = isSelectedMarker
+            ? new Vector4(1.0f, 0.47f, 0.10f, 1f)
+            : marker.IsCamera
+                ? new Vector4(1.0f, 0.93f, 0.20f, 1f)
+                : new Vector4(1.0f, 1.0f, 1.0f, 1f);
 
         Vector3 shadowOffset = rightAxis * (textScale * 0.06f) - textUp * (textScale * 0.06f);
-        DrawNumber(context, marker.SequenceNumber, anchor + shadowOffset, rightAxis, textUp, textScale * 1.08f, new Vector4(0f, 0f, 0f, 1f), marker.HitID);
+        DrawNumber(context, marker.OverlayNumber, anchor + shadowOffset, rightAxis, textUp, textScale * 1.08f, new Vector4(0f, 0f, 0f, 1f), marker.HitID);
 
-        DrawNumber(context, marker.SequenceNumber, anchor, rightAxis, textUp, textScale, color, marker.HitID);
+        DrawNumber(context, marker.OverlayNumber, anchor, rightAxis, textUp, textScale, color, marker.HitID);
+    }
+
+    private static void RenderSelectedMarkerHighlight(LevelEditorRenderContext context, BioStageOverlayMarker marker, Vector3 markerPosition, float markerSize)
+    {
+        Vector3 right = context.Camera.CameraRight;
+        Vector3 up = context.Camera.CameraUp;
+        float half = markerSize * 0.9f;
+        Vector4 highlightColor = marker.IsCamera
+            ? new Vector4(1.0f, 0.78f, 0.22f, 1f)
+            : new Vector4(1.0f, 0.56f, 0.15f, 1f);
+
+        Vector3 topLeft = markerPosition + up * half - right * half;
+        Vector3 topRight = markerPosition + up * half + right * half;
+        Vector3 bottomLeft = markerPosition - up * half - right * half;
+        Vector3 bottomRight = markerPosition - up * half + right * half;
+
+        context.Primitives.AddLine(topLeft, topRight, highlightColor, marker.HitID);
+        context.Primitives.AddLine(topRight, bottomRight, highlightColor, marker.HitID);
+        context.Primitives.AddLine(bottomRight, bottomLeft, highlightColor, marker.HitID);
+        context.Primitives.AddLine(bottomLeft, topLeft, highlightColor, marker.HitID);
     }
 
     private static void DrawNumber(LevelEditorRenderContext context, int value, Vector3 anchor, Vector3 rightAxis, Vector3 upAxis, float scale, Vector4 color, int hitId)
@@ -1304,28 +1336,55 @@ public class BioStageActorProxy : ActorProxy
         Vector3 right = GetAxis(markerToWorld, Vector3.UnitY);
         Vector3 up = GetAxis(markerToWorld, Vector3.UnitZ);
 
-        Vector3 tip = markerPosition + forward * (markerSize * 1.8f);
-        Vector3 nearCenter = markerPosition + forward * (markerSize * 0.75f);
-        Vector3 topLeft = nearCenter + up * (markerSize * 0.45f) - right * (markerSize * 0.65f);
-        Vector3 topRight = nearCenter + up * (markerSize * 0.45f) + right * (markerSize * 0.65f);
-        Vector3 bottomLeft = nearCenter - up * (markerSize * 0.45f) - right * (markerSize * 0.65f);
-        Vector3 bottomRight = nearCenter - up * (markerSize * 0.45f) + right * (markerSize * 0.65f);
+        float nearDistance = markerSize * 0.8f;
+        float farDistance = markerSize * 2.0f;
+        float nearHalfWidth = markerSize * 0.35f;
+        float nearHalfHeight = markerSize * 0.26f;
+        float farHalfWidth = markerSize * 0.85f;
+        float farHalfHeight = markerSize * 0.62f;
 
-        context.Primitives.AddLine(markerPosition, tip, cameraColor, marker.HitID);
-        context.Primitives.AddLine(markerPosition, topLeft, cameraColor, marker.HitID);
-        context.Primitives.AddLine(markerPosition, topRight, cameraColor, marker.HitID);
-        context.Primitives.AddLine(markerPosition, bottomLeft, cameraColor, marker.HitID);
-        context.Primitives.AddLine(markerPosition, bottomRight, cameraColor, marker.HitID);
+        Vector3 nearCenter = markerPosition + forward * nearDistance;
+        Vector3 farCenter = markerPosition + forward * farDistance;
 
-        context.Primitives.AddLine(topLeft, topRight, cameraColor, marker.HitID);
-        context.Primitives.AddLine(topRight, bottomRight, cameraColor, marker.HitID);
-        context.Primitives.AddLine(bottomRight, bottomLeft, cameraColor, marker.HitID);
-        context.Primitives.AddLine(bottomLeft, topLeft, cameraColor, marker.HitID);
+        Vector3 nearTopLeft = nearCenter + up * nearHalfHeight - right * nearHalfWidth;
+        Vector3 nearTopRight = nearCenter + up * nearHalfHeight + right * nearHalfWidth;
+        Vector3 nearBottomLeft = nearCenter - up * nearHalfHeight - right * nearHalfWidth;
+        Vector3 nearBottomRight = nearCenter - up * nearHalfHeight + right * nearHalfWidth;
 
-        context.Primitives.AddLine(topLeft, tip, cameraColor, marker.HitID);
-        context.Primitives.AddLine(topRight, tip, cameraColor, marker.HitID);
-        context.Primitives.AddLine(bottomLeft, tip, cameraColor, marker.HitID);
-        context.Primitives.AddLine(bottomRight, tip, cameraColor, marker.HitID);
+        Vector3 farTopLeft = farCenter + up * farHalfHeight - right * farHalfWidth;
+        Vector3 farTopRight = farCenter + up * farHalfHeight + right * farHalfWidth;
+        Vector3 farBottomLeft = farCenter - up * farHalfHeight - right * farHalfWidth;
+        Vector3 farBottomRight = farCenter - up * farHalfHeight + right * farHalfWidth;
+
+        // Camera body
+        context.Primitives.AddLine(markerPosition, nearCenter, cameraColor, marker.HitID);
+        context.Primitives.AddLine(markerPosition, nearTopLeft, cameraColor, marker.HitID);
+        context.Primitives.AddLine(markerPosition, nearTopRight, cameraColor, marker.HitID);
+        context.Primitives.AddLine(markerPosition, nearBottomLeft, cameraColor, marker.HitID);
+        context.Primitives.AddLine(markerPosition, nearBottomRight, cameraColor, marker.HitID);
+
+        // Near plane
+        context.Primitives.AddLine(nearTopLeft, nearTopRight, cameraColor, marker.HitID);
+        context.Primitives.AddLine(nearTopRight, nearBottomRight, cameraColor, marker.HitID);
+        context.Primitives.AddLine(nearBottomRight, nearBottomLeft, cameraColor, marker.HitID);
+        context.Primitives.AddLine(nearBottomLeft, nearTopLeft, cameraColor, marker.HitID);
+
+        // Frustum edges
+        context.Primitives.AddLine(nearTopLeft, farTopLeft, cameraColor, marker.HitID);
+        context.Primitives.AddLine(nearTopRight, farTopRight, cameraColor, marker.HitID);
+        context.Primitives.AddLine(nearBottomLeft, farBottomLeft, cameraColor, marker.HitID);
+        context.Primitives.AddLine(nearBottomRight, farBottomRight, cameraColor, marker.HitID);
+
+        // Far plane
+        context.Primitives.AddLine(farTopLeft, farTopRight, cameraColor, marker.HitID);
+        context.Primitives.AddLine(farTopRight, farBottomRight, cameraColor, marker.HitID);
+        context.Primitives.AddLine(farBottomRight, farBottomLeft, cameraColor, marker.HitID);
+        context.Primitives.AddLine(farBottomLeft, farTopLeft, cameraColor, marker.HitID);
+
+        // Direction and up indicator
+        context.Primitives.AddLine(markerPosition, farCenter, cameraColor, marker.HitID);
+        Vector3 farTopCenter = farCenter + up * farHalfHeight;
+        context.Primitives.AddLine(farTopCenter, farTopCenter + up * (markerSize * 0.45f), cameraColor, marker.HitID);
     }
 
     private static Matrix4x4 CreateBoneLocalTransform(MeshBone bone)
@@ -1346,6 +1405,32 @@ public class BioStageActorProxy : ActorProxy
     private static bool IsStageNodeBoneName(string name)
     {
         return name.Contains("node", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static int ResolveNodeOverlayNumber(string boneName, int fallback)
+    {
+        int index = 0;
+        while (index < boneName.Length)
+        {
+            if (!char.IsDigit(boneName[index]))
+            {
+                index++;
+                continue;
+            }
+
+            int start = index;
+            while (index < boneName.Length && char.IsDigit(boneName[index]))
+            {
+                index++;
+            }
+
+            if (int.TryParse(boneName.AsSpan(start, index - start), out int parsed))
+            {
+                return parsed;
+            }
+        }
+
+        return fallback;
     }
 
     private static bool IsStageCameraBoneName(string name)
