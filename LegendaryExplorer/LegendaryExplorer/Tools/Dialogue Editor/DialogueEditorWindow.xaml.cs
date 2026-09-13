@@ -3426,16 +3426,13 @@ namespace LegendaryExplorer.DialogueEditor
             int exportUIndex = exportEntry.UIndex;
             string exportFilePath = exportEntry.FileRef.FilePath;
 
-            p.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+            p.LoadFile(exportFilePath);
+            if (exportEntry.ClassName == "InterpData"
+                && p.Pcc != null
+                && p.Pcc.TryGetUExport(exportUIndex, out ExportEntry loadedExport))
             {
-                p.LoadFile(exportFilePath, forceLoadFromDisk: true);
-                if (exportEntry.ClassName == "InterpData"
-                    && p.Pcc != null
-                    && p.Pcc.TryGetUExport(exportUIndex, out ExportEntry loadedExport))
-                {
-                    p.SelectedInterpData = loadedExport;
-                }
-            }));
+                p.SelectedInterpData = loadedExport;
+            }
         }
 
         private void OpenInAction(object obj)

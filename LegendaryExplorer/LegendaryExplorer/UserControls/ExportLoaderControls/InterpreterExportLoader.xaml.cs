@@ -1924,6 +1924,7 @@ namespace LegendaryExplorer.UserControls.ExportLoaderControls
             // From https://www.codeproject.com/Tips/208896/WPF-TreeView-SelectedItemChanged-called-twice
             Dispatcher.BeginInvoke(DispatcherPriority.Background, (Action)(() => UpdateHexboxPosition(e.NewValue as UPropertyTreeViewEntry)));
             UPropertyTreeViewEntry newSelectedItem = (UPropertyTreeViewEntry)e.NewValue;
+            SelectedItem = newSelectedItem;
             //list of visible elements for editing
             var SupportedEditorSetElements = new List<FrameworkElement>();
             if (newSelectedItem?.Property != null)
@@ -2496,8 +2497,11 @@ namespace LegendaryExplorer.UserControls.ExportLoaderControls
         {
             //todo: set value
             bool updated = false;
-            if (SelectedItem is UPropertyTreeViewEntry tvi && tvi.Property != null)
+            UPropertyTreeViewEntry tvi = Interpreter_TreeView?.SelectedItem as UPropertyTreeViewEntry ?? SelectedItem;
+            if (tvi?.Property != null && CurrentLoadedExport != null)
             {
+                SelectedItem = tvi;
+                CurrentLoadedProperties ??= CurrentLoadedExport.GetProperties(includeNoneProperties: true);
                 Property property = tvi.Property;
                 switch (property)
                 {
@@ -2672,6 +2676,8 @@ namespace LegendaryExplorer.UserControls.ExportLoaderControls
                 {
                     //will cause a refresh from packageeditor
                     CurrentLoadedExport.WriteProperties(CurrentLoadedProperties);
+                    RescanSelectionOffset = property.StartOffset;
+                    StartScan();
                 }
                 //StartScan();
             }
