@@ -3,7 +3,7 @@
 ## Project Guidelines
 - Keep implementation progress messages concise and avoid rambling; proceed directly with requested code changes.
 - Use simple, non-technical language to ensure clarity, as the user is not a confident coder.
-- Do not replace or regress the user's customized Level Editor workflow/features while implementing Interp preview milestones; preserve their existing Level Editor behavior and UI.
+- Do not replace or regress the user's customized Level Editor workflow/features while implementing Interp preview milestones; preserve their existing Level Editor behavior and UI. When a fix causes regression, prioritize preserving Dialogue Editor visual loading behavior with Level Editor open and avoid changes that disrupt that workflow.
 - Execute steps immediately after stating that a step will start; avoid announcing starts without performing the step.
 - Perform all work on the user's fork/branch (becca-LEX) and not on scott-LEX; use scott-LEX only as an optional reference source without aiming to port all features.
 - Ensure conversation owner binding resolves from StartConversation Kismet Owner variable links (tag-based or direct object link), not by literal 'owner' actor lookup.

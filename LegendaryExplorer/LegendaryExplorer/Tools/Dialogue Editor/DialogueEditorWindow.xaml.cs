@@ -2588,6 +2588,7 @@ namespace LegendaryExplorer.DialogueEditor
             ParseNodeData(obj.Node);
             SelectedDialogueNode = obj.Node;
             UpdateSelectedNodeDisplayInfo(SelectedDialogueNode);
+            CommandManager.InvalidateRequerySuggested();
             SelectedDialogueNode.PropertyChanged += NodePropertyChanged;
             MirrorDialogueNode = new DialogueNodeExtended(SelectedDialogueNode);  //Setup gate
 
