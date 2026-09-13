@@ -3475,7 +3475,11 @@ namespace LegendaryExplorer.DialogueEditor
                     }
                     break;
                 case "SeqEdLine":
-                    OpenInToolkit("SequenceEditor", SelectedDialogueNode.InterpData.UIndex, Path.GetFileName(SelectedDialogueNode.InterpData.FileRef.FilePath));
+                    if (SelectedDialogueNode?.InterpData != null)
+                    {
+                        var seqEditor = new SequenceEditorWPF(SelectedDialogueNode.InterpData);
+                        seqEditor.Show();
+                    }
                     break;
                 case "FaceFXNS":
                     OpenInToolkit("FaceFXEditor", SelectedConv.NonSpkrFFX.UIndex);
