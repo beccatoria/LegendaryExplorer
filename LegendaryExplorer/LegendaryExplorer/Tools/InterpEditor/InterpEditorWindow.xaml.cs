@@ -31,7 +31,7 @@ namespace LegendaryExplorer.Tools.InterpEditor
             DataContext = this;
             StatusText = "Select package file to load";
             InitializeComponent();
-            RecentsController.InitRecentControl(Toolname, Recents_MenuItem, LoadFile);
+            RecentsController.InitRecentControl(Toolname, Recents_MenuItem, x => LoadFile(x));
 
             TimelineControl.SelectionChanged += TimelineControlOnSelectionChanged;
             TimelineControl.SetGroupActorRequested += OnSetGroupActorRequested;
@@ -242,13 +242,13 @@ namespace LegendaryExplorer.Tools.InterpEditor
 
         #endregion Properties and Bindings
 
-        public void LoadFile(string fileName)
+        public void LoadFile(string fileName, bool forceLoadFromDisk = false)
         {
             Stop();
             Properties_InterpreterWPF?.UnloadExport();
             InterpDataExports.ClearEx();
             Animations.ClearEx();
-            LoadMEPackage(fileName);
+            LoadMEPackage(fileName, forceLoadFromDisk);
             RecentsController.AddRecent(fileName, false, Pcc?.Game);
             RecentsController.SaveRecentList(true);
             InterpDataExports.AddRange(Pcc.Exports.Where(exp => exp.ClassName == "InterpData"));
@@ -396,10 +396,18 @@ namespace LegendaryExplorer.Tools.InterpEditor
 
         public override void HandleUpdate(List<PackageUpdate> updates)
         {
+            if (Pcc == null)
+            {
+                return;
+            }
+
             IEnumerable<PackageUpdate> exportUpdates = updates.Where(update => update.Change.HasFlag(PackageChange.Export));
             foreach (var update in exportUpdates)
             {
-                var changedExport = Pcc.GetUExport(update.Index);
+                if (!Pcc.TryGetUExport(update.Index, out var changedExport))
+                {
+                    continue;
+                }
 
                 if (InterpDataExports.Contains(changedExport)) //changes, as it already exists in our list
                 {
@@ -416,7 +424,7 @@ namespace LegendaryExplorer.Tools.InterpEditor
                 {
                     InterpDataExports.Add(changedExport);
                 }
-                else if (changedExport.IsDescendantOf(SelectedInterpData)) //track was changed or at least a descendant
+                else if (SelectedInterpData != null && changedExport.IsDescendantOf(SelectedInterpData)) //track was changed or at least a descendant
                 {
                     // subcontrol, 
                     TimelineControl.RefreshInterpData(changedExport, update.Change);

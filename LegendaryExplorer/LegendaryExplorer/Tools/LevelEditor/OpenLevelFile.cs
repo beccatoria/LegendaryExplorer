@@ -99,8 +99,7 @@ public class OpenLevelFile : NotifyPropertyChangedBase, IPackageUser, IDisposabl
             actor.Dispose();
         }
         Actors.Clear();
-        _closedHandler?.Invoke();
-        _closedHandler = null;
         Package.Release(this);
+        _closedHandler = null;
     }
 }

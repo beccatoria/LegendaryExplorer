@@ -3422,11 +3422,19 @@ namespace LegendaryExplorer.DialogueEditor
         {
             var p = new InterpEditorWindow();
             p.Show();
-            p.LoadFile(exportEntry.FileRef.FilePath);
-            if (exportEntry.ObjectName == "InterpData")
+            int exportUIndex = exportEntry.UIndex;
+            string exportFilePath = exportEntry.FileRef.FilePath;
+
+            p.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
             {
-                p.SelectedInterpData = exportEntry;
-            }
+                p.LoadFile(exportFilePath, forceLoadFromDisk: true);
+                if (exportEntry.ClassName == "InterpData"
+                    && p.Pcc != null
+                    && p.Pcc.TryGetUExport(exportUIndex, out ExportEntry loadedExport))
+                {
+                    p.SelectedInterpData = loadedExport;
+                }
+            }));
         }
 
         private void OpenInAction(object obj)
@@ -3663,20 +3671,13 @@ namespace LegendaryExplorer.DialogueEditor
                     }
                     break;
                 case "SequenceEditor":
-                    if (Pcc.IsUExport(uIndex) && filePath == Pcc.FilePath)
+                    var seqEditor = new SequenceEditorWPF();
+                    seqEditor.Show();
+                    if (uIndex != 0)
                     {
-                        new SequenceEditorWPF(Pcc.GetUExport(uIndex)).Show();
+                        seqEditor.LoadFileAndGoTo(filePath, uIndex, forceLoadFromDisk: true);
                     }
-                    else
-                    {
-                        var seqEditor = new SequenceEditorWPF();
-                        seqEditor.Show();
-                        if (uIndex != 0)
-                        {
-                            seqEditor.LoadFileAndGoTo(filePath, uIndex);
-                        }
-                        else seqEditor.LoadFile(filePath);
-                    }
+                    else seqEditor.LoadFile(filePath, forceLoadFromDisk: true);
                     break;
             }
         }

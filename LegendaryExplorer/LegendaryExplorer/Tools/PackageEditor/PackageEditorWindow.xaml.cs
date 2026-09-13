@@ -3458,6 +3458,11 @@ namespace LegendaryExplorer.Tools.PackageEditor
 
         public override void HandleUpdate(List<PackageUpdate> updates)
         {
+            if (Pcc == null)
+            {
+                return;
+            }
+
             List<PackageChange> changes = updates.ConvertAll(x => x.Change);
             if (changes.Any(x => x.HasFlag(PackageChange.Name)))
             {
@@ -3489,6 +3494,17 @@ namespace LegendaryExplorer.Tools.PackageEditor
 
             List<PackageUpdate> addedChanges = [.. updates.Where(x => x.Change.HasFlag(PackageChange.EntryAdd)).OrderBy(x => x.Index)];
             HashSet<int> headerChanges = updates.Where(x => x.Change.HasFlag(PackageChange.EntryHeader)).Select(x => x.Index).ToHashSet();
+
+            if (AllTreeViewNodesX.Count == 0)
+            {
+                if (addedChanges.Count > 0 || headerChanges.Count > 0 || hasImportChanges || hasExportNonDataChanges)
+                {
+                    InitializeTreeView();
+                    InitClassDropDown();
+                    MetadataTab_MetadataEditor.RefreshAllEntriesList(Pcc);
+                }
+                return;
+            }
 
             // Reduces tree enumeration
             List<TreeViewEntry> treeViewItems = AllTreeViewNodesX[0].FlattenTree();

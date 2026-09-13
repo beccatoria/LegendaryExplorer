@@ -1010,9 +1010,9 @@ namespace LegendaryExplorer.Tools.Sequence_Editor
         }
 
         public void LoadFileAndGoTo(string fileName, int uIndex = 0, string goToEntry = null,
-            Action loadPackageDelegate = null)
+            Action loadPackageDelegate = null, bool forceLoadFromDisk = false)
         {
-            LoadFile(fileName, loadPackageDelegate);
+            LoadFile(fileName, loadPackageDelegate, forceLoadFromDisk);
             if (uIndex > 0)
             {
                 GoToExport(uIndex);
@@ -1032,7 +1032,7 @@ namespace LegendaryExplorer.Tools.Sequence_Editor
         /// </summary>
         /// <param name="fileName"></param>
         /// <param name="loadPackageDelegate">Delegate that can be used to set the Pcc object on this object instead of the default from-disk loader</param>
-        public void LoadFile(string fileName, Action loadPackageDelegate = null)
+        public void LoadFile(string fileName, Action loadPackageDelegate = null, bool forceLoadFromDisk = false)
         {
             try
             {
@@ -1047,7 +1047,7 @@ namespace LegendaryExplorer.Tools.Sequence_Editor
                 else
                 {
                     // Used for loading package from disk (even in shared interop already).
-                    LoadMEPackage(fileName);
+                    LoadMEPackage(fileName, forceLoadFromDisk);
                 }
 
                 CurrentFile = Path.GetFileName(fileName);
@@ -1719,7 +1719,7 @@ namespace LegendaryExplorer.Tools.Sequence_Editor
                 }
             }
 
-            if (updatedExports.Any(uIdx => Pcc.GetEntry(uIdx) is ExportEntry { IsClass: true }))
+            if (updatedExports.Any(uIdx => Pcc.TryGetUExport(uIdx, out ExportEntry export) && export.IsClass))
             {
                 RefreshToolboxItems();
             }
