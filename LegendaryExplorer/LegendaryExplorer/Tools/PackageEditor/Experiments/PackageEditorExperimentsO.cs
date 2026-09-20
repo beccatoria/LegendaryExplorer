@@ -22,6 +22,7 @@ using System.Linq;
 using System.Numerics;
 using System.Reactive;
 using System.Windows;
+using System.Windows.Threading;
 using Microsoft.WindowsAPICodePack.Dialogs;
 using static LegendaryExplorer.Misc.ExperimentsTools.PackageAutomations;
 using static LegendaryExplorer.Misc.ExperimentsTools.SequenceAutomations;
@@ -140,18 +141,44 @@ namespace LegendaryExplorer.Tools.PackageEditor.Experiments
                 // Resolve the sibling localized (_LOC_INT) package.
                 string locPath = ResolveLocFilePath(pew, pew.Pcc.FilePath);
 
+                List<ExportEntry> baseActorCandidates = GetTransformableSceneActors(pew.Pcc);
+                HashSet<int> selectedBaseActorUIndexes = PromptForActorSelection(pew, baseActorCandidates);
+                if (selectedBaseActorUIndexes is null)
+                {
+                    return;
+                }
+
+                HashSet<int> selectedLocConversationUIndexes = null;
+                int locConversationTotal = 0;
+                if (locPath != null)
+                {
+                    using IMEPackage locPackageForSelection = MEPackageHandler.OpenMEPackage(locPath, forceLoadFromDisk: true);
+                    List<ExportEntry> locConversationCandidates = GetConversationsInPackage(locPackageForSelection);
+                    locConversationTotal = locConversationCandidates.Count;
+                    selectedLocConversationUIndexes = PromptForConversationSelection(pew, locConversationCandidates, Path.GetFileName(locPath));
+                    if (selectedLocConversationUIndexes is null)
+                    {
+                        return;
+                    }
+                }
+
                 float deltaYawRadians = MathF.PI * (deltaYawDegrees / 180f);
                 float sinYaw = MathF.Sin(deltaYawRadians);
                 float cosYaw = MathF.Cos(deltaYawRadians);
 
                 string locSummary = locPath != null ? Path.GetFileName(locPath) : "(none - base file only)";
+                string locConvoSummary = locPath != null
+                    ? $"Selected LOC conversations: {selectedLocConversationUIndexes.Count}/{locConversationTotal}"
+                    : "Selected LOC conversations: (not applicable)";
                 MessageBoxResult confirm = MessageBox.Show(pew,
                     $"About to move & rotate the whole scene as one unit.\n\n" +
                     $"Pivot (current stage): ({oldLocation.X:0.###}, {oldLocation.Y:0.###}, {oldLocation.Z:0.###}), yaw {oldYawDegrees:0.###}\n" +
                     $"Translation: ({translation.X:0.###}, {translation.Y:0.###}, {translation.Z:0.###})\n" +
                     $"Yaw change: {deltaYawDegrees:0.###} degrees\n\n" +
                     $"Base file: {Path.GetFileName(pew.Pcc.FilePath)}\n" +
-                    $"Localized file: {locSummary}\n\n" +
+                    $"Localized file: {locSummary}\n" +
+                    $"Selected base actors: {selectedBaseActorUIndexes.Count}/{baseActorCandidates.Count}\n\n" +
+                    $"{locConvoSummary}\n\n" +
                     "This edits placed actors/cameras/props and cinematic (InterpTrackMove) keys.\n" +
                     "EXPERIMENTAL - MAKE BACKUPS FIRST.\n\nProceed?",
                     "Move & Rotate Conversation Scene", MessageBoxButton.OKCancel, MessageBoxImage.Warning);
@@ -161,7 +188,7 @@ namespace LegendaryExplorer.Tools.PackageEditor.Experiments
                 }
 
                 // --- Transform the base (non-localized) package ---
-                int baseActors = TransformSceneActorsInPackage(pew.Pcc, oldLocation, translation, deltaYawDegrees, sinYaw, cosYaw);
+                int baseActors = TransformSceneActorsInPackage(pew.Pcc, oldLocation, translation, deltaYawDegrees, sinYaw, cosYaw, selectedBaseActorUIndexes);
                 int baseTracks = TransformInterpTrackMovesInPackage(pew.Pcc, oldLocation, translation, deltaYawDegrees, sinYaw, cosYaw);
                 pew.Pcc.Save();
 
@@ -172,7 +199,8 @@ namespace LegendaryExplorer.Tools.PackageEditor.Experiments
                 {
                     using IMEPackage locPackage = MEPackageHandler.OpenMEPackage(locPath, forceLoadFromDisk: true);
                     locActors = TransformSceneActorsInPackage(locPackage, oldLocation, translation, deltaYawDegrees, sinYaw, cosYaw);
-                    locTracks = TransformInterpTrackMovesInPackage(locPackage, oldLocation, translation, deltaYawDegrees, sinYaw, cosYaw);
+                    HashSet<int> selectedLocInterpDataUIndexes = ResolveInterpDataUIndexesForSelectedConversations(locPackage, selectedLocConversationUIndexes);
+                    locTracks = TransformInterpTrackMovesInPackage(locPackage, oldLocation, translation, deltaYawDegrees, sinYaw, cosYaw, selectedLocInterpDataUIndexes);
                     locPackage.Save();
                 }
 
@@ -232,10 +260,357 @@ namespace LegendaryExplorer.Tools.PackageEditor.Experiments
         }
 
         /// <summary>
+        /// Gets transformable placed actors used by the scene move/rotate experiment.
+        /// </summary>
+        private static List<ExportEntry> GetTransformableSceneActors(IMEPackage package)
+        {
+            return package.Exports
+                .Where(actor => !actor.IsDefaultObject && actor.IsA("Actor") && actor.ClassName != "BioWorldInfo")
+                .ToList();
+        }
+
+        private static HashSet<int> PromptForActorSelection(PackageEditorWindow pew, List<ExportEntry> actorCandidates)
+        {
+            if (actorCandidates.Count == 0)
+            {
+                MessageBox.Show(pew,
+                    "No placed actors were found in the base file, so there is nothing to move.",
+                    "Move & Rotate Conversation Scene", MessageBoxButton.OK, MessageBoxImage.Information);
+                return [];
+            }
+
+            List<CheckedListItem> dialogItems = actorCandidates
+                .OrderBy(x => x.InstancedFullPath)
+                .Select(x => new CheckedListItem
+                {
+                    DisplayName = BuildActorSelectionDisplayName(x),
+                    IsSelected = true,
+                    Tag = x
+                }).ToList();
+
+            var dialog = new CheckedListDialog(
+                dialogItems,
+                "Move & Rotate Conversation Scene - Select Base Actors",
+                "Select which actors in the base (non-localized) package should move and rotate.",
+                pew,
+                "Use Selection");
+            dialog.DoubleClickItemHandler = item =>
+            {
+                if (item?.Tag is ExportEntry entry)
+                {
+                    pew.GoToNumber(entry.UIndex);
+                    pew.Activate();
+                }
+            };
+
+            if (!ShowCheckedListDialogNonModal(dialog))
+            {
+                return null;
+            }
+
+            return dialog.GetSelectedItems()
+                .Select(i => i.Tag as ExportEntry)
+                .Where(i => i is not null)
+                .Select(i => i.UIndex)
+                .ToHashSet();
+        }
+
+        private static string BuildActorSelectionDisplayName(ExportEntry actor)
+        {
+            string displayName = $"[{actor.UIndex}] {actor.InstancedFullPath}";
+            string tag = GetTagOrUniqueTagValue(actor, "Tag", "m_Tag");
+            string uniqueTag = GetTagOrUniqueTagValue(actor, "UniqueTag", "m_UniqueTag");
+
+            if (!string.IsNullOrWhiteSpace(tag))
+            {
+                displayName += $" | Tag: {tag}";
+            }
+
+            if (!string.IsNullOrWhiteSpace(uniqueTag))
+            {
+                displayName += $" | UniqueTag: {uniqueTag}";
+            }
+
+            return displayName;
+        }
+
+        private static string GetTagOrUniqueTagValue(ExportEntry export, string nameProp, string altNameProp)
+        {
+            return export.GetProperty<NameProperty>(nameProp)?.Value.Instanced
+                ?? export.GetProperty<NameProperty>(altNameProp)?.Value.Instanced
+                ?? export.GetProperty<StrProperty>(nameProp)?.Value
+                ?? export.GetProperty<StrProperty>(altNameProp)?.Value;
+        }
+
+        private static bool ShowCheckedListDialogNonModal(CheckedListDialog dialog)
+        {
+            bool accepted = false;
+            var frame = new DispatcherFrame();
+
+            dialog.Closed += (_, _) =>
+            {
+                accepted = dialog.IsAccepted;
+                frame.Continue = false;
+            };
+
+            dialog.Show();
+            Dispatcher.PushFrame(frame);
+            return accepted;
+        }
+
+        private static List<ExportEntry> GetConversationsInPackage(IMEPackage package)
+        {
+            return package.Exports
+                .Where(exp => !exp.IsDefaultObject && exp.ClassName == "BioConversation")
+                .OrderBy(exp => exp.InstancedFullPath)
+                .ToList();
+        }
+
+        private static HashSet<int> PromptForConversationSelection(PackageEditorWindow pew, List<ExportEntry> conversationCandidates, string locFileName)
+        {
+            if (conversationCandidates.Count == 0)
+            {
+                MessageBox.Show(pew,
+                    "No BioConversation exports were found in the localized file. Localized InterpTrackMove edits will be skipped.",
+                    "Move & Rotate Conversation Scene", MessageBoxButton.OK, MessageBoxImage.Information);
+                return [];
+            }
+
+            Dictionary<int, string> conversationTagHintsByUIndex = BuildConversationTagHints(conversationCandidates);
+
+            List<CheckedListItem> dialogItems = conversationCandidates
+                .Select(x => new CheckedListItem
+                {
+                    DisplayName = BuildConversationSelectionDisplayName(x, conversationTagHintsByUIndex),
+                    IsSelected = true,
+                    Tag = x
+                }).ToList();
+
+            var dialog = new CheckedListDialog(
+                dialogItems,
+                "Move & Rotate Conversation Scene - Select LOC Conversations",
+                $"Localized file: {locFileName}\n\nSelect which conversations should have InterpTrackMove keys edited.",
+                pew,
+                "Use Selection");
+
+            if (!ShowCheckedListDialogNonModal(dialog))
+            {
+                return null;
+            }
+
+            return dialog.GetSelectedItems()
+                .Select(i => i.Tag as ExportEntry)
+                .Where(i => i is not null)
+                .Select(i => i.UIndex)
+                .ToHashSet();
+        }
+
+        private static string BuildConversationSelectionDisplayName(ExportEntry conversation, Dictionary<int, string> conversationTagHintsByUIndex)
+        {
+            string displayName = $"[{conversation.UIndex}] {conversation.InstancedFullPath}";
+            if (conversationTagHintsByUIndex.TryGetValue(conversation.UIndex, out string tags)
+                && !string.IsNullOrWhiteSpace(tags))
+            {
+                displayName += $" | Tags: {tags}";
+            }
+
+            return displayName;
+        }
+
+        private static Dictionary<int, string> BuildConversationTagHints(List<ExportEntry> conversationCandidates)
+        {
+            Dictionary<int, string> hints = [];
+
+            foreach (ExportEntry conversation in conversationCandidates)
+            {
+                List<string> tags = [];
+
+                string tag = GetTagOrUniqueTagValue(conversation, "Tag", "m_Tag");
+                if (!string.IsNullOrWhiteSpace(tag))
+                {
+                    tags.Add(tag);
+                }
+
+                string uniqueTag = GetTagOrUniqueTagValue(conversation, "UniqueTag", "m_UniqueTag");
+                if (!string.IsNullOrWhiteSpace(uniqueTag))
+                {
+                    tags.Add(uniqueTag);
+                }
+
+                if (tags.Count > 0)
+                {
+                    hints[conversation.UIndex] = string.Join(", ", tags);
+                }
+            }
+
+            return hints;
+        }
+
+        private static HashSet<int> ResolveInterpDataUIndexesForSelectedConversations(IMEPackage package, HashSet<int> selectedConversationUIndexes)
+        {
+            if (selectedConversationUIndexes is null)
+            {
+                return null;
+            }
+
+            HashSet<int> interpDataUIndexes = [];
+            List<ExportEntry> selectedConversations = package.Exports
+                .Where(x => !x.IsDefaultObject && x.ClassName == "BioConversation" && selectedConversationUIndexes.Contains(x.UIndex))
+                .ToList();
+
+            List<ExportEntry> startConversationActions = package.Exports
+                .Where(x => !x.IsDefaultObject && IsStartConversationAction(x)
+                    && TryGetConversationUIndex(x, out int conversationUIndex)
+                    && selectedConversationUIndexes.Contains(conversationUIndex))
+                .ToList();
+
+            foreach (ExportEntry startConversationAction in startConversationActions)
+            {
+                List<ExportEntry> sequenceElements = KismetHelper.GetAllSequenceElements(startConversationAction)
+                    ?.OfType<ExportEntry>()
+                    .ToList() ?? [];
+
+                if (sequenceElements.Count == 0)
+                {
+                    continue;
+                }
+
+                HashSet<int> visited = [startConversationAction.UIndex];
+                var queue = new Queue<ExportEntry>();
+                queue.Enqueue(startConversationAction);
+
+                while (queue.Count > 0)
+                {
+                    ExportEntry current = queue.Dequeue();
+
+                    if (current.ClassName == "SeqAct_Interp" && TryResolveInterpDataFromSeqActInterp(current, out ExportEntry interpData))
+                    {
+                        interpDataUIndexes.Add(interpData.UIndex);
+                    }
+
+                    foreach (OutputLink link in KismetHelper.GetOutputLinksOfNode(current).SelectMany(x => x))
+                    {
+                        if (link?.LinkedOp is not ExportEntry linkedExport)
+                        {
+                            continue;
+                        }
+
+                        if (!sequenceElements.Any(x => x.UIndex == linkedExport.UIndex))
+                        {
+                            continue;
+                        }
+
+                        if (visited.Add(linkedExport.UIndex))
+                        {
+                            queue.Enqueue(linkedExport);
+                        }
+                    }
+                }
+            }
+
+            // Fallback/augment path: include InterpData under the selected conversation's parent subtree.
+            // This matches layouts where conversation and sequence/interpdata are grouped under the same parent export
+            // but not reliably connected through StartConversation output links.
+            foreach (ExportEntry conversation in selectedConversations)
+            {
+                foreach (int interpDataUIndex in GetInterpDataUIndexesFromConversationParentSubtree(conversation))
+                {
+                    interpDataUIndexes.Add(interpDataUIndex);
+                }
+            }
+
+            return interpDataUIndexes;
+        }
+
+        private static HashSet<int> GetInterpDataUIndexesFromConversationParentSubtree(ExportEntry conversation)
+        {
+            var interpDataUIndexes = new HashSet<int>();
+            if (conversation?.Parent is not ExportEntry parentExport)
+            {
+                return interpDataUIndexes;
+            }
+
+            foreach (IEntry descendant in parentExport.GetAllDescendants())
+            {
+                if (descendant is ExportEntry export
+                    && !export.IsDefaultObject
+                    && export.ClassName == "InterpData")
+                {
+                    interpDataUIndexes.Add(export.UIndex);
+                }
+            }
+
+            return interpDataUIndexes;
+        }
+
+        private static bool IsStartConversationAction(ExportEntry export)
+        {
+            return export.ClassName is "BioSeqAct_StartConversation" or "SFXSeqAct_StartConversation";
+        }
+
+        private static bool TryGetConversationUIndex(ExportEntry startConversationAction, out int conversationUIndex)
+        {
+            conversationUIndex = startConversationAction.GetProperty<ObjectProperty>("Conv")?.Value
+                                 ?? startConversationAction.GetProperty<ObjectProperty>("m_pConversation")?.Value
+                                 ?? 0;
+            return conversationUIndex > 0;
+        }
+
+        private static bool TryResolveInterpDataFromSeqActInterp(ExportEntry seqActInterp, out ExportEntry interpData)
+        {
+            interpData = null;
+
+            foreach (VarLinkInfo varLink in KismetHelper.GetVariableLinksOfNode(seqActInterp))
+            {
+                ExportEntry linkedInterpData = varLink.LinkedNodes
+                    .OfType<ExportEntry>()
+                    .FirstOrDefault(x => x.ClassName == "InterpData");
+                if (linkedInterpData != null)
+                {
+                    interpData = linkedInterpData;
+                    return true;
+                }
+            }
+
+            int interpDataUIndex = seqActInterp.GetProperty<ObjectProperty>("InterpData")?.Value
+                                   ?? seqActInterp.GetProperty<ObjectProperty>("InterpDataRef")?.Value
+                                   ?? 0;
+            if (interpDataUIndex > 0 && seqActInterp.FileRef.IsUExport(interpDataUIndex))
+            {
+                ExportEntry maybeInterpData = seqActInterp.FileRef.GetUExport(interpDataUIndex);
+                if (maybeInterpData.ClassName == "InterpData")
+                {
+                    interpData = maybeInterpData;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool TryGetOwningInterpDataUIndex(ExportEntry export, out int interpDataUIndex)
+        {
+            interpDataUIndex = 0;
+            IEntry current = export;
+            while (current?.Parent is IEntry parent)
+            {
+                if (parent is ExportEntry parentExport && parentExport.ClassName == "InterpData")
+                {
+                    interpDataUIndex = parentExport.UIndex;
+                    return true;
+                }
+
+                current = parent;
+            }
+
+            return false;
+        }
+
+        /// <summary>
         /// Yaw-rotates (around <paramref name="pivot"/>) and translates the Location/Rotation of every placed actor in the
         /// package, including StaticCollectionActor components. Returns how many actors were changed.
         /// </summary>
-        private static int TransformSceneActorsInPackage(IMEPackage package, Vector3 pivot, Vector3 translation, float deltaYawDegrees, float sinYaw, float cosYaw)
+        private static int TransformSceneActorsInPackage(IMEPackage package, Vector3 pivot, Vector3 translation, float deltaYawDegrees, float sinYaw, float cosYaw, HashSet<int> allowedActorUIndexes = null)
         {
             int changed = 0;
             int deltaYawUnits = deltaYawDegrees.DegreesToUnrealRotationUnits();
@@ -243,6 +618,10 @@ namespace LegendaryExplorer.Tools.PackageEditor.Experiments
             foreach (ExportEntry actor in package.Exports)
             {
                 if (actor.IsDefaultObject || !actor.IsA("Actor") || actor.ClassName == "BioWorldInfo")
+                {
+                    continue;
+                }
+                if (allowedActorUIndexes != null && !allowedActorUIndexes.Contains(actor.UIndex))
                 {
                     continue;
                 }
@@ -302,12 +681,26 @@ namespace LegendaryExplorer.Tools.PackageEditor.Experiments
         /// Yaw-rotates (around <paramref name="pivot"/>) and translates every world-frame InterpTrackMove key in the package.
         /// Non-world tracks (IMF_AnchorObject and IMF_RelativeToInitial) are skipped. Returns how many tracks were changed.
         /// </summary>
-        private static int TransformInterpTrackMovesInPackage(IMEPackage package, Vector3 pivot, Vector3 translation, float deltaYawDegrees, float sinYaw, float cosYaw)
+        private static int TransformInterpTrackMovesInPackage(IMEPackage package, Vector3 pivot, Vector3 translation, float deltaYawDegrees, float sinYaw, float cosYaw, HashSet<int> allowedInterpDataUIndexes = null)
         {
             int changed = 0;
 
             foreach (ExportEntry exp in package.Exports.Where(x => !x.IsDefaultObject && x.ClassName == "InterpTrackMove"))
             {
+                if (allowedInterpDataUIndexes != null)
+                {
+                    if (allowedInterpDataUIndexes.Count == 0)
+                    {
+                        continue;
+                    }
+
+                    if (!TryGetOwningInterpDataUIndex(exp, out int ownerInterpDataUIndex)
+                        || !allowedInterpDataUIndexes.Contains(ownerInterpDataUIndex))
+                    {
+                        continue;
+                    }
+                }
+
                 string moveFrame = exp.GetProperty<EnumProperty>("MoveFrame")?.Value;
                 if (moveFrame is "IMF_AnchorObject" or "IMF_RelativeToInitial")
                 {
