@@ -179,7 +179,7 @@ namespace LegendaryExplorer.Tools.PackageEditor.Experiments
                     $"Localized file: {locSummary}\n" +
                     $"Selected base actors: {selectedBaseActorUIndexes.Count}/{baseActorCandidates.Count}\n\n" +
                     $"{locConvoSummary}\n\n" +
-                    "This edits placed actors/cameras/props and cinematic (InterpTrackMove) keys.\n" +
+                    "This edits placed actors/cameras/props and cinematic (InterpTrackMove/BioInterpTrackMove) keys.\n" +
                     "EXPERIMENTAL - MAKE BACKUPS FIRST.\n\nProceed?",
                     "Move & Rotate Conversation Scene", MessageBoxButton.OKCancel, MessageBoxImage.Warning);
                 if (confirm != MessageBoxResult.OK)
@@ -206,8 +206,8 @@ namespace LegendaryExplorer.Tools.PackageEditor.Experiments
 
                 MessageBox.Show(pew,
                     $"Scene moved & rotated.\n\n" +
-                    $"Base file: {baseActors} actor(s), {baseTracks} InterpTrackMove(s).\n" +
-                    $"Localized file: {locActors} actor(s), {locTracks} InterpTrackMove(s).\n\n" +
+                    $"Base file: {baseActors} actor(s), {baseTracks} InterpTrackMove/BioInterpTrackMove track(s).\n" +
+                    $"Localized file: {locActors} actor(s), {locTracks} InterpTrackMove/BioInterpTrackMove track(s).\n\n" +
                     "Note: anchor-relative (IMF_AnchorObject) tracks were left as-is (they follow their anchor actor). " +
                     "Items referenced only by tag from other files are not adjusted.",
                     "Move & Rotate Conversation Scene", MessageBoxButton.OK, MessageBoxImage.Information);
@@ -678,14 +678,14 @@ namespace LegendaryExplorer.Tools.PackageEditor.Experiments
         }
 
         /// <summary>
-        /// Yaw-rotates (around <paramref name="pivot"/>) and translates every world-frame InterpTrackMove key in the package.
+        /// Yaw-rotates (around <paramref name="pivot"/>) and translates every world-frame InterpTrackMove/BioInterpTrackMove key in the package.
         /// Non-world tracks (IMF_AnchorObject and IMF_RelativeToInitial) are skipped. Returns how many tracks were changed.
         /// </summary>
         private static int TransformInterpTrackMovesInPackage(IMEPackage package, Vector3 pivot, Vector3 translation, float deltaYawDegrees, float sinYaw, float cosYaw, HashSet<int> allowedInterpDataUIndexes = null)
         {
             int changed = 0;
 
-            foreach (ExportEntry exp in package.Exports.Where(x => !x.IsDefaultObject && x.ClassName == "InterpTrackMove"))
+            foreach (ExportEntry exp in package.Exports.Where(x => !x.IsDefaultObject && (x.ClassName == "InterpTrackMove" || x.ClassName == "BioInterpTrackMove")))
             {
                 if (allowedInterpDataUIndexes != null)
                 {
