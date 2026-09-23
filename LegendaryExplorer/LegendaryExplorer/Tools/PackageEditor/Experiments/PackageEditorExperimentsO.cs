@@ -37,6 +37,9 @@ namespace LegendaryExplorer.Tools.PackageEditor.Experiments
     /// </summary>
     static class PackageEditorExperimentsO
     {
+        private readonly record struct SceneOffsetState(Vector3 Pivot, Vector3 Translation, float DeltaYawDegrees, float SinYaw, float CosYaw);
+        private static SceneOffsetState? _savedSceneOffset;
+
         public static void FindClosestLights(PackageEditorWindow pew)
         {
             if (pew?.Pcc is null)
@@ -86,6 +89,279 @@ namespace LegendaryExplorer.Tools.PackageEditor.Experiments
                 }
             };
             dlg.Show();
+        }
+
+        /// <summary>
+        /// Applies a reusable scene offset (translation + yaw rotation around pivot) to the currently selected export.
+        /// If no offset exists, or user chooses not to reuse it, a new one is computed from old/new coordinates.
+        /// </summary>
+        public static void ApplySavedSceneOffsetToSelectedExport(PackageEditorWindow pew)
+        {
+            if (pew?.Pcc is null)
+            {
+                return;
+            }
+
+            if (!pew.TryGetSelectedExport(out ExportEntry selectedExport))
+            {
+                MessageBox.Show(pew,
+                    "Select an export with Location, InterpTrackMove, or BioInterpTrackMove first.",
+                    "Apply Saved Scene Offset", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            bool supportsOffset = TryGetActorLocation(selectedExport, out Vector3 _)
+                                  || IsTrackMoveExport(selectedExport);
+            if (!supportsOffset)
+            {
+                MessageBox.Show(pew,
+                    "The selected export does not support this operation. Pick an export with Location, InterpTrackMove, or BioInterpTrackMove.",
+                    "Apply Saved Scene Offset", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            try
+            {
+                SceneOffsetState? offsetToApply = _savedSceneOffset;
+                if (_savedSceneOffset.HasValue)
+                {
+                    MessageBoxResult choice = MessageBox.Show(pew,
+                        "Reuse the saved offset?\n\nYes = apply saved offset\nNo = enter a new offset\nCancel = abort",
+                        "Apply Saved Scene Offset",
+                        MessageBoxButton.YesNoCancel,
+                        MessageBoxImage.Question);
+
+                    if (choice == MessageBoxResult.Cancel)
+                    {
+                        return;
+                    }
+
+                    if (choice == MessageBoxResult.No)
+                    {
+                        if (!TryPromptForSceneOffset(pew, selectedExport, out SceneOffsetState newOffset))
+                        {
+                            return;
+                        }
+
+                        _savedSceneOffset = newOffset;
+                        offsetToApply = newOffset;
+                    }
+                }
+                else
+                {
+                    if (!TryPromptForSceneOffset(pew, selectedExport, out SceneOffsetState newOffset))
+                    {
+                        return;
+                    }
+
+                    _savedSceneOffset = newOffset;
+                    offsetToApply = newOffset;
+                }
+
+                if (!offsetToApply.HasValue)
+                {
+                    return;
+                }
+
+                if (!TryApplyOffsetToExport(selectedExport, offsetToApply.Value))
+                {
+                    MessageBox.Show(pew,
+                        "The selected export does not contain editable Location/track data.",
+                        "Apply Saved Scene Offset", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+
+                pew.Pcc.Save();
+                MessageBox.Show(pew,
+                    $"Applied saved offset to #{selectedExport.UIndex} {selectedExport.InstancedFullPath}.",
+                    "Apply Saved Scene Offset", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            catch (FormatException)
+            {
+                // User cancelled or entered invalid number.
+            }
+        }
+
+        public static void ResetSavedSceneOffset(PackageEditorWindow pew)
+        {
+            _savedSceneOffset = null;
+            if (pew != null)
+            {
+                MessageBox.Show(pew,
+                    "Saved scene offset reset.",
+                    "Apply Saved Scene Offset", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+        }
+
+        private static bool TryPromptForSceneOffset(PackageEditorWindow pew, ExportEntry selectedExport, out SceneOffsetState offset)
+        {
+            offset = default;
+
+            Vector3 defaultOldLocation;
+            float defaultOldYaw;
+            if (TryGetActorLocation(selectedExport, out Vector3 actorLocation))
+            {
+                defaultOldLocation = actorLocation;
+                defaultOldYaw = GetActorYawDegrees(selectedExport);
+            }
+            else if (TryGetTrackMoveDefaultValues(selectedExport, out Vector3 trackLocation, out float trackYaw))
+            {
+                defaultOldLocation = trackLocation;
+                defaultOldYaw = trackYaw;
+            }
+            else
+            {
+                return false;
+            }
+
+            string oldXStr = PromptDialog.Prompt(pew, "Enter ORIGINAL X", "Original X", defaultOldLocation.X.ToString("0.###"), true);
+            string oldYStr = PromptDialog.Prompt(pew, "Enter ORIGINAL Y", "Original Y", defaultOldLocation.Y.ToString("0.###"), true);
+            string oldZStr = PromptDialog.Prompt(pew, "Enter ORIGINAL Z", "Original Z", defaultOldLocation.Z.ToString("0.###"), true);
+            string oldYawStr = PromptDialog.Prompt(pew, "Enter ORIGINAL Yaw (degrees)", "Original Yaw", defaultOldYaw.ToString("0.###"), true);
+
+            string newXStr = PromptDialog.Prompt(pew, "Enter NEW X", "New X", defaultOldLocation.X.ToString("0.###"), true);
+            string newYStr = PromptDialog.Prompt(pew, "Enter NEW Y", "New Y", defaultOldLocation.Y.ToString("0.###"), true);
+            string newZStr = PromptDialog.Prompt(pew, "Enter NEW Z", "New Z", defaultOldLocation.Z.ToString("0.###"), true);
+            string newYawStr = PromptDialog.Prompt(pew, "Enter NEW Yaw (degrees)", "New Yaw", defaultOldYaw.ToString("0.###"), true);
+
+            float oldX = float.Parse(oldXStr);
+            float oldY = float.Parse(oldYStr);
+            float oldZ = float.Parse(oldZStr);
+            float oldYaw = float.Parse(oldYawStr);
+
+            float newX = float.Parse(newXStr);
+            float newY = float.Parse(newYStr);
+            float newZ = float.Parse(newZStr);
+            float newYaw = float.Parse(newYawStr);
+
+            Vector3 oldLocation = new(oldX, oldY, oldZ);
+            Vector3 translation = new(newX - oldX, newY - oldY, newZ - oldZ);
+            float deltaYawDegrees = newYaw - oldYaw;
+            float deltaYawRadians = MathF.PI * (deltaYawDegrees / 180f);
+
+            offset = new SceneOffsetState(
+                oldLocation,
+                translation,
+                deltaYawDegrees,
+                MathF.Sin(deltaYawRadians),
+                MathF.Cos(deltaYawRadians));
+
+            return true;
+        }
+
+        private static bool TryApplyOffsetToExport(ExportEntry export, SceneOffsetState offset)
+        {
+            if (IsTrackMoveExport(export))
+            {
+                return TryApplyOffsetToTrackMove(export, offset);
+            }
+
+            StructProperty locationProp = export.GetProperty<StructProperty>("location") ?? export.GetProperty<StructProperty>("Location");
+            if (locationProp == null)
+            {
+                return false;
+            }
+
+            float oldX = locationProp.GetProp<FloatProperty>("X")?.Value ?? 0;
+            float oldY = locationProp.GetProp<FloatProperty>("Y")?.Value ?? 0;
+            float oldZ = locationProp.GetProp<FloatProperty>("Z")?.Value ?? 0;
+
+            (float rotatedX, float rotatedY) = RotateAroundPivot(oldX, oldY, offset.Pivot.X, offset.Pivot.Y, offset.SinYaw, offset.CosYaw);
+            locationProp.Properties.AddOrReplaceProp(new FloatProperty(rotatedX + offset.Translation.X, "X"));
+            locationProp.Properties.AddOrReplaceProp(new FloatProperty(rotatedY + offset.Translation.Y, "Y"));
+            locationProp.Properties.AddOrReplaceProp(new FloatProperty(oldZ + offset.Translation.Z, "Z"));
+            export.WriteProperty(locationProp);
+
+            StructProperty rotationProp = export.GetProperty<StructProperty>("Rotation") ?? export.GetProperty<StructProperty>("rotation");
+            if (rotationProp != null)
+            {
+                int deltaYawUnits = offset.DeltaYawDegrees.DegreesToUnrealRotationUnits();
+                (int pitch, int yaw, int roll) = CommonStructs.GetRotator(rotationProp);
+                export.WriteProperty(CommonStructs.RotatorProp(new Rotator(pitch, yaw + deltaYawUnits, roll), rotationProp.Name));
+            }
+
+            return true;
+        }
+
+        private static bool IsTrackMoveExport(ExportEntry export)
+        {
+            return export?.ClassName is "InterpTrackMove" or "BioInterpTrackMove";
+        }
+
+        private static bool TryGetTrackMoveDefaultValues(ExportEntry trackMove, out Vector3 location, out float yawDegrees)
+        {
+            location = Vector3.Zero;
+            yawDegrees = 0;
+
+            if (!IsTrackMoveExport(trackMove))
+            {
+                return false;
+            }
+
+            PropertyCollection props = trackMove.GetProperties();
+            var points = props.GetProp<StructProperty>("PosTrack")?.GetProp<ArrayProperty<StructProperty>>("Points");
+            if (points == null || points.Count == 0)
+            {
+                return false;
+            }
+
+            StructProperty firstOutVal = points[0].GetProp<StructProperty>("OutVal");
+            if (firstOutVal == null)
+            {
+                return false;
+            }
+
+            location = new Vector3(
+                firstOutVal.GetProp<FloatProperty>("X")?.Value ?? 0,
+                firstOutVal.GetProp<FloatProperty>("Y")?.Value ?? 0,
+                firstOutVal.GetProp<FloatProperty>("Z")?.Value ?? 0);
+
+            var eulerPoints = props.GetProp<StructProperty>("EulerTrack")?.GetProp<ArrayProperty<StructProperty>>("Points");
+            if (eulerPoints != null && eulerPoints.Count > 0)
+            {
+                StructProperty firstRot = eulerPoints[0].GetProp<StructProperty>("OutVal");
+                yawDegrees = firstRot?.GetProp<FloatProperty>("Z")?.Value ?? 0;
+            }
+
+            return true;
+        }
+
+        private static bool TryApplyOffsetToTrackMove(ExportEntry trackMove, SceneOffsetState offset)
+        {
+            PropertyCollection props = trackMove.GetProperties();
+            var points = props.GetProp<StructProperty>("PosTrack")?.GetProp<ArrayProperty<StructProperty>>("Points");
+            if (points == null)
+            {
+                return false;
+            }
+
+            var eulerPoints = props.GetProp<StructProperty>("EulerTrack")?.GetProp<ArrayProperty<StructProperty>>("Points");
+            for (int n = 0; n < points.Count; n++)
+            {
+                StructProperty outVal = points[n].GetProp<StructProperty>("OutVal");
+                if (outVal != null)
+                {
+                    float x = outVal.GetProp<FloatProperty>("X")?.Value ?? 0;
+                    float y = outVal.GetProp<FloatProperty>("Y")?.Value ?? 0;
+                    float z = outVal.GetProp<FloatProperty>("Z")?.Value ?? 0;
+                    (float newX, float newY) = RotateAroundPivot(x, y, offset.Pivot.X, offset.Pivot.Y, offset.SinYaw, offset.CosYaw);
+                    outVal.GetProp<FloatProperty>("X").Value = newX + offset.Translation.X;
+                    outVal.GetProp<FloatProperty>("Y").Value = newY + offset.Translation.Y;
+                    outVal.GetProp<FloatProperty>("Z").Value = z + offset.Translation.Z;
+                }
+
+                if (eulerPoints != null && n < eulerPoints.Count)
+                {
+                    StructProperty outRot = eulerPoints[n].GetProp<StructProperty>("OutVal");
+                    if (outRot?.GetProp<FloatProperty>("Z") is { } yawProp)
+                    {
+                        yawProp.Value += offset.DeltaYawDegrees;
+                    }
+                }
+            }
+
+            trackMove.WriteProperties(props);
+            return true;
         }
 
         #region Move & Rotate Conversation Scene

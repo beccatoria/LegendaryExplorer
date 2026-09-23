@@ -1769,6 +1769,16 @@ namespace LegendaryExplorer.UserControls.PackageEditorControls
             PackageEditorExperimentsO.MoveAndRotateConversationScene(GetPEWindow());
         }
 
+        private void ApplySavedSceneOffsetToSelectedExport_Click(object sender, RoutedEventArgs e)
+        {
+            PackageEditorExperimentsO.ApplySavedSceneOffsetToSelectedExport(GetPEWindow());
+        }
+
+        private void ResetSavedSceneOffset_Click(object sender, RoutedEventArgs e)
+        {
+            PackageEditorExperimentsO.ResetSavedSceneOffset(GetPEWindow());
+        }
+
         private void ScanAndRegenerateCorruptedSmallMips_Click(object sender, RoutedEventArgs e)
         {
             PackageEditorExperimentsO.ScanAndRegenerateCorruptedSmallBlockCompressedMips(GetPEWindow());
