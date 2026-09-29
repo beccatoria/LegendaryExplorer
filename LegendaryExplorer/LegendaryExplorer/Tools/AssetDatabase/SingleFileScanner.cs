@@ -68,12 +68,14 @@ namespace LegendaryExplorer.Tools.AssetDatabase
     /// </summary>
     public class SingleFileScanner
     {
+        private static readonly ClassScanner ClassScannerInstance = new();
+
         public string ShortFileName { get; }
         public bool DumpCanceled;
 
         private static readonly List<AssetScanner> Scanners =
         [
-            new ClassScanner(),
+            ClassScannerInstance,
             new MaterialScanner(),
             new AnimationScanner(),
             new MeshScanner(),
@@ -176,6 +178,9 @@ namespace LegendaryExplorer.Tools.AssetDatabase
 
                 bool isDlc = pcc.IsInOfficialDLC();
                 bool isMod = !pcc.IsInBasegame() && !isDlc;
+
+                ClassScannerInstance.ScanImports(pcc, _fileKey, isMod, dbScanner);
+
                 ExportScanInfo esi = null;
                 foreach (ExportEntry export in pcc.Exports)
                 {

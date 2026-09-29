@@ -10,18 +10,27 @@
     </UserControl.Resources>
     <Grid>
         <Grid.RowDefinitions>
-            <RowDefinition Height="24"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
-        <TextBlock Text="{Binding HeaderText, ElementName=usagesPanel}" Background="AliceBlue" HorizontalAlignment="Stretch" Padding="3"
-                   ToolTip="{Binding HeaderToolTip, ElementName=usagesPanel}" Grid.Row="0"/>
-        <Button ToolTip="Copies the list of usages to the clipboard as text" Click="CopyButton_Click"
-                VerticalAlignment="Center" Padding="3" HorizontalAlignment="Right" Width="26" Grid.Row="0">
-            <fa:ImageAwesome Icon="Solid_Copy" Foreground="CornflowerBlue"/>
-        </Button>
+        <Grid Grid.Row="0">
+            <TextBlock Text="{Binding HeaderText, ElementName=usagesPanel}" Background="AliceBlue" HorizontalAlignment="Stretch" Padding="3"
+                       ToolTip="{Binding HeaderToolTip, ElementName=usagesPanel}"/>
+            <Button ToolTip="Copies the list of usages to the clipboard as text" Click="CopyButton_Click"
+                    VerticalAlignment="Center" Padding="3" HorizontalAlignment="Right" Width="26">
+                <fa:ImageAwesome Icon="Solid_Copy" Foreground="CornflowerBlue"/>
+            </Button>
+        </Grid>
+        <DockPanel Grid.Row="1" Margin="2,2,2,3" LastChildFill="True">
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="4,0,0,0" VerticalAlignment="Center">
+                <CheckBox x:Name="importsFilterCheckBox" Content="Imports" IsChecked="True" Checked="UsageFilterChanged" Unchecked="UsageFilterChanged" Margin="0,0,6,0"/>
+                <CheckBox x:Name="exportsFilterCheckBox" Content="Exports" IsChecked="True" Checked="UsageFilterChanged" Unchecked="UsageFilterChanged"/>
+            </StackPanel>
+            <TextBox x:Name="fileNameFilterTextBox" VerticalAlignment="Center" TextChanged="UsageFilterChanged" ToolTip="Filter filenames. Supports wildcards like *Biod_Nor*"/>
+        </DockPanel>
         <controls:ListBoxScroll x:Name="internalListBox" MinWidth="200"
-                                ItemsSource="{Binding UsagesSource, ElementName=usagesPanel}"
-                                Grid.Row="1">
+                                Grid.Row="2">
             <controls:ListBoxScroll.ItemTemplate>
                 <DataTemplate>
                     <TextBlock>

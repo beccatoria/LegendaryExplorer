@@ -422,7 +422,8 @@
                             </Grid>
                             <Grid DockPanel.Dock="Right">
                                 <Grid.RowDefinitions>
-                                    <RowDefinition Height="24"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
                                     <RowDefinition Height="*"/>
                                 </Grid.RowDefinitions>
                                 <StackPanel Orientation="Horizontal" Grid.Row="0" Background="AliceBlue" VerticalAlignment="Center">
@@ -431,7 +432,14 @@
                                     <CheckBox x:Name="allClassInstancesCheckBox" Content="Show multiple per file" IsChecked="{Binding ShowAllClassUsages}" 
                                               Margin="5, 2, 0, 0" VerticalContentAlignment="Center"/>
                                 </StackPanel>
-                                <controls:ListBoxScroll x:Name="lstbx_Usages" MinWidth="200" ItemsSource="{Binding SelectedClassUsages, Mode=OneWay}" Grid.Row="1" >
+                                <DockPanel Grid.Row="1" Margin="2,2,2,3" LastChildFill="True">
+                                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="4,0,0,0" VerticalAlignment="Center">
+                                        <CheckBox Content="Imports" IsChecked="{Binding ShowClassImportUsages}" Margin="0,0,6,0"/>
+                                        <CheckBox Content="Exports" IsChecked="{Binding ShowClassExportUsages}"/>
+                                    </StackPanel>
+                                    <TextBox Text="{Binding ClassUsagesFileNameFilter, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Center" ToolTip="Filter class usage filenames. Supports wildcards like *Biod_Nor*"/>
+                                </DockPanel>
+                                <controls:ListBoxScroll x:Name="lstbx_Usages" MinWidth="200" ItemsSource="{Binding SelectedClassUsages, Mode=OneWay}" Grid.Row="2" >
                                     <controls:ListBoxScroll.ItemTemplate>
                                         <DataTemplate>
                                             <TextBlock>

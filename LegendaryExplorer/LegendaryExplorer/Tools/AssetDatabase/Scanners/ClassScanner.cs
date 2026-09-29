@@ -1,4 +1,5 @@
-﻿using System.Runtime.InteropServices;
+﻿using System.Linq;
+using System.Runtime.InteropServices;
 using System.Threading;
 using LegendaryExplorerCore.Gammtek.Extensions.Collections.Generic;
 using LegendaryExplorerCore.Packages;
@@ -117,6 +118,36 @@ namespace LegendaryExplorer.Tools.AssetDatabase.Scanners
                         newClassRecord.Usages.Add(classUsage);
                         db.GeneratedClasses[objectNameInstanced] = newClassRecord;
                     }
+                }
+            }
+        }
+
+        public void ScanImports(IMEPackage package, int fileKey, bool isMod, ConcurrentAssetDB db)
+        {
+            foreach (ImportEntry import in package.Imports)
+            {
+                if (import.ClassName != "Class")
+                {
+                    continue;
+                }
+
+                var className = import.ObjectName.Instanced;
+                var classUsage = new ClassUsage(fileKey, import.UIndex, false, isMod);
+
+                lock (db.ClassLocks.GetOrAdd(className, static _ => new Lock()))
+                {
+                    if (!db.GeneratedClasses.TryGetValue(className, out ConcurrentAssetDB.ScanTimeClassRecord classRecord))
+                    {
+                        classRecord = new ConcurrentAssetDB.ScanTimeClassRecord { Class = className, IsModOnly = isMod };
+                        db.GeneratedClasses[className] = classRecord;
+                    }
+
+                    if (!classRecord.Usages.Any(u => u.FileKey == fileKey && u.UIndex == import.UIndex))
+                    {
+                        classRecord.Usages.Add(classUsage);
+                    }
+
+                    classRecord.IsModOnly &= isMod;
                 }
             }
         }

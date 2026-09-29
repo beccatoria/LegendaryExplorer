@@ -7,6 +7,7 @@ using System.Globalization;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Threading.Tasks.Dataflow;
@@ -127,6 +128,47 @@ namespace LegendaryExplorer.Tools.AssetDatabase
             set
             {
                 if (SetProperty(ref _selectedClass, value))
+                {
+                    UpdateSelectedClassUsages();
+                }
+            }
+        }
+
+        private string _classUsagesFileNameFilter;
+        private Regex _classUsagesFileNameRegex;
+        public string ClassUsagesFileNameFilter
+        {
+            get => _classUsagesFileNameFilter;
+            set
+            {
+                if (SetProperty(ref _classUsagesFileNameFilter, value))
+                {
+                    _classUsagesFileNameRegex = BuildWildcardRegex(_classUsagesFileNameFilter);
+                    UpdateSelectedClassUsages();
+                }
+            }
+        }
+
+        private bool _showClassImportUsages = true;
+        public bool ShowClassImportUsages
+        {
+            get => _showClassImportUsages;
+            set
+            {
+                if (SetProperty(ref _showClassImportUsages, value))
+                {
+                    UpdateSelectedClassUsages();
+                }
+            }
+        }
+
+        private bool _showClassExportUsages = true;
+        public bool ShowClassExportUsages
+        {
+            get => _showClassExportUsages;
+            set
+            {
+                if (SetProperty(ref _showClassExportUsages, value))
                 {
                     UpdateSelectedClassUsages();
                 }
@@ -2721,13 +2763,20 @@ namespace LegendaryExplorer.Tools.AssetDatabase
 
         public void UpdateSelectedClassUsages()
         {
+            if (SelectedClass?.Usages is null)
+            {
+                SelectedClassUsages = null;
+                return;
+            }
+
+            IEnumerable<ClassUsage> filteredUsages;
             if (ShowAllClassUsages)
             {
-                SelectedClassUsages = SelectedClass?.Usages.OrderBy(u => u.FileKey).ToList();
+                filteredUsages = SelectedClass.Usages.OrderBy(u => u.FileKey);
             }
             else
             {
-                SelectedClassUsages = SelectedClass?.Usages.OrderBy(u => u.FileKey).Aggregate(new List<ClassUsage>(), (list, usage) =>
+                filteredUsages = SelectedClass.Usages.OrderBy(u => u.FileKey).Aggregate(new List<ClassUsage>(), (list, usage) =>
                 {
                     if (list.Count == 0 || usage.IsDefault || list[list.Count - 1].FileKey != usage.FileKey)
                     {
@@ -2737,6 +2786,71 @@ namespace LegendaryExplorer.Tools.AssetDatabase
                     return list;
                 });
             }
+
+            SelectedClassUsages = filteredUsages.Where(ClassUsageMatchesFilters).ToList();
+        }
+
+        private bool ClassUsageMatchesFilters(ClassUsage usage)
+        {
+            if (!ShowClassImportUsages && !ShowClassExportUsages)
+            {
+                return false;
+            }
+
+            bool isImport = usage.UIndex < 0;
+            bool isExport = usage.UIndex > 0;
+            if (!ShowClassImportUsages && isImport)
+            {
+                return false;
+            }
+
+            if (!ShowClassExportUsages && isExport)
+            {
+                return false;
+            }
+
+            if (string.IsNullOrWhiteSpace(ClassUsagesFileNameFilter))
+            {
+                return true;
+            }
+
+            var fileNameText = GetClassUsageFileNameText(usage.FileKey);
+            if (_classUsagesFileNameRegex is not null)
+            {
+                return _classUsagesFileNameRegex.IsMatch(fileNameText);
+            }
+
+            return fileNameText.Contains(ClassUsagesFileNameFilter, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private string GetClassUsageFileNameText(int fileKey)
+        {
+            if (fileKey >= 0 && fileKey < FileListExtended.Count)
+            {
+                var file = FileListExtended[fileKey];
+                return $"{file.FileName} {file.Directory}";
+            }
+
+            return fileKey.ToString();
+        }
+
+        private static Regex BuildWildcardRegex(string pattern)
+        {
+            if (string.IsNullOrWhiteSpace(pattern))
+            {
+                return null;
+            }
+
+            var trimmed = pattern.Trim();
+            if (!trimmed.Contains('*') && !trimmed.Contains('?'))
+            {
+                return null;
+            }
+
+            var escaped = Regex.Escape(trimmed)
+                .Replace("\\*", ".*")
+                .Replace("\\?", ".");
+            return new Regex($"^{escaped}$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
         }
 
         #endregion
@@ -2957,10 +3071,12 @@ namespace LegendaryExplorer.Tools.AssetDatabase
             if (FileListExtended == null || !FileListExtended.Any())
                 return;
 
-            if (panel.UsagesSource is not IEnumerable<IAssetUsage> usages)
-                return;
-
-            var text = string.Join("\n", usages.Select(x => FileListExtended[x.FileKey]?.FileName).Distinct());
+            var usages = panel.GetVisibleUsages();
+            var text = string.Join("\n", usages
+                .Where(x => x.FileKey >= 0 && x.FileKey < FileListExtended.Count)
+                .Select(x => FileListExtended[x.FileKey]?.FileName)
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Distinct());
             if (text != null)
             {
                 try

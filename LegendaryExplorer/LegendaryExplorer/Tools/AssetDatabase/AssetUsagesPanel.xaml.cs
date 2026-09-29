@@ -1,13 +1,20 @@
+using System;
 using System.Collections;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Linq;
+using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Data;
 
 namespace LegendaryExplorer.Tools.AssetDatabase
 {
     public partial class AssetUsagesPanel : UserControl
     {
         public static readonly DependencyProperty UsagesSourceProperty =
-            DependencyProperty.Register(nameof(UsagesSource), typeof(IEnumerable), typeof(AssetUsagesPanel));
+            DependencyProperty.Register(nameof(UsagesSource), typeof(IEnumerable), typeof(AssetUsagesPanel),
+                new PropertyMetadata(null, OnUsagesSourceChanged));
 
         public static readonly DependencyProperty HeaderTextProperty =
             DependencyProperty.Register(nameof(HeaderText), typeof(string), typeof(AssetUsagesPanel),
@@ -48,6 +55,10 @@ namespace LegendaryExplorer.Tools.AssetDatabase
 
         public int SelectedIndex => internalListBox.SelectedIndex;
 
+        private ICollectionView usagesView;
+        private Regex fileFilterRegex;
+        private string fileNameFilterText;
+
         public AssetUsagesPanel()
         {
             InitializeComponent();
@@ -59,6 +70,16 @@ namespace LegendaryExplorer.Tools.AssetDatabase
             if (internalListBox.ContextMenu == null && UsageContextMenu == null)
             {
                 SetDefaultContextMenu();
+            }
+
+            RefreshUsageView();
+        }
+
+        private static void OnUsagesSourceChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+        {
+            if (d is AssetUsagesPanel panel)
+            {
+                panel.RefreshUsageView();
             }
         }
 
@@ -92,6 +113,121 @@ namespace LegendaryExplorer.Tools.AssetDatabase
             menu.Items.Add(openUsageItem);
             menu.Items.Add(openExplorerItem);
             internalListBox.ContextMenu = menu;
+        }
+
+        private void RefreshUsageView()
+        {
+            usagesView = CollectionViewSource.GetDefaultView(UsagesSource);
+            if (usagesView is not null)
+            {
+                usagesView.Filter = UsageMatchesCurrentFilters;
+            }
+
+            internalListBox.ItemsSource = usagesView;
+            ApplyUsageFilter();
+        }
+
+        private bool UsageMatchesCurrentFilters(object item)
+        {
+            if (item is not IAssetUsage usage)
+            {
+                return true;
+            }
+
+            if (!MatchesImportExportFilter(usage))
+            {
+                return false;
+            }
+
+            if (string.IsNullOrWhiteSpace(fileNameFilterText))
+            {
+                return true;
+            }
+
+            var usageFileName = GetUsageFileNameText(usage);
+            if (fileFilterRegex is not null)
+            {
+                return fileFilterRegex.IsMatch(usageFileName);
+            }
+
+            return usageFileName.Contains(fileNameFilterText, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private bool MatchesImportExportFilter(IAssetUsage usage)
+        {
+            bool showImports = importsFilterCheckBox?.IsChecked != false;
+            bool showExports = exportsFilterCheckBox?.IsChecked != false;
+
+            if (!showImports && !showExports)
+            {
+                return false;
+            }
+
+            bool isImport = usage.UIndex < 0;
+            bool isExport = usage.UIndex > 0;
+
+            if (!showImports && isImport)
+            {
+                return false;
+            }
+
+            if (!showExports && isExport)
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        private string GetUsageFileNameText(IAssetUsage usage)
+        {
+            if (Window.GetWindow(this) is AssetDatabaseWindow window
+                && usage.FileKey >= 0
+                && usage.FileKey < window.FileListExtended.Count)
+            {
+                var file = window.FileListExtended[usage.FileKey];
+                return $"{file.FileName} {file.Directory}";
+            }
+
+            return usage.FileKey.ToString();
+        }
+
+        private void ApplyUsageFilter()
+        {
+            if (fileNameFilterTextBox is null)
+            {
+                fileNameFilterText = string.Empty;
+                fileFilterRegex = null;
+                return;
+            }
+
+            fileNameFilterText = fileNameFilterTextBox.Text?.Trim() ?? string.Empty;
+            fileFilterRegex = null;
+            if (!string.IsNullOrEmpty(fileNameFilterText)
+                && (fileNameFilterText.Contains('*') || fileNameFilterText.Contains('?')))
+            {
+                var escaped = Regex.Escape(fileNameFilterText)
+                    .Replace("\\*", ".*")
+                    .Replace("\\?", ".");
+                fileFilterRegex = new Regex($"^{escaped}$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+            }
+
+            usagesView?.Refresh();
+        }
+
+        private void UsageFilterChanged(object sender, RoutedEventArgs e)
+        {
+            ApplyUsageFilter();
+        }
+
+        public IEnumerable<IAssetUsage> GetVisibleUsages()
+        {
+            if (usagesView is null)
+            {
+                return UsagesSource?.OfType<IAssetUsage>() ?? Enumerable.Empty<IAssetUsage>();
+            }
+
+            return usagesView.Cast<object>().OfType<IAssetUsage>().ToList();
         }
 
         private void CopyButton_Click(object sender, RoutedEventArgs e)
