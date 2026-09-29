@@ -2769,25 +2769,47 @@ namespace LegendaryExplorer.Tools.AssetDatabase
                 return;
             }
 
-            IEnumerable<ClassUsage> filteredUsages;
+            var matchingUsages = SelectedClass.Usages.Where(ClassUsageMatchesFilters);
+
             if (ShowAllClassUsages)
             {
-                filteredUsages = SelectedClass.Usages.OrderBy(u => u.FileKey);
+                SelectedClassUsages = matchingUsages
+                    .OrderBy(u => u.FileKey)
+                    .ThenByDescending(u => u.IsDefault)
+                    .ThenBy(GetClassUsageTypeSortValue)
+                    .ToList();
             }
             else
             {
-                filteredUsages = SelectedClass.Usages.OrderBy(u => u.FileKey).Aggregate(new List<ClassUsage>(), (list, usage) =>
-                {
-                    if (list.Count == 0 || usage.IsDefault || list[list.Count - 1].FileKey != usage.FileKey)
-                    {
-                        list.Add(usage);
-                    }
+                SelectedClassUsages = matchingUsages
+                    .GroupBy(u => u.FileKey)
+                    .Select(g => g
+                        .OrderByDescending(u => u.IsDefault)
+                        .ThenBy(GetClassUsageTypeSortValue)
+                        .First())
+                    .OrderBy(u => u.FileKey)
+                    .ToList();
+            }
+        }
 
-                    return list;
-                });
+        private int GetClassUsageTypeSortValue(ClassUsage usage)
+        {
+            if (ShowClassExportUsages && ShowClassImportUsages)
+            {
+                return usage.UIndex > 0 ? 0 : 1;
             }
 
-            SelectedClassUsages = filteredUsages.Where(ClassUsageMatchesFilters).ToList();
+            if (ShowClassExportUsages)
+            {
+                return usage.UIndex > 0 ? 0 : 1;
+            }
+
+            if (ShowClassImportUsages)
+            {
+                return usage.UIndex < 0 ? 0 : 1;
+            }
+
+            return 0;
         }
 
         private bool ClassUsageMatchesFilters(ClassUsage usage)
