@@ -1,0 +1,32 @@
+<bases:TrackingNotifyPropertyChangedWindowBase x:Class="LegendaryExplorer.Dialogs.ObjectReferencerCoverageDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:dialogs="clr-namespace:LegendaryExplorer.Dialogs"
+        xmlns:bases="clr-namespace:LegendaryExplorer.SharedUI.Bases"
+        mc:Ignorable="d"
+        WindowStartupLocation="CenterOwner"
+        Title="ObjectReferencer Coverage" Width="760" Height="620">
+    <Window.Resources>
+        <HierarchicalDataTemplate DataType="{x:Type dialogs:ObjectReferencerCoverageNode}" ItemsSource="{Binding Children}">
+            <StackPanel Orientation="Horizontal">
+                <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay}" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                <TextBlock Text="{Binding DisplayName}" VerticalAlignment="Center"/>
+            </StackPanel>
+        </HierarchicalDataTemplate>
+    </Window.Resources>
+
+    <DockPanel Margin="10" LastChildFill="True">
+        <TextBlock Text="{Binding TopText}" TextWrapping="Wrap" DockPanel.Dock="Top" Margin="0,0,0,8"/>
+
+        <StackPanel Orientation="Horizontal" DockPanel.Dock="Bottom" HorizontalAlignment="Right" Margin="0,8,0,0">
+            <Button Content="Select All Roots" Click="SelectAllRoots_Click" Padding="8,4" Margin="0,0,5,0"/>
+            <Button Content="Select No Roots" Click="SelectNoRoots_Click" Padding="8,4" Margin="0,0,15,0"/>
+            <Button Content="{Binding PrimaryButtonText}" Click="OK_Click" IsDefault="True" Padding="20,4" Margin="0,0,5,0"/>
+            <Button Content="Cancel" Click="Cancel_Click" IsCancel="True" Padding="20,4"/>
+        </StackPanel>
+
+        <TreeView x:Name="CoverageTree" ItemsSource="{Binding RootNodes}" MouseDoubleClick="CoverageTree_MouseDoubleClick" MouseRightButtonUp="CoverageTree_MouseRightButtonUp"/>
+    </DockPanel>
+</bases:TrackingNotifyPropertyChangedWindowBase>

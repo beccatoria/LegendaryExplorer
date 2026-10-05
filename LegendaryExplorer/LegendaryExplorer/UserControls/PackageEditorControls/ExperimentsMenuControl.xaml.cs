@@ -1764,6 +1764,11 @@ namespace LegendaryExplorer.UserControls.PackageEditorControls
             PackageEditorExperimentsO.BeccaSquidSelectiveTexturesToTfc(GetPEWindow());
         }
 
+        private void BuildObjectReferencerCoverageGraph_Click(object sender, RoutedEventArgs e)
+        {
+            PackageEditorExperimentsO.BuildObjectReferencerCoverageGraph(GetPEWindow());
+        }
+
         private void MoveAndRotateConversationScene_Click(object sender, RoutedEventArgs e)
         {
             PackageEditorExperimentsO.MoveAndRotateConversationScene(GetPEWindow());

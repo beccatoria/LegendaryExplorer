@@ -21,9 +21,12 @@ using System.IO;
 using System.Linq;
 using System.Numerics;
 using System.Reactive;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Threading;
+using LegendaryExplorer.SharedUI;
 using Microsoft.WindowsAPICodePack.Dialogs;
+using Microsoft.WindowsAPICodePack.Taskbar;
 using static LegendaryExplorer.Misc.ExperimentsTools.PackageAutomations;
 using static LegendaryExplorer.Misc.ExperimentsTools.SequenceAutomations;
 using static LegendaryExplorer.Misc.ExperimentsTools.SharedMethods;
@@ -39,6 +42,22 @@ namespace LegendaryExplorer.Tools.PackageEditor.Experiments
     {
         private readonly record struct SceneOffsetState(Vector3 Pivot, Vector3 Translation, float DeltaYawDegrees, float SinYaw, float CosYaw);
         private static SceneOffsetState? _savedSceneOffset;
+
+        private sealed class MemoryCoverageAnalysisResult
+        {
+            public ExportEntry ExistingReferencer { get; init; }
+            public List<ExportEntry> CandidateExports { get; init; }
+            public Dictionary<int, ExportEntry> ExportsByUIndex { get; init; }
+            public Dictionary<int, HashSet<int>> Adjacency { get; init; }
+            public HashSet<int> CoveredByExisting { get; init; }
+            public HashSet<int> CoveredByWorldPersistent { get; init; }
+            public HashSet<int> Uncovered { get; init; }
+            public HashSet<int> WorldPersistentSeeds { get; init; }
+            public bool HasWorldPersistentCoverageSource { get; init; }
+            public List<ObjectReferencerCoverageNode> RootNodes { get; init; }
+            public string EarlyExitMessage { get; init; }
+            public MessageBoxImage EarlyExitIcon { get; init; } = MessageBoxImage.Information;
+        }
 
         public static void FindClosestLights(PackageEditorWindow pew)
         {
@@ -1058,6 +1077,953 @@ namespace LegendaryExplorer.Tools.PackageEditor.Experiments
         }
 
         #endregion
+
+        public static async void BuildObjectReferencerCoverageGraph(PackageEditorWindow pew)
+        {
+            if (pew?.Pcc is null)
+            {
+                return;
+            }
+
+            IMEPackage package = pew.Pcc;
+            bool isMapPackage = package.Flags.HasFlag(UnrealFlags.EPackageFlags.Map);
+
+            void reportProgress(string phase, int current, int total)
+            {
+                if (total <= 0)
+                {
+                    return;
+                }
+
+                int percent = (int)((current / (double)total) * 100);
+                pew.Dispatcher.Invoke(() =>
+                {
+                    pew.BusyText = $"{phase} {current}/{total} ({percent}%)";
+                    TaskbarHelper.SetProgressState(TaskbarProgressBarState.Normal);
+                    TaskbarHelper.SetProgress(current, total);
+                }, DispatcherPriority.Background);
+            }
+
+            try
+            {
+                pew.IsBusy = true;
+                pew.BusyText = "Preparing memory coverage graph...";
+                TaskbarHelper.SetProgressState(TaskbarProgressBarState.Indeterminate);
+
+                MemoryCoverageAnalysisResult analysis = await Task.Run(() =>
+                    AnalyzeMemoryCoverageGraph(package, isMapPackage, reportProgress));
+
+                if (analysis.EarlyExitMessage is not null)
+                {
+                    MessageBox.Show(pew, analysis.EarlyExitMessage, "Build Package Memory Coverage", MessageBoxButton.OK, analysis.EarlyExitIcon);
+                    return;
+                }
+
+                string topText;
+                if (isMapPackage)
+                {
+                    topText = $"Map package mode (TheWorld.ExtraReferencedObjects).\nTheWorld/PersistentLevel currently covers {analysis.CoveredByWorldPersistent.Count}/{analysis.CandidateExports.Count}.\nMissing: {analysis.Uncovered.Count}\n\nOnly roots that add missing coverage are shown.";
+                }
+                else if (analysis.ExistingReferencer is not null)
+                {
+                    topText = $"Existing ObjectReferencer found.\nCovered now: {analysis.CoveredByExisting.Count}/{analysis.CandidateExports.Count}\nMissing: {analysis.Uncovered.Count}\n\nChecked roots target currently missing coverage.";
+                }
+                else if (analysis.HasWorldPersistentCoverageSource)
+                {
+                    topText = $"No ObjectReferencer found.\nTheWorld/PersistentLevel currently covers {analysis.CoveredByWorldPersistent.Count}/{analysis.CandidateExports.Count}.\nMissing: {analysis.Uncovered.Count}\n\nOnly roots that add missing coverage are shown.";
+                }
+                else
+                {
+                    topText = $"No ObjectReferencer found.\n\nSelect root objects to add.\nThese roots cover {analysis.CandidateExports.Count} non-trash exports total.";
+                }
+
+                var dialog = new ObjectReferencerCoverageDialog(
+                    analysis.RootNodes,
+                    "Build Package Memory Coverage Graph",
+                    topText,
+                    pew,
+                    "Apply Selected Roots");
+                dialog.DoubleClickItemHandler = node =>
+                {
+                    if (node?.Tag is ExportEntry export)
+                    {
+                        pew.GoToNumber(export.UIndex);
+                        pew.Activate();
+                    }
+                };
+
+                pew.IsBusy = false;
+                pew.BusyText = "";
+                TaskbarHelper.SetProgressState(TaskbarProgressBarState.NoProgress);
+
+                if (!ShowObjectReferencerCoverageDialogNonModal(dialog))
+                {
+                    return;
+                }
+
+                List<ExportEntry> selectedRoots = dialog.GetSelectedRoots()
+                    .Select(x => x.Tag as ExportEntry)
+                    .Where(x => x is not null)
+                    .Distinct()
+                    .ToList();
+
+                if (selectedRoots.Count == 0)
+                {
+                    MessageBox.Show(pew,
+                        "No roots were selected. No changes were made.",
+                        "Build Package Memory Coverage", MessageBoxButton.OK, MessageBoxImage.Information);
+                    return;
+                }
+
+                pew.IsBusy = true;
+                pew.BusyText = "Applying selected memory roots...";
+                TaskbarHelper.SetProgressState(TaskbarProgressBarState.Indeterminate);
+
+                if (isMapPackage)
+                {
+                    ExportEntry theWorld = package.FindExport("TheWorld");
+                    if (theWorld is null)
+                    {
+                        MessageBox.Show(pew,
+                            "Could not find TheWorld export, so map memory roots could not be updated.",
+                            "Build Package Memory Coverage", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        return;
+                    }
+
+                    World worldBinary = ObjectBinary.From<World>(theWorld);
+                    List<int> extraRefs = worldBinary.ExtraReferencedObjects?.Where(x => x > 0).Distinct().ToList() ?? [];
+                    HashSet<int> extraRefSet = extraRefs.ToHashSet();
+
+                    List<ExportEntry> rootsToAdd = selectedRoots
+                        .Where(x => !extraRefSet.Contains(x.UIndex))
+                        .ToList();
+
+                    if (rootsToAdd.Count > 0)
+                    {
+                        extraRefs.AddRange(rootsToAdd.Select(x => x.UIndex));
+                        worldBinary.ExtraReferencedObjects = extraRefs.Distinct().ToArray();
+                        theWorld.WriteBinary(worldBinary);
+                    }
+
+                    HashSet<int> finalCoverage = ExpandCoverage(analysis.WorldPersistentSeeds.Concat(selectedRoots.Select(x => x.UIndex)), analysis.Adjacency);
+                    int remainingMissing = analysis.ExportsByUIndex.Keys.Count(x => !finalCoverage.Contains(x));
+
+                    MessageBox.Show(pew,
+                        $"Added {rootsToAdd.Count} root reference(s) to TheWorld.ExtraReferencedObjects.\n" +
+                        $"Covered after update: {finalCoverage.Count}/{analysis.CandidateExports.Count}.\n" +
+                        $"Still uncovered: {remainingMissing}",
+                        "Build Package Memory Coverage", MessageBoxButton.OK,
+                        remainingMissing == 0 ? MessageBoxImage.Information : MessageBoxImage.Warning);
+
+                    pew.GoToNumber(theWorld.UIndex);
+                    return;
+                }
+
+                ExportEntry referencer = analysis.ExistingReferencer ?? package.CreateObjectReferencer();
+                HashSet<int> referencerDirectRefs = GetObjectReferencerDirectReferences(referencer, analysis.ExportsByUIndex.Keys);
+                List<ExportEntry> referencerRootsToAdd = selectedRoots
+                    .Where(x => !referencerDirectRefs.Contains(x.UIndex))
+                    .ToList();
+
+                if (referencerRootsToAdd.Count > 0)
+                {
+                    package.AddObjectsToReferencer(referencerRootsToAdd);
+                }
+
+                HashSet<int> finalDirectRefs = GetObjectReferencerDirectReferences(referencer, analysis.ExportsByUIndex.Keys);
+                finalDirectRefs.UnionWith(selectedRoots.Select(x => x.UIndex));
+                HashSet<int> finalReferencerCoverage = ExpandCoverage(finalDirectRefs, analysis.Adjacency);
+                int referencerRemainingMissing = analysis.ExportsByUIndex.Keys.Count(x => !finalReferencerCoverage.Contains(x));
+
+                MessageBox.Show(pew,
+                    $"Added {referencerRootsToAdd.Count} root reference(s) to ObjectReferencer.\n" +
+                    $"Covered after update: {finalReferencerCoverage.Count}/{analysis.CandidateExports.Count}.\n" +
+                    $"Still uncovered: {referencerRemainingMissing}",
+                    "Build Package Memory Coverage", MessageBoxButton.OK,
+                    referencerRemainingMissing == 0 ? MessageBoxImage.Information : MessageBoxImage.Warning);
+
+                pew.GoToNumber(referencer.UIndex);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(pew,
+                    $"Failed to build memory coverage graph: {ex.Message}",
+                    "Build Package Memory Coverage", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            finally
+            {
+                pew.IsBusy = false;
+                pew.BusyText = "";
+                TaskbarHelper.SetProgressState(TaskbarProgressBarState.NoProgress);
+            }
+        }
+
+        private static bool ShowObjectReferencerCoverageDialogNonModal(ObjectReferencerCoverageDialog dialog)
+        {
+            bool accepted = false;
+            var frame = new DispatcherFrame();
+
+            dialog.Closed += (_, _) =>
+            {
+                accepted = dialog.IsAccepted;
+                frame.Continue = false;
+            };
+
+            dialog.Show();
+            Dispatcher.PushFrame(frame);
+            return accepted;
+        }
+
+        private static MemoryCoverageAnalysisResult AnalyzeMemoryCoverageGraph(IMEPackage package, bool isMapPackage, Action<string, int, int> reportProgress)
+        {
+            ExportEntry existingReferencer = isMapPackage
+                ? null
+                : package.Exports.FirstOrDefault(x => x.ClassName == "ObjectReferencer" && !x.IsDefaultObject && !IsInTrashPackage(x));
+
+            List<ExportEntry> candidateExports = package.Exports
+                .Where(x => (!x.IsDefaultObject
+                             || x.ObjectName == "TheWorld"
+                             || x.InstancedFullPath == "TheWorld.PersistentLevel")
+                            && x.ClassName != "ObjectReferencer"
+                            && !IsInTrashPackage(x))
+                .OrderBy(x => x.InstancedFullPath)
+                .ToList();
+
+            if (candidateExports.Count == 0)
+            {
+                return new MemoryCoverageAnalysisResult
+                {
+                    EarlyExitMessage = "No non-trash exports were found to process."
+                };
+            }
+
+            Dictionary<int, ExportEntry> exportsByUIndex = candidateExports.ToDictionary(x => x.UIndex);
+            reportProgress?.Invoke("Analyzing references:", 0, candidateExports.Count);
+            Dictionary<int, HashSet<int>> adjacency = BuildCoverageAdjacency(package, candidateExports, exportsByUIndex,
+                (done, total) => reportProgress?.Invoke("Analyzing references:", done, total));
+
+            reportProgress?.Invoke("Computing root candidates:", 1, 3);
+            List<List<int>> stronglyConnectedComponents = FindStronglyConnectedComponents(adjacency);
+            Dictionary<int, int> componentByNode = BuildComponentIndex(stronglyConnectedComponents);
+            List<ExportEntry> rootCandidates = GetRootCandidates(stronglyConnectedComponents, componentByNode, adjacency, exportsByUIndex)
+                .OrderBy(x => x.InstancedFullPath)
+                .ToList();
+
+            if (rootCandidates.Count == 0)
+            {
+                return new MemoryCoverageAnalysisResult
+                {
+                    EarlyExitMessage = "No root candidates were found for package memory coverage."
+                };
+            }
+
+            HashSet<int> existingDirectRefs = GetObjectReferencerDirectReferences(existingReferencer, exportsByUIndex.Keys);
+            HashSet<int> coveredByExisting = IncludeCoveredOuters(
+                ExpandCoverage(existingDirectRefs, adjacency),
+                exportsByUIndex);
+
+            HashSet<int> worldPersistentSeeds = GetWorldPersistentCoverageSeeds(package, exportsByUIndex);
+            HashSet<int> mapImplicitSeeds = isMapPackage
+                ? GetMapImplicitCoverageSeeds(exportsByUIndex)
+                : [];
+            bool hasWorldPersistentCoverageSource = worldPersistentSeeds.Count > 0;
+            HashSet<int> coveredByWorldPersistent = hasWorldPersistentCoverageSource
+                ? GetWorldPersistentCoverage(package, worldPersistentSeeds, adjacency, exportsByUIndex.Keys)
+                : [];
+
+            if (isMapPackage && mapImplicitSeeds.Count > 0)
+            {
+                coveredByWorldPersistent.UnionWith(IncludeCoveredOuters(
+                    ExpandCoverage(mapImplicitSeeds, adjacency),
+                    exportsByUIndex));
+            }
+
+            if (hasWorldPersistentCoverageSource)
+            {
+                coveredByWorldPersistent = RefineCoverageWithInboundReferenceScan(
+                    coveredByWorldPersistent,
+                    exportsByUIndex,
+                    GetWorldPersistentSubtreeMembers(exportsByUIndex, mapImplicitSeeds),
+                    (done, total) => reportProgress?.Invoke("Refining missing coverage:", done, total));
+
+                coveredByWorldPersistent = IncludeCoveredOuters(
+                    coveredByWorldPersistent,
+                    exportsByUIndex);
+            }
+
+            HashSet<int> baselineCoverage = isMapPackage
+                ? coveredByWorldPersistent
+                : (existingReferencer is not null
+                    ? coveredByExisting
+                    : (hasWorldPersistentCoverageSource ? coveredByWorldPersistent : []));
+            HashSet<int> uncovered = exportsByUIndex.Keys.Where(idx => !baselineCoverage.Contains(idx)).ToHashSet();
+
+            if (isMapPackage && !hasWorldPersistentCoverageSource)
+            {
+                return new MemoryCoverageAnalysisResult
+                {
+                    EarlyExitMessage = "This package is marked as a map, but TheWorld/PersistentLevel could not be found in the non-trash export graph.",
+                    EarlyExitIcon = MessageBoxImage.Warning
+                };
+            }
+
+            if (hasWorldPersistentCoverageSource && uncovered.Count == 0)
+            {
+                return new MemoryCoverageAnalysisResult
+                {
+                    EarlyExitMessage = isMapPackage
+                        ? "TheWorld/PersistentLevel already references all non-trash exports. No extra memory roots are needed."
+                        : "TheWorld/PersistentLevel already references all non-trash exports. ObjectReferencer is not required for this package."
+                };
+            }
+
+            reportProgress?.Invoke("Building tree view:", 2, 3);
+            var childrenByParent = candidateExports
+                .Where(x => x.idxLink > 0 && exportsByUIndex.ContainsKey(x.idxLink))
+                .GroupBy(x => x.idxLink)
+                .ToDictionary(g => g.Key, g => g.OrderBy(x => x.InstancedFullPath).ToList());
+
+            Dictionary<int, HashSet<int>> rootCoverageMap = [];
+            List<ObjectReferencerCoverageNode> rootNodes = [];
+            foreach (ExportEntry root in rootCandidates)
+            {
+                HashSet<int> coveredByRoot = IncludeCoveredOuters(
+                    ExpandCoverage([root.UIndex], adjacency),
+                    exportsByUIndex);
+                rootCoverageMap[root.UIndex] = coveredByRoot;
+
+                HashSet<int> uncoveredByRoot = coveredByRoot.Where(x => uncovered.Contains(x)).ToHashSet();
+                bool contributesToUncovered = uncoveredByRoot.Count > 0;
+                if (hasWorldPersistentCoverageSource && !contributesToUncovered)
+                {
+                    continue;
+                }
+
+                bool defaultSelected = existingReferencer is null
+                    ? (!hasWorldPersistentCoverageSource || contributesToUncovered)
+                    : contributesToUncovered;
+
+                ObjectReferencerCoverageNode rootNode = BuildCoverageTreeNode(
+                    root,
+                    defaultSelected,
+                    true,
+                    childrenByParent,
+                    rootCoverageMap[root.UIndex].Count,
+                    hasWorldPersistentCoverageSource ? uncoveredByRoot : null);
+                if (rootNode is not null)
+                {
+                    rootNodes.Add(rootNode);
+                }
+            }
+
+            if (rootNodes.Count == 0)
+            {
+                return new MemoryCoverageAnalysisResult
+                {
+                    EarlyExitMessage = "No additional roots are needed. Existing references already cover what this tool can trace."
+                };
+            }
+
+            reportProgress?.Invoke("Finalizing:", 3, 3);
+            return new MemoryCoverageAnalysisResult
+            {
+                ExistingReferencer = existingReferencer,
+                CandidateExports = candidateExports,
+                ExportsByUIndex = exportsByUIndex,
+                Adjacency = adjacency,
+                CoveredByExisting = coveredByExisting,
+                CoveredByWorldPersistent = coveredByWorldPersistent,
+                Uncovered = uncovered,
+                WorldPersistentSeeds = worldPersistentSeeds,
+                HasWorldPersistentCoverageSource = hasWorldPersistentCoverageSource,
+                RootNodes = rootNodes
+            };
+        }
+
+        private static bool IsInTrashPackage(IEntry entry)
+        {
+            IEntry current = entry;
+            while (current is not null)
+            {
+                if (current.ObjectName == UnrealPackageFile.TrashPackageName)
+                {
+                    return true;
+                }
+
+                current = current.Parent;
+            }
+
+            return false;
+        }
+
+        private static HashSet<int> GetWorldPersistentCoverageSeeds(IMEPackage package, Dictionary<int, ExportEntry> exportsByUIndex)
+        {
+            HashSet<int> seeds = [];
+
+            ExportEntry theWorld = package.FindExport("TheWorld");
+            if (theWorld is not null && exportsByUIndex.ContainsKey(theWorld.UIndex))
+            {
+                seeds.Add(theWorld.UIndex);
+            }
+
+            ExportEntry persistentLevel = null;
+            if (theWorld is not null)
+            {
+                persistentLevel = package.Exports.FirstOrDefault(x => x.ClassName == "Level" && x.Parent == theWorld);
+            }
+
+            persistentLevel ??= package.FindExport("TheWorld.PersistentLevel");
+            persistentLevel ??= package.Exports.FirstOrDefault(x => x.ClassName == "Level" && x.ObjectName == "PersistentLevel");
+            if (persistentLevel is not null && exportsByUIndex.ContainsKey(persistentLevel.UIndex))
+            {
+                seeds.Add(persistentLevel.UIndex);
+            }
+
+            return seeds;
+        }
+
+        private static HashSet<int> GetWorldPersistentCoverage(
+            IMEPackage package,
+            HashSet<int> worldPersistentSeeds,
+            Dictionary<int, HashSet<int>> adjacency,
+            IEnumerable<int> allowedUIndexes)
+        {
+            HashSet<int> allowed = allowedUIndexes.ToHashSet();
+            Dictionary<int, ExportEntry> exportsByUIndex = package.Exports
+                .Where(x => allowed.Contains(x.UIndex))
+                .ToDictionary(x => x.UIndex, x => x);
+            HashSet<int> covered = IncludeCoveredOuters(ExpandCoverage(worldPersistentSeeds, adjacency), exportsByUIndex);
+
+            foreach (int seed in worldPersistentSeeds)
+            {
+                if (!package.TryGetUExport(seed, out ExportEntry seedExport))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    covered.UnionWith(package.GetReferencedEntries(startatexport: seedExport));
+                }
+                catch
+                {
+                    // Ignore malformed graphs for this seed.
+                }
+            }
+
+            covered.RemoveWhere(x => x <= 0 || !allowed.Contains(x));
+            return covered;
+        }
+
+        private static HashSet<int> IncludeCoveredOuters(HashSet<int> coverage, Dictionary<int, ExportEntry> exportsByUIndex)
+        {
+            HashSet<int> expanded = coverage.ToHashSet();
+
+            foreach (int uIndex in coverage.ToArray())
+            {
+                if (!exportsByUIndex.TryGetValue(uIndex, out ExportEntry export))
+                {
+                    continue;
+                }
+
+                IEntry parent = export.Parent;
+                while (parent is ExportEntry parentExport)
+                {
+                    if (!exportsByUIndex.ContainsKey(parentExport.UIndex))
+                    {
+                        break;
+                    }
+
+                    expanded.Add(parentExport.UIndex);
+                    parent = parentExport.Parent;
+                }
+            }
+
+            return expanded;
+        }
+
+        private static HashSet<int> RefineCoverageWithInboundReferenceScan(
+            HashSet<int> baselineCoverage,
+            Dictionary<int, ExportEntry> exportsByUIndex,
+            HashSet<int> alwaysCoveredReferrers = null,
+            Action<int, int> progressCallback = null)
+        {
+            HashSet<int> covered = baselineCoverage.ToHashSet();
+            HashSet<int> forcedReferrers = alwaysCoveredReferrers ?? [];
+            List<ExportEntry> unresolved = exportsByUIndex.Values.Where(x => !covered.Contains(x.UIndex)).ToList();
+            int total = unresolved.Count;
+            Dictionary<int, HashSet<int>> inboundByTarget = [];
+
+            for (int i = 0; i < unresolved.Count; i++)
+            {
+                ExportEntry target = unresolved[i];
+                HashSet<int> inboundRefs = [];
+
+                try
+                {
+                    Dictionary<IEntry, List<string>> inbound = target.GetEntriesThatReferenceThisOne();
+                    foreach (ExportEntry inboundExport in inbound.Keys.OfType<ExportEntry>())
+                    {
+                        if (exportsByUIndex.ContainsKey(inboundExport.UIndex))
+                        {
+                            inboundRefs.Add(inboundExport.UIndex);
+                        }
+                    }
+                }
+                catch
+                {
+                    // Ignore individual scan failures.
+                }
+
+                inboundByTarget[target.UIndex] = inboundRefs;
+
+                if (i == total - 1 || i % 25 == 0)
+                {
+                    progressCallback?.Invoke(i + 1, total);
+                }
+            }
+
+            bool changed;
+            do
+            {
+                changed = false;
+                foreach (ExportEntry target in unresolved)
+                {
+                    if (covered.Contains(target.UIndex))
+                    {
+                        continue;
+                    }
+
+                    if (inboundByTarget.TryGetValue(target.UIndex, out HashSet<int> inboundRefs)
+                        && inboundRefs.Any(x => covered.Contains(x) || forcedReferrers.Contains(x)))
+                    {
+                        covered.Add(target.UIndex);
+                        changed = true;
+                    }
+                }
+            } while (changed);
+
+            return covered;
+        }
+
+        private static HashSet<int> GetWorldPersistentSubtreeMembers(Dictionary<int, ExportEntry> exportsByUIndex, HashSet<int> additionalAlwaysCovered = null)
+        {
+            HashSet<int> set = [];
+            foreach ((int uIndex, ExportEntry export) in exportsByUIndex)
+            {
+                string path = export.InstancedFullPath;
+                if (path == "TheWorld"
+                    || path.StartsWith("TheWorld.PersistentLevel.", StringComparison.OrdinalIgnoreCase)
+                    || path.Equals("TheWorld.PersistentLevel", StringComparison.OrdinalIgnoreCase))
+                {
+                    set.Add(uIndex);
+                }
+            }
+
+            if (additionalAlwaysCovered is not null)
+            {
+                set.UnionWith(additionalAlwaysCovered);
+            }
+
+            return set;
+        }
+
+        private static HashSet<int> GetMapImplicitCoverageSeeds(Dictionary<int, ExportEntry> exportsByUIndex)
+        {
+            HashSet<int> seeds = [];
+
+            foreach ((int uIndex, ExportEntry export) in exportsByUIndex)
+            {
+                if (export.ClassName.StartsWith("SFXSeqAct_InitLoadingMovies", StringComparison.OrdinalIgnoreCase))
+                {
+                    seeds.Add(uIndex);
+                }
+            }
+
+            return seeds;
+        }
+
+        private static HashSet<int> GetObjectReferencerDirectReferences(ExportEntry referencer, IEnumerable<int> allowedUIndexes)
+        {
+            if (referencer is null)
+            {
+                return [];
+            }
+
+            HashSet<int> allowed = allowedUIndexes.ToHashSet();
+            var refs = referencer.GetProperty<ArrayProperty<ObjectProperty>>("ReferencedObjects");
+            if (refs is null)
+            {
+                return [];
+            }
+
+            return refs
+                .Select(x => x.Value)
+                .Where(x => x > 0 && allowed.Contains(x))
+                .ToHashSet();
+        }
+
+        private static Dictionary<int, HashSet<int>> BuildCoverageAdjacency(
+            IMEPackage package,
+            List<ExportEntry> exports,
+            Dictionary<int, ExportEntry> exportsByUIndex,
+            Action<int, int> progressCallback = null)
+        {
+            HashSet<int> exportUIndexes = exportsByUIndex.Keys.ToHashSet();
+            Dictionary<int, HashSet<int>> adjacency = exportUIndexes.ToDictionary(x => x, _ => new HashSet<int>());
+
+            Dictionary<int, List<int>> childMap = exports
+                .Where(x => x.idxLink > 0 && exportUIndexes.Contains(x.idxLink))
+                .GroupBy(x => x.idxLink)
+                .ToDictionary(g => g.Key, g => g.Select(x => x.UIndex).ToList());
+
+            int total = exports.Count;
+            for (int i = 0; i < exports.Count; i++)
+            {
+                ExportEntry export = exports[i];
+                if (childMap.TryGetValue(export.UIndex, out List<int> children))
+                {
+                    foreach (int child in children)
+                    {
+                        adjacency[export.UIndex].Add(child);
+                    }
+                }
+
+                try
+                {
+                    foreach (int referencedUIndex in GetDirectReferenceUIndexes(export))
+                    {
+                        if (referencedUIndex != export.UIndex
+                            && exportUIndexes.Contains(referencedUIndex))
+                        {
+                            adjacency[export.UIndex].Add(referencedUIndex);
+                        }
+                    }
+                }
+                catch
+                {
+                    // Skip malformed/unsupported exports during graph generation.
+                }
+
+                if (i == total - 1 || i % 25 == 0)
+                {
+                    progressCallback?.Invoke(i + 1, total);
+                }
+            }
+
+            return adjacency;
+        }
+
+        private static HashSet<int> GetDirectReferenceUIndexes(ExportEntry export)
+        {
+            HashSet<int> references = [];
+
+            byte[] prePropBinary = export.GetPrePropBinary();
+            if (export.HasStack)
+            {
+                if (prePropBinary.Length >= 8)
+                {
+                    references.Add(BitConverter.ToInt32(prePropBinary, 0));
+                    references.Add(BitConverter.ToInt32(prePropBinary, 4));
+                }
+            }
+            else if (export.TemplateOwnerClassIdx is var toci and >= 0)
+            {
+                if (prePropBinary.Length >= toci + 4)
+                {
+                    references.Add(BitConverter.ToInt32(prePropBinary, toci));
+                }
+            }
+
+            if (export.SuperClass != null)
+            {
+                references.Add(export.idxSuperClass);
+            }
+
+            if (export.Archetype != null)
+            {
+                references.Add(export.idxArchetype);
+            }
+
+            if (export.Class != null)
+            {
+                references.Add(export.idxClass);
+            }
+
+            if (export.HasComponentMap)
+            {
+                foreach ((_, int index) in export.ComponentMap)
+                {
+                    references.Add(index + 1);
+                }
+            }
+
+            try
+            {
+                PropertyCollection props = export.GetProperties();
+                foreach (Property prop in props)
+                {
+                    CollectPropertyReferenceUIndexes(prop, references);
+                }
+            }
+            catch
+            {
+                // Ignore malformed properties.
+            }
+
+            try
+            {
+                ObjectBinary bin = ObjectBinary.From(export);
+                if (bin != null)
+                {
+                    foreach (int binRef in bin.GetUIndexes(export.Game))
+                    {
+                        references.Add(binRef);
+                    }
+                }
+            }
+            catch
+            {
+                // Ignore malformed binary.
+            }
+
+            references.RemoveWhere(x => x <= 0);
+            return references;
+        }
+
+        private static void CollectPropertyReferenceUIndexes(Property prop, HashSet<int> references)
+        {
+            switch (prop)
+            {
+                case ObjectProperty op:
+                    references.Add(op.Value);
+                    break;
+                case DelegateProperty dp:
+                    references.Add(dp.Value.ContainingObjectUIndex);
+                    break;
+                case StructProperty sp:
+                    foreach (Property nested in sp.Properties)
+                    {
+                        CollectPropertyReferenceUIndexes(nested, references);
+                    }
+
+                    break;
+                case ArrayProperty<ObjectProperty> aop:
+                    foreach (ObjectProperty objectProperty in aop)
+                    {
+                        references.Add(objectProperty.Value);
+                    }
+
+                    break;
+                case ArrayProperty<StructProperty> asp:
+                    foreach (StructProperty nestedStruct in asp)
+                    {
+                        foreach (Property nested in nestedStruct.Properties)
+                        {
+                            CollectPropertyReferenceUIndexes(nested, references);
+                        }
+                    }
+
+                    break;
+            }
+        }
+
+        private static HashSet<int> ExpandCoverage(IEnumerable<int> seedNodes, Dictionary<int, HashSet<int>> adjacency)
+        {
+            HashSet<int> covered = [];
+            Stack<int> stack = new(seedNodes.Where(adjacency.ContainsKey));
+
+            while (stack.Count > 0)
+            {
+                int current = stack.Pop();
+                if (!covered.Add(current))
+                {
+                    continue;
+                }
+
+                foreach (int child in adjacency[current])
+                {
+                    if (!covered.Contains(child))
+                    {
+                        stack.Push(child);
+                    }
+                }
+            }
+
+            return covered;
+        }
+
+        private static Dictionary<int, int> BuildComponentIndex(List<List<int>> stronglyConnectedComponents)
+        {
+            Dictionary<int, int> componentByNode = [];
+            for (int i = 0; i < stronglyConnectedComponents.Count; i++)
+            {
+                foreach (int node in stronglyConnectedComponents[i])
+                {
+                    componentByNode[node] = i;
+                }
+            }
+
+            return componentByNode;
+        }
+
+        private static List<ExportEntry> GetRootCandidates(
+            List<List<int>> stronglyConnectedComponents,
+            Dictionary<int, int> componentByNode,
+            Dictionary<int, HashSet<int>> adjacency,
+            Dictionary<int, ExportEntry> exportsByUIndex)
+        {
+            int[] incomingCounts = new int[stronglyConnectedComponents.Count];
+            foreach ((int node, HashSet<int> edges) in adjacency)
+            {
+                int fromComponent = componentByNode[node];
+                foreach (int target in edges)
+                {
+                    int toComponent = componentByNode[target];
+                    if (toComponent != fromComponent)
+                    {
+                        incomingCounts[toComponent]++;
+                    }
+                }
+            }
+
+            List<ExportEntry> roots = [];
+            for (int i = 0; i < stronglyConnectedComponents.Count; i++)
+            {
+                if (incomingCounts[i] != 0)
+                {
+                    continue;
+                }
+
+                ExportEntry representative = stronglyConnectedComponents[i]
+                    .Select(x => exportsByUIndex[x])
+                    .OrderBy(GetOuterDepth)
+                    .ThenBy(x => x.InstancedFullPath)
+                    .First();
+                roots.Add(representative);
+            }
+
+            return roots;
+        }
+
+        private static int GetOuterDepth(ExportEntry export)
+        {
+            int depth = 0;
+            IEntry current = export;
+            while (current?.Parent is not null)
+            {
+                depth++;
+                current = current.Parent;
+            }
+
+            return depth;
+        }
+
+        private static List<List<int>> FindStronglyConnectedComponents(Dictionary<int, HashSet<int>> adjacency)
+        {
+            Dictionary<int, int> indexMap = [];
+            Dictionary<int, int> lowMap = [];
+            Stack<int> stack = [];
+            HashSet<int> inStack = [];
+            List<List<int>> components = [];
+            int index = 0;
+
+            void StrongConnect(int v)
+            {
+                indexMap[v] = index;
+                lowMap[v] = index;
+                index++;
+
+                stack.Push(v);
+                inStack.Add(v);
+
+                foreach (int w in adjacency[v])
+                {
+                    if (!indexMap.ContainsKey(w))
+                    {
+                        StrongConnect(w);
+                        lowMap[v] = Math.Min(lowMap[v], lowMap[w]);
+                    }
+                    else if (inStack.Contains(w))
+                    {
+                        lowMap[v] = Math.Min(lowMap[v], indexMap[w]);
+                    }
+                }
+
+                if (lowMap[v] == indexMap[v])
+                {
+                    List<int> component = [];
+                    int w;
+                    do
+                    {
+                        w = stack.Pop();
+                        inStack.Remove(w);
+                        component.Add(w);
+                    } while (w != v);
+
+                    components.Add(component);
+                }
+            }
+
+            foreach (int node in adjacency.Keys)
+            {
+                if (!indexMap.ContainsKey(node))
+                {
+                    StrongConnect(node);
+                }
+            }
+
+            return components;
+        }
+
+        private static ObjectReferencerCoverageNode BuildCoverageTreeNode(
+            ExportEntry export,
+            bool isSelected,
+            bool isRoot,
+            Dictionary<int, List<ExportEntry>> childrenByParent,
+            int coveredCount,
+            HashSet<int> visibleUIndexes = null)
+        {
+            string suffix = isRoot
+                ? (visibleUIndexes is null
+                    ? $"  (covers {coveredCount})"
+                    : $"  (adds {visibleUIndexes.Count} missing)")
+                : string.Empty;
+            var node = new ObjectReferencerCoverageNode
+            {
+                DisplayName = $"[{export.UIndex}] {export.InstancedFullPath} ({export.ClassName}){suffix}",
+                UIndex = export.UIndex,
+                IsRootCandidate = isRoot,
+                Tag = export,
+                IsSelected = isSelected
+            };
+
+            if (!childrenByParent.TryGetValue(export.UIndex, out List<ExportEntry> children))
+            {
+                if (!isRoot && visibleUIndexes is not null && !visibleUIndexes.Contains(export.UIndex))
+                {
+                    return null;
+                }
+
+                return node;
+            }
+
+            foreach (ExportEntry child in children)
+            {
+                ObjectReferencerCoverageNode childNode = BuildCoverageTreeNode(child, isSelected, false, childrenByParent, 0, visibleUIndexes);
+                if (childNode is not null)
+                {
+                    node.Children.Add(childNode);
+                }
+            }
+
+            if (!isRoot && visibleUIndexes is not null && !visibleUIndexes.Contains(export.UIndex) && node.Children.Count == 0)
+            {
+                return null;
+            }
+
+            return node;
+        }
 
         public static void BeccaSquidSelectiveTexturesToTfc(PackageEditorWindow pew)
         {

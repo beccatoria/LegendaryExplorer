@@ -255,6 +255,7 @@
                   IsCheckable="True"
                   StaysOpenOnClick="True"
                   IsChecked="{Binding BeccaCloneRefsForceFullClone, Mode=TwoWay}"/>
+        <MenuItem Header="Build package memory coverage graph (ObjectReferencer/TheWorld)" Click="BuildObjectReferencerCoverageGraph_Click" ToolTip="Builds missing memory roots from top-level coverage roots, excluding ME3ExplorerTrashPackage and descendants. Uses ObjectReferencer for non-map packages and TheWorld.ExtraReferencedObjects for map packages."/>
         <MenuItem Header="Move &amp; Rotate Conversation Scene" Click="MoveAndRotateConversationScene_Click" ToolTip="Select a BioStage, enter its NEW location + yaw, and move/rotate the whole conversation scene (actors, cameras, props and cinematic InterpTrackMoves in the base and _LOC_INT files) as one rigid unit."/>
         <MenuItem Header="Apply Saved Scene Offset to Selected Export" Click="ApplySavedSceneOffsetToSelectedExport_Click" ToolTip="Define (or reuse) an old/new coordinate+yaw offset, then apply it to the currently selected export's Location/Rotation."/>
         <MenuItem Header="Reset Saved Scene Offset" Click="ResetSavedSceneOffset_Click" ToolTip="Clears the currently saved offset used by Apply Saved Scene Offset."/>
