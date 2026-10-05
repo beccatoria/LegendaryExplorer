@@ -941,7 +941,18 @@ namespace LegendaryExplorerCore.Packages
             m.Writer.WriteBytes(prePropBytes);
             props.WriteTo(m.Writer, _fileRef);
             binStart = binStart == -1 ? propsEnd() : binStart; // this allows us to precompute the starting position, which can avoid issues during relink as props may not have resolved yet
-            m.Writer.Write(_data, binStart, _data.Length - binStart);
+            if ((uint)binStart > (uint)_data.Length)
+            {
+                int fallbackStart = propsEnd();
+                binStart = fallbackStart <= _data.Length ? fallbackStart : _data.Length;
+            }
+
+            int binaryLength = _data.Length - binStart;
+            if (binaryLength > 0)
+            {
+                m.Writer.Write(_data, binStart, binaryLength);
+            }
+
             Data = m.ToArray();
         }
 
