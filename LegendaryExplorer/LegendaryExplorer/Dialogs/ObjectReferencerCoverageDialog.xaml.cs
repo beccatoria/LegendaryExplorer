@@ -71,7 +71,7 @@ public partial class ObjectReferencerCoverageDialog : TrackingNotifyPropertyChan
 
     public List<ObjectReferencerCoverageNode> GetSelectedRoots()
     {
-        return RootNodes.Where(x => x.IsRootCandidate && x.IsSelected).ToList();
+        return EnumerateNodes(RootNodes).Where(x => x.IsRootCandidate && x.IsSelected).ToList();
     }
 
     private void OK_Click(object sender, RoutedEventArgs e)
@@ -87,13 +87,20 @@ public partial class ObjectReferencerCoverageDialog : TrackingNotifyPropertyChan
     private void CloseWithResult(bool accepted)
     {
         IsAccepted = accepted;
-        DialogResult = accepted;
+        try
+        {
+            DialogResult = accepted;
+        }
+        catch (InvalidOperationException)
+        {
+            // Non-modal usage does not allow setting DialogResult.
+        }
         Close();
     }
 
     private void SelectAllRoots_Click(object sender, RoutedEventArgs e)
     {
-        foreach (ObjectReferencerCoverageNode root in RootNodes.Where(x => x.IsRootCandidate))
+        foreach (ObjectReferencerCoverageNode root in EnumerateNodes(RootNodes).Where(x => x.IsRootCandidate))
         {
             root.IsSelected = true;
         }
@@ -101,9 +108,21 @@ public partial class ObjectReferencerCoverageDialog : TrackingNotifyPropertyChan
 
     private void SelectNoRoots_Click(object sender, RoutedEventArgs e)
     {
-        foreach (ObjectReferencerCoverageNode root in RootNodes.Where(x => x.IsRootCandidate))
+        foreach (ObjectReferencerCoverageNode root in EnumerateNodes(RootNodes).Where(x => x.IsRootCandidate))
         {
             root.IsSelected = false;
+        }
+    }
+
+    private static IEnumerable<ObjectReferencerCoverageNode> EnumerateNodes(IEnumerable<ObjectReferencerCoverageNode> nodes)
+    {
+        foreach (ObjectReferencerCoverageNode node in nodes)
+        {
+            yield return node;
+            foreach (ObjectReferencerCoverageNode child in EnumerateNodes(node.Children))
+            {
+                yield return child;
+            }
         }
     }
 

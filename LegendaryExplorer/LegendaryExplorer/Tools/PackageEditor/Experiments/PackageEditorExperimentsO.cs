@@ -1220,14 +1220,23 @@ namespace LegendaryExplorer.Tools.PackageEditor.Experiments
                 }
 
                 ExportEntry referencer = analysis.ExistingReferencer ?? package.CreateObjectReferencer();
-                HashSet<int> referencerDirectRefs = GetObjectReferencerDirectReferences(referencer, analysis.ExportsByUIndex.Keys);
+                var refs = referencer.GetProperty<ArrayProperty<ObjectProperty>>("ReferencedObjects")
+                           ?? new ArrayProperty<ObjectProperty>("ReferencedObjects");
+
+                HashSet<int> referencerDirectRefs = refs.Values
+                    .Select(x => x.Value)
+                    .Where(x => x > 0)
+                    .ToHashSet();
+
                 List<ExportEntry> referencerRootsToAdd = selectedRoots
                     .Where(x => !referencerDirectRefs.Contains(x.UIndex))
                     .ToList();
 
                 if (referencerRootsToAdd.Count > 0)
                 {
-                    package.AddObjectsToReferencer(referencerRootsToAdd);
+                    refs.AddRange(referencerRootsToAdd.Select(x => new ObjectProperty(x)));
+                    refs.Values = refs.Values.Distinct().ToList();
+                    referencer.WriteProperty(refs);
                 }
 
                 HashSet<int> finalDirectRefs = GetObjectReferencerDirectReferences(referencer, analysis.ExportsByUIndex.Keys);
@@ -1284,6 +1293,8 @@ namespace LegendaryExplorer.Tools.PackageEditor.Experiments
                 .Where(x => (!x.IsDefaultObject
                              || x.ObjectName == "TheWorld"
                              || x.InstancedFullPath == "TheWorld.PersistentLevel")
+                            && x.ClassName != "Package"
+                            && x.ClassName != "ShaderCache"
                             && x.ClassName != "ObjectReferencer"
                             && !IsInTrashPackage(x))
                 .OrderBy(x => x.InstancedFullPath)
@@ -1378,38 +1389,66 @@ namespace LegendaryExplorer.Tools.PackageEditor.Experiments
             }
 
             reportProgress?.Invoke("Building tree view:", 2, 3);
-            var childrenByParent = candidateExports
-                .Where(x => x.idxLink > 0 && exportsByUIndex.ContainsKey(x.idxLink))
+            List<ExportEntry> displayExports = package.Exports
+                .Where(x => !x.IsDefaultObject
+                            && x.ClassName != "ObjectReferencer"
+                            && !IsInTrashPackage(x))
+                .OrderBy(x => x.InstancedFullPath)
+                .ToList();
+
+            Dictionary<int, ExportEntry> displayExportsByUIndex = displayExports.ToDictionary(x => x.UIndex);
+
+            var childrenByParent = displayExports
+                .Where(x => x.idxLink > 0 && displayExportsByUIndex.ContainsKey(x.idxLink))
                 .GroupBy(x => x.idxLink)
                 .ToDictionary(g => g.Key, g => g.OrderBy(x => x.InstancedFullPath).ToList());
 
-            Dictionary<int, HashSet<int>> rootCoverageMap = [];
-            List<ObjectReferencerCoverageNode> rootNodes = [];
-            foreach (ExportEntry root in rootCandidates)
+            Dictionary<int, ExportEntry> selectableRootsByUIndex = uncovered
+                .Where(exportsByUIndex.ContainsKey)
+                .Select(idx => exportsByUIndex[idx])
+                .Where(x => x.ClassName != "Package")
+                .ToDictionary(x => x.UIndex);
+
+            Dictionary<int, List<ExportEntry>> rootCandidatesByParent = rootCandidates
+                .Where(x => x.idxLink > 0 && displayExportsByUIndex.ContainsKey(x.idxLink))
+                .GroupBy(x => x.idxLink)
+                .ToDictionary(g => g.Key, g => g.ToList());
+
+            HashSet<int> visibleTreeUIndexes = [];
+            foreach (ExportEntry missingExport in selectableRootsByUIndex.Values)
             {
-                HashSet<int> coveredByRoot = IncludeCoveredOuters(
-                    ExpandCoverage([root.UIndex], adjacency),
-                    exportsByUIndex);
-                rootCoverageMap[root.UIndex] = coveredByRoot;
+                visibleTreeUIndexes.Add(missingExport.UIndex);
 
-                HashSet<int> uncoveredByRoot = coveredByRoot.Where(x => uncovered.Contains(x)).ToHashSet();
-                bool contributesToUncovered = uncoveredByRoot.Count > 0;
-                if (hasWorldPersistentCoverageSource && !contributesToUncovered)
+                int parentUIndex = missingExport.idxLink;
+                while (parentUIndex > 0 && displayExportsByUIndex.TryGetValue(parentUIndex, out ExportEntry parentExport))
                 {
-                    continue;
+                    if (!visibleTreeUIndexes.Add(parentExport.UIndex))
+                    {
+                        break;
+                    }
+
+                    parentUIndex = parentExport.idxLink;
                 }
+            }
 
-                bool defaultSelected = existingReferencer is null
-                    ? (!hasWorldPersistentCoverageSource || contributesToUncovered)
-                    : contributesToUncovered;
+            List<ExportEntry> displayRootExports = visibleTreeUIndexes
+                .Select(uIndex => displayExportsByUIndex[uIndex])
+                .Where(x => x.idxLink <= 0 || !visibleTreeUIndexes.Contains(x.idxLink))
+                .OrderBy(x => x.InstancedFullPath)
+                .ToList();
 
+            List<ObjectReferencerCoverageNode> rootNodes = [];
+            foreach (ExportEntry displayRoot in displayRootExports)
+            {
                 ObjectReferencerCoverageNode rootNode = BuildCoverageTreeNode(
-                    root,
-                    defaultSelected,
+                    displayRoot,
+                    true,
                     true,
                     childrenByParent,
-                    rootCoverageMap[root.UIndex].Count,
-                    hasWorldPersistentCoverageSource ? uncoveredByRoot : null);
+                    0,
+                    visibleTreeUIndexes,
+                    selectableRootsByUIndex,
+                    rootCandidatesByParent);
                 if (rootNode is not null)
                 {
                     rootNodes.Add(rootNode);
@@ -1674,6 +1713,7 @@ namespace LegendaryExplorer.Tools.PackageEditor.Experiments
 
             Dictionary<int, List<int>> childMap = exports
                 .Where(x => x.idxLink > 0 && exportUIndexes.Contains(x.idxLink))
+                .Where(x => !exportsByUIndex.TryGetValue(x.idxLink, out ExportEntry parentExport) || parentExport.ClassName != "Package")
                 .GroupBy(x => x.idxLink)
                 .ToDictionary(g => g.Key, g => g.Select(x => x.UIndex).ToList());
 
@@ -1982,20 +2022,47 @@ namespace LegendaryExplorer.Tools.PackageEditor.Experiments
             bool isRoot,
             Dictionary<int, List<ExportEntry>> childrenByParent,
             int coveredCount,
-            HashSet<int> visibleUIndexes = null)
+            HashSet<int> visibleUIndexes = null,
+            Dictionary<int, ExportEntry> selectableRootsByUIndex = null,
+            Dictionary<int, List<ExportEntry>> rootCandidatesByParent = null)
         {
+            bool isSelectableRoot = selectableRootsByUIndex?.ContainsKey(export.UIndex) ?? false;
+            bool isPackageFolder = export.ClassName == "Package";
+            bool isDisplayOnlyFolder = isPackageFolder && !isSelectableRoot;
+
+            int addsMissingCount = 0;
+            if (visibleUIndexes is not null && isSelectableRoot)
+            {
+                addsMissingCount = visibleUIndexes.Count;
+            }
+            else if (visibleUIndexes is not null && isDisplayOnlyFolder && rootCandidatesByParent is not null
+                     && rootCandidatesByParent.TryGetValue(export.UIndex, out List<ExportEntry> folderRoots))
+            {
+                HashSet<int> folderVisible = [];
+                foreach (ExportEntry folderRoot in folderRoots)
+                {
+                    if (visibleUIndexes.Contains(folderRoot.UIndex))
+                    {
+                        folderVisible.Add(folderRoot.UIndex);
+                    }
+                }
+
+                addsMissingCount = folderVisible.Count;
+            }
+
             string suffix = isRoot
                 ? (visibleUIndexes is null
                     ? $"  (covers {coveredCount})"
-                    : $"  (adds {visibleUIndexes.Count} missing)")
+                    : $"  (adds {addsMissingCount} missing)")
                 : string.Empty;
+
             var node = new ObjectReferencerCoverageNode
             {
                 DisplayName = $"[{export.UIndex}] {export.InstancedFullPath} ({export.ClassName}){suffix}",
                 UIndex = export.UIndex,
-                IsRootCandidate = isRoot,
+                IsRootCandidate = isSelectableRoot,
                 Tag = export,
-                IsSelected = isSelected
+                IsSelected = isSelectableRoot && isSelected
             };
 
             if (!childrenByParent.TryGetValue(export.UIndex, out List<ExportEntry> children))
@@ -2010,7 +2077,15 @@ namespace LegendaryExplorer.Tools.PackageEditor.Experiments
 
             foreach (ExportEntry child in children)
             {
-                ObjectReferencerCoverageNode childNode = BuildCoverageTreeNode(child, isSelected, false, childrenByParent, 0, visibleUIndexes);
+                ObjectReferencerCoverageNode childNode = BuildCoverageTreeNode(
+                    child,
+                    isSelected,
+                    false,
+                    childrenByParent,
+                    0,
+                    visibleUIndexes,
+                    selectableRootsByUIndex,
+                    rootCandidatesByParent);
                 if (childNode is not null)
                 {
                     node.Children.Add(childNode);
