@@ -627,6 +627,8 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         Vector3 cameraPosition = RenderContext.Camera.Position;
         bool isOrthographicCamera = RenderContext.Camera.IsOrthographic;
         bool baseWireframe = RenderContext.Wireframe;
+        HashSet<ActorProxy> viewportSelectedActors =
+            MeshExportsList?.SelectedItems.OfType<ActorProxy>().ToHashSet() ?? [];
         for (int i = 0; i < RenderContext.DrawList_3D.Count; i++)
         {
             ActorProxy actor = RenderContext.DrawList_3D[i];
@@ -699,7 +701,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
 
             int hitID = actor.HitID;
             RenderContext.CurrentHitTestId = new Vector3((hitID & 0xFF) / 255f, ((hitID >> 8) & 0xFF) / 255f, ((hitID >> 16) & 0xFF) / 255f);
-            if (actor == selectedActor)
+            if (ReferenceEquals(actor, selectedActor) || viewportSelectedActors.Contains(actor))
             {
                 RenderContext.RenderFlags |= LevelEditorRenderContext.ShaderFlags.Selected;
             }

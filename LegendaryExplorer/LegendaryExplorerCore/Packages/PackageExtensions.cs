@@ -1141,7 +1141,7 @@ namespace LegendaryExplorerCore.Packages
         /// Properties originating in the export's own package are not filtered.
         /// </remarks>
         public static PropertyCollection GetCondensedProperties(this ExportEntry export, PackageCache packageCache = null,
-            bool resolveImports = false, bool mergeStructs = false)
+            bool resolveImports = false, bool mergeStructs = false, bool filterForeignObjectReferences = true)
         {
             var properties = export.GetProperties(packageCache: packageCache);
             //guard against circular archetype references, which are invalid but can occur in broken packages
@@ -1175,7 +1175,7 @@ namespace LegendaryExplorerCore.Packages
                     Property existing = target.GetProp<Property>(prop.Name, prop.StaticArrayIndex);
                     if (existing is null)
                     {
-                        Property inherited = foreignPackage ? FilterForeignProperty(prop) : prop;
+                        Property inherited = foreignPackage && filterForeignObjectReferences ? FilterForeignProperty(prop) : prop;
                         if (inherited is not null)
                         {
                             target.Add(inherited);

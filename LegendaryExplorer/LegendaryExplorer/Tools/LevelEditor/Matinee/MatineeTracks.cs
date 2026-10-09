@@ -31,7 +31,7 @@ public class SeqAct_Interp
     {
         Export = export;
         InterpData = interpData;
-        var props = export.GetCondensedProperties();
+        var props = export.GetCondensedProperties(filterForeignObjectReferences: false);
         var varLinks = KismetHelper.GetVariableLinks(props, export.FileRef);
         if (varLinks.Count > 0)
         {
@@ -175,7 +175,7 @@ public partial class InterpGroup
             OnPropertyChanged(nameof(HasResolvedActor));
             return;
         }
-        var props = Export.GetCondensedProperties();
+        var props = Export.GetCondensedProperties(filterForeignObjectReferences: false);
         ESFXFindByTagTypes findActorMode = props.GetProp<EnumProperty>("m_eSFXFindActorMode").GetEnumValOrDefault(ESFXFindByTagTypes.FindActorByTag);
         switch (findActorMode)
         {
@@ -301,7 +301,7 @@ public partial class InterpTrack
 
     public virtual void PrepMatinee()
     {
-        Props = Export.GetCondensedProperties();
+        Props = Export.GetCondensedProperties(filterForeignObjectReferences: false);
         ActiveCondition = Props.GetProp<EnumProperty>("ActiveCondition").GetEnumValOrDefault(ETrackActiveCondition.ETAC_Always);
     }
 }

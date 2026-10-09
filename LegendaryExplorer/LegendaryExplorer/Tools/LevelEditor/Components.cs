@@ -75,7 +75,7 @@ public class PrimitiveComponentProxy : NotifyPropertyChangedBase, IDisposable
     {
         Actor = parent;
         Export = componentExport;
-        Properties = componentExport.GetCondensedProperties();
+        Properties = componentExport.GetCondensedProperties(filterForeignObjectReferences: false);
 
         var rotationProp = Properties.GetProp<StructProperty>("Rotation");
         var translationProp = Properties.GetProp<StructProperty>("Translation");

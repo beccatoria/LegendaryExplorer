@@ -331,7 +331,7 @@ public class ActorProxy : NotifyPropertyChangedBase, IDisposable, IHitProxy
     {
         Editor = context;
         Export = actorExport;
-        Properties = actorExport.GetCondensedProperties();
+        Properties = actorExport.GetCondensedProperties(filterForeignObjectReferences: false);
         PropertyCollection props = Properties;
 
         props.ReadProp(ref Tag);
@@ -2060,17 +2060,17 @@ public class IconActorProxy : ActorProxy
     {
         if (Properties.GetProp<ObjectProperty>("CaptureComponent2D")?.ResolveToExport(Pcc, Editor?.PackageCache) is { } captureComponent2D)
         {
-            return captureComponent2D.GetCondensedProperties();
+            return captureComponent2D.GetCondensedProperties(filterForeignObjectReferences: false);
         }
 
         if (Properties.GetProp<ObjectProperty>("SceneCapture")?.ResolveToExport(Pcc, Editor?.PackageCache) is { } sceneCaptureComponent)
         {
-            return sceneCaptureComponent.GetCondensedProperties();
+            return sceneCaptureComponent.GetCondensedProperties(filterForeignObjectReferences: false);
         }
 
         if (Properties.GetProp<ObjectProperty>("SceneCaptureComponent")?.ResolveToExport(Pcc, Editor?.PackageCache) is { } sceneCaptureComponent2)
         {
-            return sceneCaptureComponent2.GetCondensedProperties();
+            return sceneCaptureComponent2.GetCondensedProperties(filterForeignObjectReferences: false);
         }
 
         if (Properties.GetProp<ArrayProperty<ObjectProperty>>("Components") is { } components)
@@ -2080,7 +2080,7 @@ public class IconActorProxy : ActorProxy
                 if (entry is ExportEntry cmpExport
                     && cmpExport.ClassName.Contains("SceneCapture2D", StringComparison.OrdinalIgnoreCase))
                 {
-                    return cmpExport.GetCondensedProperties();
+                    return cmpExport.GetCondensedProperties(filterForeignObjectReferences: false);
                 }
             }
         }
