@@ -47,6 +47,12 @@
 		<WarningsNotAsErrors>$(WarningsNotAsErrors);NU1901;NU1902;NU1903;NU1904</WarningsNotAsErrors>
 	</PropertyGroup>
 
+	<!-- D3D11 validation is expensive even in Debug builds. Opt in when diagnosing graphics issues:
+	     dotnet build -c WinDebug -p:EnableD3D11DebugLayer=true -->
+	<PropertyGroup Condition="'$(EnableD3D11DebugLayer)' == 'true'">
+		<DefineConstants>$(DefineConstants);D3D11_DEBUG</DefineConstants>
+	</PropertyGroup>
+
 	<ItemGroup>
 		<None Remove="Resources\HLSL.xshd" />
 		<None Remove="Resources\Images\bink.jpg" />
