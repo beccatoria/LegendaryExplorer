@@ -10,7 +10,20 @@ namespace LegendaryExplorer.UserControls.ExportLoaderControls;
 
 public partial class ActorPreviewControl : ExportLoaderControl, IActorEditorContext
 {
-    public LevelEditorRenderContext RenderContext { get; } = new();
+    public LevelEditorRenderContext RenderContext { get; } = new(readOnly: true)
+    {
+        LightingMode = ViewportLightingMode.Preview,
+        ShowLights = true,
+        ShowVolumes = true,
+        ShowVolumetrics = true,
+        ShowEmitters = true,
+        ShowLocationActors = true,
+        ShowSoundPositions = true,
+        ShowCinematicActors = true,
+        ShowDecalActors = true,
+        ShowStageNodes = true,
+        ShowStageCameras = true
+    };
     public bool IsApplyingUndoRedo => false;
 
     private ActorProxy _actor;
@@ -84,12 +97,7 @@ public partial class ActorPreviewControl : ExportLoaderControl, IActorEditorCont
 
     private void OnRenderScene(object sender, EventArgs e)
     {
-        Span<RenderPass> passes = ShowCollision
-            ? [RenderPass.Base, RenderPass.Hair, RenderPass.Collision]
-            : [RenderPass.Base, RenderPass.Hair];
-        foreach (RenderPass pass in passes)
-            _actor?.Render(RenderContext, pass);
-        RenderContext.DrawUI();
+        ActorPreviewRenderPipeline.Render(RenderContext, _actor is null ? [] : [_actor], ShowCollision);
     }
 
     public override bool CanParse(ExportEntry exportEntry) =>
@@ -138,6 +146,7 @@ public partial class ActorPreviewControl : ExportLoaderControl, IActorEditorCont
             _actor = null;
         }
         RenderContext.EmptyCaches();
+        RenderContext.ClearLights();
         CurrentLoadedExport = null;
     }
 

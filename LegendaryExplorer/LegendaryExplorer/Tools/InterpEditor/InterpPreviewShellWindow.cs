@@ -32,6 +32,7 @@ public class InterpPreviewShellWindow : NotifyPropertyChangedWindowBase, IActorE
     private bool _isClosing;
     private bool _allowClose;
     private readonly InterpPreviewLauncherRequestTracker _launcherRequestTracker;
+    private readonly PreviewLevelLightRegistry _levelLights;
 
     public LevelEditorRenderContext RenderContext { get; }
     public bool IsApplyingUndoRedo => false;
@@ -56,6 +57,7 @@ public class InterpPreviewShellWindow : NotifyPropertyChangedWindowBase, IActorE
         {
             ShowLights = true,
             ShowVolumes = true,
+            ShowVolumetrics = true,
             ShowEmitters = true,
             ShowLocationActors = true,
             ShowSoundPositions = true,
@@ -65,6 +67,7 @@ public class InterpPreviewShellWindow : NotifyPropertyChangedWindowBase, IActorE
             ShowStageCameras = true
         };
 
+        _levelLights = new PreviewLevelLightRegistry(RenderContext);
         _sceneViewer = new SceneRenderControl { Context = RenderContext };
         IInterpPreviewDispatcher dispatcher = new InterpPreviewWpfDispatcher(Dispatcher);
         IInterpPreviewSession session = new InterpPreviewSession();
@@ -517,6 +520,7 @@ public class InterpPreviewShellWindow : NotifyPropertyChangedWindowBase, IActorE
         }
 
         RenderContext.LoadActors(operationResult.AddedActors.ToList());
+        _levelLights.Synchronize(RenderContext.DrawList_3D.Select(actor => actor.Export.FileRef));
         DisposeRetiredResources(operationResult.RetiredResources);
         _sceneViewer.SetShouldRender(true);
 
@@ -596,6 +600,7 @@ public class InterpPreviewShellWindow : NotifyPropertyChangedWindowBase, IActorE
 
     private void CloseLevels()
     {
+        _levelLights.Clear();
         _runtime.UnloadAllLevels(RenderContext);
     }
 

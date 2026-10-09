@@ -221,7 +221,7 @@ public class ActorProxy : NotifyPropertyChangedBase, IDisposable, IHitProxy
     protected LightComponentProxy LightEditorComponent { get; set; }
     public bool SupportsLightProperties => LightEditorComponent is not null;
     public virtual bool IsVolume => false;
-    public bool IsVolumetricMesh { get; protected set; }
+    public bool IsVolumetricMesh => Components.OfType<MeshComponentProxy>().Any(component => component.IsVolumetric);
     public bool IsEmitter { get; protected set; }
     public bool IsStartPoint { get; protected set; }
     public bool IsTargetPoint { get; protected set; }
@@ -309,6 +309,9 @@ public class ActorProxy : NotifyPropertyChangedBase, IDisposable, IHitProxy
         }
     }
 
+    public bool IsHidden { get; }
+    public ActorProxy VisibilityOwner { get; internal set; }
+
     public TransformSnapshot SnapshotTransform() => new(location, rotation, drawScale, drawScale3D);
 
     public void RestoreTransform(TransformSnapshot snapshot)
@@ -335,6 +338,8 @@ public class ActorProxy : NotifyPropertyChangedBase, IDisposable, IHitProxy
         PropertyCollection props = Properties;
 
         props.ReadProp(ref Tag);
+
+        IsHidden = props.GetProp<BoolProperty>("bHidden")?.Value ?? false;
 
         DisplayText = Export.ObjectName.Instanced;
         if (!Tag.Name.CaseInsensitiveEquals(Export.ClassName))
@@ -741,7 +746,6 @@ public class StaticMeshActorProxy : ActorProxy
     public StaticMeshActorProxy(IActorEditorContext context, ExportEntry actorExport) : base(context, actorExport)
     {
         AddComponent(context.RenderContext, ref StaticMeshComponent);
-        IsVolumetricMesh = StaticMeshComponent.IsVolumetric;
     }
 }
 
@@ -789,7 +793,6 @@ public class DynamicSMActorProxy : ActorProxy
     public DynamicSMActorProxy(IActorEditorContext context, ExportEntry actorExport) : base(context, actorExport)
     {
         AddComponent(context.RenderContext, ref StaticMeshComponent);
-        IsVolumetricMesh = StaticMeshComponent.IsVolumetric;
     }
 }
 
@@ -1622,7 +1625,6 @@ public class StaticMeshComponentActorProxy : CollectionActorComponentProxy
     {
         var staticMeshComponentProxy = PrimitiveComponentProxy.Create(context.RenderContext, smcExport, this);
         Components.Add(staticMeshComponentProxy);
-        IsVolumetricMesh = (staticMeshComponentProxy as StaticMeshComponentProxy)?.IsVolumetric ?? false;
     }
 }
 
@@ -1678,6 +1680,7 @@ public class PrefabInstanceProxy : ActorProxy
                     && Create(context, prefabActor) is ActorProxy prefabActorProxy)
                 {
                     prefabActorProxy.Editor = null; // prevent IsDirty being marked
+                    prefabActorProxy.VisibilityOwner = this;
 
                     var actorRelative = ActorUtils.ComposeLocalToWorld(prefabActorProxy.Location, prefabActorProxy.Rotation, Vector3.One);
                     (prefabActorProxy.Location, _, prefabActorProxy.Rotation) = (actorRelative * LocalToWorld).UnrealDecompose();
@@ -1701,14 +1704,7 @@ public class PrefabInstanceProxy : ActorProxy
         foreach (var actor in Actors)
         {
             actor.HitID = HitID;
-            if (actor.IsLight && !context.ShowLights) continue;
-            if (actor.IsVolume && !context.ShowVolumes) continue;
-            if (actor.IsVolumetricMesh && !context.ShowVolumetrics) continue;
-            if (actor.IsEmitter && !context.ShowEmitters) continue;
-            if (actor.IsLocationActor && !context.ShowLocationActors) continue;
-            if (actor.IsAmbientSound && !context.ShowSoundPositions) continue;
-            if (actor.IsCinematicActor && !context.ShowCinematicActors) continue;
-            if (actor.IsDecalActor && !context.ShowDecalActors) continue;
+            if (!context.IsActorVisible(actor)) continue;
             actor.Render(context, pass);
         }
     }

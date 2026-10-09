@@ -7,6 +7,8 @@ using System.Numerics;
 
 namespace LegendaryExplorer.Tools.LevelEditor.Scene3D;
 
+public readonly record struct CameraViewSnapshot(Vector3 Position, float Pitch, float Yaw, float FocusDepth);
+
 public class SceneCamera
 {
     private Vector3 position = Vector3.Zero;
@@ -54,6 +56,28 @@ public class SceneCamera
     private Vector3 savedPerspectivePosition;
     private float savedPitch, savedYaw, savedFocusDepth;
     private bool hasSavedPerspectiveState;
+
+    public CameraViewSnapshot CaptureView() => new(Position, Pitch, Yaw, FocusDepth);
+
+    public CameraViewSnapshot? SavedPerspectiveView => hasSavedPerspectiveState
+        ? new CameraViewSnapshot(savedPerspectivePosition, savedPitch, savedYaw, savedFocusDepth) : null;
+
+    public void ApplyView(CameraViewSnapshot view)
+    {
+        FocusDepth = view.FocusDepth;
+        Position = view.Position;
+        Pitch = view.Pitch;
+        Yaw = view.Yaw;
+    }
+
+    public void SetSavedPerspectiveView(CameraViewSnapshot view)
+    {
+        savedPerspectivePosition = view.Position;
+        savedPitch = view.Pitch;
+        savedYaw = view.Yaw;
+        savedFocusDepth = view.FocusDepth;
+        hasSavedPerspectiveState = true;
+    }
 
     public void SavePerspectiveState()
     {
@@ -122,6 +146,11 @@ public class SceneCamera
         }
     }
 
+    /// <summary>
+    /// The world-space position the scene is viewed from. In orbit mode, <see cref="Position"/> is the point being orbited, not the camera's location.
+    /// </summary>
+    public Vector3 EyePosition => FirstPerson || IsOrthographic ? Position : Position - CameraForward * FocusDepth;
+
     public SceneCamera()
     {
         CalcViewMatrix();
@@ -170,15 +199,30 @@ public class SceneCamera
         firstPersonViewMatrix = Matrix4x4.CreateLookToLeftHanded(Position, CameraForward, Vector3.UnitZ);
     }
 
+    /// <summary>
+    /// Left-handed projection with reversed depth: the near plane maps to a depth of 1, and the far plane to 0.
+    /// Combined with a floating-point depth buffer, this keeps precision roughly even over the whole range, which prevents z-fighting in large levels.
+    /// Depth tests must use Greater instead of Less, and the depth buffer must be cleared to 0.
+    /// </summary>
     public Matrix4x4 ProjectionMatrix
     {
         get
         {
+            float depthRange = ZFar - ZNear;
             if (IsOrthographic)
             {
-                return Matrix4x4.CreateOrthographicLeftHanded(OrthoWidth, OrthoWidth / aspect, ZNear, ZFar);
+                return new Matrix4x4(
+                    2f / OrthoWidth, 0, 0, 0,
+                    0, 2f / (OrthoWidth / aspect), 0, 0,
+                    0, 0, -1f / depthRange, 0,
+                    0, 0, ZFar / depthRange, 1);
             }
-            return Matrix4x4.CreatePerspectiveFieldOfViewLeftHanded(FOV, aspect, ZNear, ZFar);
+            float yScale = 1f / MathF.Tan(FOV * 0.5f);
+            return new Matrix4x4(
+                yScale / aspect, 0, 0, 0,
+                0, yScale, 0, 0,
+                0, 0, -ZNear / depthRange, 1,
+                0, 0, ZNear * ZFar / depthRange, 0);
         }
     }
 

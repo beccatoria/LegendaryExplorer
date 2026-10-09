@@ -65,7 +65,14 @@ public class RecentViewState
     public float CameraYaw { get; set; }
     public float CameraPitch { get; set; }
     public float CameraOrthoWidth { get; set; }
+    public float CameraFocusDepth { get; set; }
+    public CameraViewSnapshot? PerspectiveCamera { get; set; }
     public bool IsOrthographicView { get; set; }
+    public bool UseGameShaders { get; set; } = true;
+    public ViewportLightingMode LightingMode { get; set; } = ViewportLightingMode.Level;
+    public bool UseDynamicLighting { get; set; } = true;
+    public bool UseLightMaps { get; set; } = true;
+    public bool UseLocalCoordsForWidget { get; set; } = true;
 
     public ObjectRenderMode ObjectRenderMode { get; set; } = ObjectRenderMode.Full;
     public bool UseVisibleSetOnly { get; set; }
@@ -78,6 +85,8 @@ public class RecentViewState
     public int LightRenderDistance { get; set; } = 1000;
     public bool ShowVolumes { get; set; }
     public bool ShowVolumetrics { get; set; }
+    public bool OutlineSelectedVolumetrics { get; set; } = true;
+    public bool TintVolumetricPreview { get; set; }
     public bool ShowEmitters { get; set; }
     public bool ShowLocationActors { get; set; }
     public bool ShowSoundPositions { get; set; }
@@ -88,6 +97,31 @@ public class RecentViewState
     public bool ShowCollision { get; set; }
     public bool TurboCameraMovementEnabled { get; set; }
     public int TurboCameraMovementMultiplier { get; set; } = 10;
+
+    public void CaptureCamera(SceneCamera camera)
+    {
+        CameraX = camera.Position.X;
+        CameraY = camera.Position.Y;
+        CameraZ = camera.Position.Z;
+        CameraYaw = camera.Yaw;
+        CameraPitch = camera.Pitch;
+        CameraFocusDepth = camera.FocusDepth;
+        CameraOrthoWidth = camera.OrthoWidth;
+        IsOrthographicView = camera.IsOrthographic;
+        PerspectiveCamera = camera.IsOrthographic ? camera.SavedPerspectiveView : null;
+    }
+
+    public void RestoreCamera(SceneCamera camera)
+    {
+        var view = new CameraViewSnapshot(new Vector3(CameraX, CameraY, CameraZ), CameraPitch, CameraYaw, CameraFocusDepth);
+        camera.IsOrthographic = IsOrthographicView;
+        camera.ApplyView(view);
+        if (IsOrthographicView)
+        {
+            camera.OrthoWidth = float.IsFinite(CameraOrthoWidth) && CameraOrthoWidth > 0 ? CameraOrthoWidth : 5000f;
+            camera.SetSavedPerspectiveView(PerspectiveCamera ?? view);
+        }
+    }
 }
 
 public enum ObjectRenderMode
@@ -273,13 +307,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
     public bool ShowLights
     {
         get => _showLights;
-        set
-        {
-            if (SetProperty(ref _showLights, value))
-            {
-                SyncCategoryWithVisibleSetWhenActive(value, actor => actor.IsLight);
-            }
-        }
+        set => SetProperty(ref _showLights, value);
     }
 
     private bool _showStageNodes = true;
@@ -327,6 +355,20 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
                 SyncCategoryWithVisibleSetWhenActive(value, actor => actor.IsVolumetricMesh);
             }
         }
+    }
+
+    private bool _tintVolumetricPreview;
+    public bool TintVolumetricPreview
+    {
+        get => _tintVolumetricPreview;
+        set => SetProperty(ref _tintVolumetricPreview, value);
+    }
+
+    private bool _outlineSelectedVolumetrics = true;
+    public bool OutlineSelectedVolumetrics
+    {
+        get => _outlineSelectedVolumetrics;
+        set => SetProperty(ref _outlineSelectedVolumetrics, value);
     }
 
     private bool _showEmitters;
@@ -471,9 +513,13 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         }
     }
 
-    private readonly HashSet<string> _visibleActorSet = [];
-    private readonly HashSet<string> _explicitlyHiddenVisibleSetClasses = [];
-    private bool _hasUserEditedVisibleSets;
+    private HashSet<string> _visibleActorSet => RenderContext.Visibility.VisibleActorKeys;
+    private HashSet<string> _explicitlyHiddenVisibleSetClasses => RenderContext.Visibility.HiddenActorClasses;
+    private bool _hasUserEditedVisibleSets
+    {
+        get => RenderContext.Visibility.HasUserEditedVisibleSets;
+        set => RenderContext.Visibility.HasUserEditedVisibleSets = value;
+    }
     private bool _suppressDisplayFilterVisibleSetSync;
 
     private bool _useVisibleSetOnly;
@@ -545,14 +591,80 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
 
     public ObservableCollectionExtended<RecentFileSet> RecentSets { get; } = [];
 
+    public bool UseGameShaders
+    {
+        get => RenderContext.UseGameShaders;
+        set
+        {
+            if (RenderContext.UseGameShaders == value) return;
+            RenderContext.UseGameShaders = value;
+            OnPropertyChanged();
+            if (value) PrepareLevelShaders();
+        }
+    }
+
+    public ViewportLightingMode LightingMode
+    {
+        get => RenderContext.LightingMode;
+        set
+        {
+            if (RenderContext.LightingMode == value) return;
+            RenderContext.LightingMode = value;
+            OnPropertyChanged();
+            PrepareLevelShaders();
+        }
+    }
+
+    public bool UseDynamicLighting
+    {
+        get => RenderContext.UseDynamicLighting;
+        set
+        {
+            if (RenderContext.UseDynamicLighting == value) return;
+            RenderContext.UseDynamicLighting = value;
+            OnPropertyChanged();
+            PrepareLevelShaders();
+        }
+    }
+
+    public bool UseLightMaps
+    {
+        get => RenderContext.UseLightMaps;
+        set
+        {
+            if (RenderContext.UseLightMaps == value) return;
+            RenderContext.UseLightMaps = value;
+            OnPropertyChanged();
+            PrepareLevelShaders();
+        }
+    }
+
+    private bool _groupActorsByCategory;
+    public bool GroupActorsByCategory
+    {
+        get => _groupActorsByCategory;
+        set
+        {
+            if (!SetProperty(ref _groupActorsByCategory, value)) return;
+            using (ActorsView.DeferRefresh())
+            {
+                ActorsView.GroupDescriptions.Clear();
+                ActorsView.GroupDescriptions.Add(new PropertyGroupDescription(nameof(ActorProxy.OwningFile)));
+                if (value) ActorsView.GroupDescriptions.Add(new PropertyGroupDescription(null, new ActorCategoryConverter()));
+            }
+        }
+    }
+
     private static string RecentSetsFile => Path.Combine(
         Directory.CreateDirectory(Path.Combine(AppDirectories.AppDataFolder, "LevelEditor")).FullName,
         "RECENTSETS");
 
     public LevelEditor()
     {
-        RenderContext = new LevelEditorRenderContext();
+        RenderContext = new LevelEditorRenderContext { UseGameShaders = true };
         RenderContext.TransformWidget.OnDragComplete = OnWidgetDragComplete;
+        RenderContext.TransformWidget.OnDragStart = OnWidgetDragStart;
+        RenderContext.TransformWidget.OnDragUpdate = OnWidgetDragUpdate;
         ActorsView = CollectionViewSource.GetDefaultView(Actors);
         ActorsView.Filter = ActorFilter;
         ActorsView.GroupDescriptions.Add(new PropertyGroupDescription(nameof(ActorProxy.OwningFile)));
@@ -609,88 +721,56 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         RenderContext.ShowDecalActors = ShowDecalActors;
         RenderContext.ShowStageNodes = ShowStageNodes;
         RenderContext.ShowStageCameras = ShowStageCameras;
+        RenderContext.UseVisibleSetOnly = UseVisibleSetOnly || ObjectRenderMode is ObjectRenderMode.VisibleSetOnly;
+        RenderContext.HideOrdinaryMeshes = ObjectRenderMode is ObjectRenderMode.Hidden;
+        RenderContext.VisibleSetDistance = VisibleSetDistance;
+        RenderContext.LightRenderDistance = LightRenderDistance;
+        foreach (var actor in Actors.Where(actor => actor.IsLight))
+        {
+            foreach (var component in actor.Components.OfType<LightComponentProxy>())
+            {
+                var file = actor.OwningFile;
+                int index = file?.Lights.FindIndex(light => ReferenceEquals(light.Export, component.Export)) ?? -1;
+                if (index < 0) continue;
+                var preview = component.GetPreviewLight(RenderContext.PackageCache, file.Lights[index]);
+                if (preview is null || ReferenceEquals(file.Lights[index], preview)) continue;
+                RenderContext.ReplaceLight(file.Lights[index], preview);
+                file.Lights[index] = preview;
+            }
+        }
+        RenderContext.RefreshLightVisibility();
         Span<RenderPass> passes = ShowCollision
-            ? [RenderPass.Base, RenderPass.Hair, RenderPass.Collision]
-            : [RenderPass.Base, RenderPass.Hair];
+            ? [RenderPass.Base, RenderPass.Hair, RenderPass.Lighting, RenderPass.Translucent, RenderPass.Collision]
+            : [RenderPass.Base, RenderPass.Hair, RenderPass.Lighting, RenderPass.Translucent];
 
         foreach (RenderPass pass in passes)
         {
+            if (pass is RenderPass.Translucent)
+            {
+                RenderContext.BeginTranslucentPass();
+            }
             DoRenderPass(pass);
+            if (pass is RenderPass.Lighting)
+            {
+                RenderContext.EndLightingPass();
+            }
         }
 
         RenderContext.DrawUI();
     }
     void DoRenderPass(RenderPass pass)
     {
-        float lightRenderDistanceSq = LightRenderDistance * LightRenderDistance;
-        float visibleSetDistanceSq = (float)VisibleSetDistance * VisibleSetDistance;
-        Vector3 cameraPosition = RenderContext.Camera.Position;
-        bool isOrthographicCamera = RenderContext.Camera.IsOrthographic;
         bool baseWireframe = RenderContext.Wireframe;
-        HashSet<ActorProxy> viewportSelectedActors =
-            MeshExportsList?.SelectedItems.OfType<ActorProxy>().ToHashSet() ?? [];
         for (int i = 0; i < RenderContext.DrawList_3D.Count; i++)
         {
             ActorProxy actor = RenderContext.DrawList_3D[i];
-            Vector3 actorDeltaFromCamera = actor.Location - cameraPosition;
-            float actorVisibleSetDistanceSq = isOrthographicCamera
-                ? (actorDeltaFromCamera.X * actorDeltaFromCamera.X) + (actorDeltaFromCamera.Y * actorDeltaFromCamera.Y)
-                : Vector3.Dot(actorDeltaFromCamera, actorDeltaFromCamera);
-            if (actor.IsLight && !ShowLights) continue;
-            if (actor.IsLight && Vector3.DistanceSquared(actor.Location, cameraPosition) > lightRenderDistanceSq) continue;
-            if (actor.IsVolume && !ShowVolumes) continue;
-            if (actor.IsVolumetricMesh && !ShowVolumetrics) continue;
-            if (actor.IsEmitter && !ShowEmitters) continue;
-            if (actor.IsLocationActor && !ShowLocationActors) continue;
-            if (actor.IsAmbientSound && !ShowSoundPositions) continue;
-            if (actor.IsCinematicActor && !ShowCinematicActors) continue;
-            if (actor.IsDecalActor && !ShowDecalActors) continue;
-            if ((UseVisibleSetOnly || ObjectRenderMode is ObjectRenderMode.VisibleSetOnly)
-                && pass is RenderPass.Base or RenderPass.Hair
-                && !actor.IsVolumetricMesh
-                && (!_visibleActorSet.Contains(GetActorVisibilityKey(actor))
-                    || actorVisibleSetDistanceSq > visibleSetDistanceSq))
-            {
-                continue;
-            }
-            if ((UseVisibleSetOnly || ObjectRenderMode is ObjectRenderMode.VisibleSetOnly)
-                && pass is RenderPass.Base or RenderPass.Hair
-                && actor.IsVolumetricMesh
-                && (!_visibleActorSet.Contains(GetActorVisibilityKey(actor))
-                    || actorVisibleSetDistanceSq > visibleSetDistanceSq))
-            {
-                continue;
-            }
-            if ((UseVisibleSetOnly || ObjectRenderMode is ObjectRenderMode.VisibleSetOnly)
-                && pass is RenderPass.Collision
-                && !actor.IsVolumetricMesh
-                && actorVisibleSetDistanceSq > visibleSetDistanceSq)
-            {
-                continue;
-            }
-            if (ObjectRenderMode is ObjectRenderMode.Hidden
-                && pass is RenderPass.Base or RenderPass.Hair
-                && !actor.IsVolume
-                && !actor.IsVolumetricMesh
-                && !actor.IsLight
-                && !actor.IsEmitter
-                && !actor.IsLocationActor
-                && !actor.IsAmbientSound
-                && !actor.IsCinematicActor
-                && !actor.IsDecalActor)
-            {
-                continue;
-            }
-            if ((UseVisibleSetOnly || ObjectRenderMode is ObjectRenderMode.VisibleSetOnly)
-                && pass is RenderPass.Base or RenderPass.Hair
-                && actor.IsAmbientSound
-                && actorVisibleSetDistanceSq > visibleSetDistanceSq)
+            if (!RenderContext.IsActorVisible(actor))
             {
                 continue;
             }
 
             bool forceWireframeForActor = ObjectRenderMode is ObjectRenderMode.Wireframe
-                                          && pass is RenderPass.Base or RenderPass.Hair
+                                          && pass is RenderPass.Base or RenderPass.Hair or RenderPass.Lighting or RenderPass.Translucent
                                           && !actor.IsVolume
                                           && !actor.IsVolumetricMesh;
             bool targetWireframeState = baseWireframe || forceWireframeForActor;
@@ -701,12 +781,27 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
 
             int hitID = actor.HitID;
             RenderContext.CurrentHitTestId = new Vector3((hitID & 0xFF) / 255f, ((hitID >> 8) & 0xFF) / 255f, ((hitID >> 16) & 0xFF) / 255f);
-            if (ReferenceEquals(actor, selectedActor) || viewportSelectedActors.Contains(actor))
+            if (RenderContext.Selection.IsSelected(GetActorVisibilityKey(actor)))
             {
                 RenderContext.RenderFlags |= LevelEditorRenderContext.ShaderFlags.Selected;
             }
             actor.Render(RenderContext, pass);
+            if (pass is RenderPass.Translucent && TintVolumetricPreview)
+            {
+                foreach (var component in actor.Components.OfType<MeshComponentProxy>())
+                {
+                    component.DrawVolumetricTint(RenderContext);
+                }
+            }
             RenderContext.RenderFlags &= ~LevelEditorRenderContext.ShaderFlags.Selected;
+            if (pass is RenderPass.Base && OutlineSelectedVolumetrics
+                && RenderContext.Selection.IsSelected(GetActorVisibilityKey(actor)))
+            {
+                foreach (var component in actor.Components.OfType<MeshComponentProxy>())
+                {
+                    component.DrawVolumetricEditingOutline(RenderContext);
+                }
+            }
         }
 
         if (RenderContext.Wireframe != baseWireframe)
@@ -851,6 +946,8 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
             OnPropertyChanged(nameof(HasBioStageMarkers));
             OnPropertyChanged(nameof(IsBioStageActorSelected));
         }
+
+        SynchronizeViewportSelection();
     }
 
     private void CenterView()
@@ -958,7 +1055,12 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         IsBusy = true;
         BusyText = $"Loading {Path.GetFileName(path)}...";
 
-        var (actors, ignoredClasses) = await Task.Run(() => LoadActors(levelBin, openFile)).ConfigureAwait(true);
+        var (actors, ignoredClasses) = await Task.Run(() =>
+        {
+            var result = LoadActors(levelBin, openFile);
+            PrepareLevelShaders();
+            return result;
+        }).ConfigureAwait(true);
         var sorted = actors.OrderBy(actor => actor.Export.UIndex).ToList();
         openFile.Actors.AddRange(sorted);
         Actors.AddRange(sorted);
@@ -1043,6 +1145,9 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
             RenderContext.RemoveActor(actor);
             actor.Dispose();
         }
+        RenderContext.RemoveLights(file.Lights);
+        file.Lights.Clear();
+        RenderContext.ForgetLevel(file.Package);
         ReevaluateActiveGroup();
 
         file.Dispose();
@@ -1140,7 +1245,30 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         {
             actor.ResolveAttachment(actors);
         }
+        RefreshLevelLights(level, owningFile);
+        RenderContext.SetLevelModel(level.Export.FileRef, level.Model);
         return new(actors, ignoredActorClasses);
+    }
+
+    private void RefreshLevelLights(Level level, OpenLevelFile file)
+    {
+        var lights = SceneLight.LoadLevelLights(level, RenderContext.PackageCache);
+        RenderContext.RemoveLights(file.Lights);
+        file.Lights = lights;
+        RenderContext.AddLights(lights);
+    }
+
+    private void PrepareLevelShaders()
+    {
+        if (!RenderContext.UseGameShaders) return;
+        try
+        {
+            RenderContext.LoadPendingGameShaders(prepareLevelLighting: true);
+        }
+        catch (Exception e)
+        {
+            System.Diagnostics.Debug.WriteLine($"Failed to prepare level shaders; affected materials will use fallback rendering: {e}");
+        }
     }
 
     public void RemoveActor(ActorProxy actor)
@@ -1471,6 +1599,14 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
     {
         _groupableSelectionCount = GetGroupableSelectedActors().Count;
         OnPropertyChanged(nameof(CanGroupSelectedActors));
+        SynchronizeViewportSelection();
+    }
+
+    private void SynchronizeViewportSelection()
+    {
+        IEnumerable<string> selectedKeys = MeshExportsList?.SelectedItems.OfType<ActorProxy>().Select(GetActorVisibilityKey)
+            ?? Enumerable.Empty<string>();
+        RenderContext.Selection.SetSelection(selectedKeys, selectedActor is null ? null : GetActorVisibilityKey(selectedActor));
     }
 
     private void InvalidateSelectionCommands()
@@ -1501,6 +1637,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         _suppressSelectionFocus = true;
         SelectedActor = lead;
         RenderContext.TransformWidget.Attach = lead;
+        SynchronizeViewportSelection();
     }
 
     private void UngroupActors()
@@ -1534,18 +1671,22 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         SelectedActor = ActiveTransformGroup.LeadActor;
         MeshExportsList.ScrollIntoView(ActiveTransformGroup.LeadActor);
         RenderContext.TransformWidget.Attach = ActiveTransformGroup.LeadActor;
+        UpdateGroupableSelectionCount();
         CommandManager.InvalidateRequerySuggested();
     }
 
     private void ReevaluateActiveGroup()
     {
+        UndoHistory.RebindActors(Actors);
         if (ActiveTransformGroup is null)
         {
             return;
         }
 
         List<ActorProxy> validMembers = ActiveTransformGroup.Members
-            .Where(actor => actor is not null && !actor.IsReadOnly && Actors.Contains(actor))
+            .Where(actor => actor is not null)
+            .Select(actor => Actors.FirstOrDefault(candidate => string.Equals(GetActorVisibilityKey(candidate), GetActorVisibilityKey(actor), StringComparison.OrdinalIgnoreCase)))
+            .Where(actor => actor is not null && !actor.IsReadOnly)
             .Distinct()
             .ToList();
 
@@ -1555,7 +1696,8 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
             return;
         }
 
-        ActorProxy lead = ActiveTransformGroup.LeadActor;
+        ActorProxy lead = validMembers.FirstOrDefault(actor => string.Equals(GetActorVisibilityKey(actor),
+            GetActorVisibilityKey(ActiveTransformGroup.LeadActor), StringComparison.OrdinalIgnoreCase));
         if (!validMembers.Contains(lead))
         {
             lead = SelectedActor is not null && validMembers.Contains(SelectedActor)
@@ -1575,28 +1717,6 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         }
     }
 
-    private static float ApplyScaleDelta(float memberValue, float leadBefore, float leadAfter)
-    {
-        if (leadBefore != 0f)
-        {
-            float factor = leadAfter / leadBefore;
-            if (!float.IsNaN(factor) && !float.IsInfinity(factor))
-            {
-                return memberValue * factor;
-            }
-        }
-
-        return memberValue + (leadAfter - leadBefore);
-    }
-
-    private static Vector3 ApplyScaleDelta(Vector3 memberValue, Vector3 leadBefore, Vector3 leadAfter)
-    {
-        return new Vector3(
-            ApplyScaleDelta(memberValue.X, leadBefore.X, leadAfter.X),
-            ApplyScaleDelta(memberValue.Y, leadBefore.Y, leadAfter.Y),
-            ApplyScaleDelta(memberValue.Z, leadBefore.Z, leadAfter.Z));
-    }
-
     private bool TryApplyGroupedLeadTransformEdit(ActorProxy actor, TransformSnapshot before, TransformSnapshot after, string description)
     {
         if (ActiveTransformGroup is null
@@ -1606,88 +1726,17 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
             return false;
         }
 
-        bool locationChanged = before.Location != after.Location;
-        bool rotationChanged = before.Rotation != after.Rotation;
-        bool drawScaleChanged = before.DrawScale != after.DrawScale;
-        bool drawScale3DChanged = before.DrawScale3D != after.DrawScale3D;
-
-        Vector3 locationDelta = after.Location - before.Location;
-        Matrix4x4 rotationDeltaMatrix = Matrix4x4.Identity;
-        if (rotationChanged)
-        {
-            Matrix4x4 beforeRotationMatrix = before.Rotation.ToRotationMatrix();
-            Matrix4x4 afterRotationMatrix = after.Rotation.ToRotationMatrix();
-            if (Matrix4x4.Invert(beforeRotationMatrix, out Matrix4x4 beforeRotationInverse))
-            {
-                rotationDeltaMatrix = beforeRotationInverse * afterRotationMatrix;
-            }
-        }
-
-        var entries = new List<(ActorProxy Actor, TransformSnapshot Before, TransformSnapshot After)>
-        {
-            (actor, before, after)
-        };
-
         try
         {
             _isApplyingGroupMove = true;
-            foreach (var member in ActiveTransformGroup.Members)
-            {
-                if (ReferenceEquals(member, actor)
-                    || member is null
-                    || member.IsReadOnly
-                    || !Actors.Contains(member))
-                {
-                    continue;
-                }
-
-                TransformSnapshot memberBefore = member.SnapshotTransform();
-                if (locationChanged || rotationChanged)
-                {
-                    Vector3 memberLocation = memberBefore.Location;
-                    if (rotationChanged)
-                    {
-                        Vector3 relativeToLead = memberBefore.Location - before.Location;
-                        memberLocation = before.Location + Vector3.Transform(relativeToLead, rotationDeltaMatrix);
-                    }
-
-                    if (locationChanged)
-                    {
-                        memberLocation += locationDelta;
-                    }
-
-                    member.Location = memberLocation;
-                }
-
-                if (rotationChanged)
-                {
-                    Matrix4x4 memberRotationMatrix = memberBefore.Rotation.ToRotationMatrix();
-                    member.Rotation = (memberRotationMatrix * rotationDeltaMatrix).GetRotator();
-                }
-
-                if (drawScaleChanged)
-                {
-                    member.DrawScale = ApplyScaleDelta(memberBefore.DrawScale, before.DrawScale, after.DrawScale);
-                }
-
-                if (drawScale3DChanged)
-                {
-                    member.DrawScale3D = ApplyScaleDelta(memberBefore.DrawScale3D, before.DrawScale3D, after.DrawScale3D);
-                }
-
-                TransformSnapshot memberAfter = member.SnapshotTransform();
-                if (!memberBefore.Equals(memberAfter))
-                {
-                    entries.Add((member, memberBefore, memberAfter));
-                }
-            }
+            UndoHistory.Push(GroupTransformEdit.Apply(actor, ActiveTransformGroup.Members,
+                Actors.Contains, before, after, description));
         }
         finally
         {
             _isApplyingGroupMove = false;
         }
 
-        UndoHistory.Push(new TransformBatchAction(entries, description));
         _preEditSnapshot = after;
         return true;
     }
@@ -1696,7 +1745,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
 
     private static string GetActorVisibilityKey(ActorProxy actor)
     {
-        return $"{actor.Export.FileRef.FilePath}|{actor.Export.UIndex}";
+        return EditorVisibilityState.GetActorKey(actor.Export.FileRef.FilePath, actor.Export.UIndex);
     }
 
     private static bool IsMeshFilterCandidate(ActorProxy actor)
@@ -1770,7 +1819,6 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         _suppressDisplayFilterVisibleSetSync = true;
         try
         {
-            ShowLights = Actors.Any(a => a.IsLight && IsVisible(a));
             ShowVolumes = Actors.Any(a => a.IsVolume && IsVisible(a));
             ShowVolumetrics = Actors.Any(a => a.IsVolumetricMesh && IsVisible(a));
             ShowEmitters = Actors.Any(a => a.IsEmitter && IsVisible(a));
@@ -1943,9 +1991,12 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         AddActorsToVisibleSet(Actors.Where(IsVisibleSetCandidate));
     }
 
+    private static string GetVisibleSetGroup(ActorProxy actor) =>
+        actor.IsVolumetricMesh ? "Volumetric meshes" : actor.Export.ClassName;
+
     private void OpenVisibleSetsManager()
     {
-        List<string> allClasses = Actors.Select(a => a.Export.ClassName)
+        List<string> allClasses = Actors.Select(GetVisibleSetGroup)
             .Where(c => !string.IsNullOrWhiteSpace(c))
             .Distinct()
             .OrderBy(c => c)
@@ -1962,18 +2013,18 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
 
         HashSet<string> currentlyVisibleClasses = Actors
             .Where(actor => _visibleActorSet.Contains(GetActorVisibilityKey(actor)))
-            .Select(actor => actor.Export.ClassName)
+            .Select(GetVisibleSetGroup)
             .Where(c => !string.IsNullOrWhiteSpace(c))
             .ToHashSet();
 
         HashSet<string> explicitlyHiddenActorKeys = Actors
-            .Where(actor => currentlyVisibleClasses.Contains(actor.Export.ClassName)
+            .Where(actor => currentlyVisibleClasses.Contains(GetVisibleSetGroup(actor))
                             && !_visibleActorSet.Contains(GetActorVisibilityKey(actor)))
             .Select(GetActorVisibilityKey)
             .ToHashSet();
 
         HashSet<string> explicitlyVisibleActorKeys = Actors
-            .Where(actor => !currentlyVisibleClasses.Contains(actor.Export.ClassName)
+            .Where(actor => !currentlyVisibleClasses.Contains(GetVisibleSetGroup(actor))
                             && _visibleActorSet.Contains(GetActorVisibilityKey(actor)))
             .Select(GetActorVisibilityKey)
             .ToHashSet();
@@ -1991,7 +2042,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         foreach (ActorProxy actor in Actors)
         {
             string key = GetActorVisibilityKey(actor);
-            if (desiredVisibleClasses.Contains(actor.Export.ClassName))
+            if (desiredVisibleClasses.Contains(GetVisibleSetGroup(actor)))
             {
                 _visibleActorSet.Add(key);
             }
@@ -2006,7 +2057,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
             foreach (ActorProxy actor in Actors)
             {
                 string key = GetActorVisibilityKey(actor);
-                bool classIsVisible = desiredVisibleClasses.Contains(actor.Export.ClassName);
+                bool classIsVisible = desiredVisibleClasses.Contains(GetVisibleSetGroup(actor));
                 if (classIsVisible && explicitlyHiddenActorKeys.Contains(key))
                 {
                     _visibleActorSet.Remove(key);
@@ -2438,6 +2489,12 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
             {
                 SortActorsByFileOrderThenUIndex();
                 UpdateGlobalDirtyState();
+                ReevaluateActiveGroup();
+            }
+            if (updatedExports.Count > 0)
+            {
+                RefreshLevelLights(file.LevelExport.GetBinaryData<Level>(), file);
+                PrepareLevelShaders();
             }
             if (reselectUIndex is not 0)
             {
@@ -2475,15 +2532,19 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
             RenderContext.RemoveActor(actor);
             actor.Dispose();
         }
-        ReevaluateActiveGroup();
         file.Actors.Clear();
+        RenderContext.RemoveLights(file.Lights);
+        file.Lights.Clear();
+        RenderContext.ForgetLevel(file.Package);
 
         Level levelBin = file.LevelExport.GetBinaryData<Level>();
         var (actors, _) = LoadActors(levelBin, file);
+        PrepareLevelShaders();
         var sorted = actors.OrderBy(a => a.Export.UIndex).ToList();
         file.Actors.AddRange(sorted);
         Actors.AddRange(sorted);
         RenderContext.LoadActors(sorted);
+        ReevaluateActiveGroup();
 
         _visibleActorSet.ExceptWith(existingFileActorKeys);
         foreach (var actor in sorted)
@@ -2544,12 +2605,32 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         }
     }
 
+    private GroupTransformDrag _groupTransformDrag;
+
+    private void OnWidgetDragStart(ActorProxy actor)
+    {
+        _groupTransformDrag = ActiveTransformGroup is not null && ActiveTransformGroup.Members.Contains(actor)
+            && !actor.IsReadOnly && Actors.Contains(actor)
+            ? new GroupTransformDrag(actor, ActiveTransformGroup.Members, Actors.Contains)
+            : null;
+    }
+
+    private void OnWidgetDragUpdate(ActorProxy actor, TransformSnapshot before, TransformSnapshot after)
+    {
+        _groupTransformDrag?.Update(after, "Drag group");
+    }
+
     private void OnWidgetDragComplete(ActorProxy actor, TransformSnapshot before, TransformSnapshot after)
     {
+        var groupDrag = _groupTransformDrag;
+        _groupTransformDrag = null;
+        var groupAction = groupDrag?.Update(after, $"Drag group ({ActiveTransformGroup?.Name ?? "Group"})");
         if (before.Equals(after)) return;
 
-        if (TryApplyGroupedLeadTransformEdit(actor, before, after, $"Drag group ({ActiveTransformGroup?.Name ?? "Lead"})"))
+        if (groupAction is not null)
         {
+            UndoHistory.Push(groupAction);
+            _preEditSnapshot = after;
             return;
         }
 
@@ -3063,6 +3144,8 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
             if (sets is null) return;
             foreach (var set in sets)
             {
+                if (set is null) continue;
+                set.FilePaths ??= [];
                 set.FilePaths.RemoveAll(p => !File.Exists(p));
                 set.ReadOnlyFilePaths ??= [];
                 if (set.ViewState is not null)
@@ -3092,7 +3175,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         for (int i = 0; i < RecentSets.Count; i++)
         {
             var existing = RecentSets[i].FilePaths;
-            if (existing.Count > 0 && existing[0] == currentPaths[0])
+            if (existing.Count > 0 && string.Equals(existing[0], currentPaths[0], StringComparison.OrdinalIgnoreCase))
             {
                 RecentSets.RemoveAt(i);
             }
@@ -3124,8 +3207,8 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
             if (File.Exists(path))
             {
                 await AddLevelFile(path).ConfigureAwait(true);
-                var openFile = OpenFiles.LastOrDefault(f => f.FilePath == path);
-                if (openFile is not null && set.ReadOnlyFilePaths.Contains(path))
+                var openFile = OpenFiles.LastOrDefault(f => string.Equals(f.FilePath, path, StringComparison.OrdinalIgnoreCase));
+                if (openFile is not null && set.ReadOnlyFilePaths.Contains(path, StringComparer.OrdinalIgnoreCase))
                     openFile.IsReadOnly = true;
             }
         }
@@ -3142,7 +3225,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         }
 
         var currentPaths = OpenFiles.Select(f => f.FilePath).ToList();
-        var existing = RecentSets.FirstOrDefault(set => set.FilePaths.Count > 0 && set.FilePaths[0] == currentPaths[0]);
+        var existing = RecentSets.FirstOrDefault(set => set.FilePaths.Count > 0 && string.Equals(set.FilePaths[0], currentPaths[0], StringComparison.OrdinalIgnoreCase));
         if (existing is null)
         {
             RecordCurrentFilesAsRecent();
@@ -3158,16 +3241,13 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
 
     private RecentViewState CaptureCurrentViewState()
     {
-        Vector3 cameraPosition = RenderContext.Camera.Position;
-        return new RecentViewState
+        var state = new RecentViewState
         {
-            CameraX = cameraPosition.X,
-            CameraY = cameraPosition.Y,
-            CameraZ = cameraPosition.Z,
-            CameraYaw = RenderContext.Camera.Yaw,
-            CameraPitch = RenderContext.Camera.Pitch,
-            CameraOrthoWidth = RenderContext.Camera.OrthoWidth,
-            IsOrthographicView = IsOrthographicView,
+            UseGameShaders = UseGameShaders,
+            LightingMode = LightingMode,
+            UseDynamicLighting = UseDynamicLighting,
+            UseLightMaps = UseLightMaps,
+            UseLocalCoordsForWidget = UseLocalCoordsForWidget,
             ObjectRenderMode = ObjectRenderMode,
             UseVisibleSetOnly = UseVisibleSetOnly,
             HasUserEditedVisibleSets = _hasUserEditedVisibleSets,
@@ -3178,6 +3258,8 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
             LightRenderDistance = LightRenderDistance,
             ShowVolumes = ShowVolumes,
             ShowVolumetrics = ShowVolumetrics,
+            OutlineSelectedVolumetrics = OutlineSelectedVolumetrics,
+            TintVolumetricPreview = TintVolumetricPreview,
             ShowEmitters = ShowEmitters,
             ShowLocationActors = ShowLocationActors,
             ShowSoundPositions = ShowSoundPositions,
@@ -3189,6 +3271,8 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
             TurboCameraMovementEnabled = TurboCameraMovementEnabled,
             TurboCameraMovementMultiplier = TurboCameraMovementMultiplier
         };
+        state.CaptureCamera(RenderContext.Camera);
+        return state;
     }
 
     private void ApplyViewState(RecentViewState viewState)
@@ -3198,10 +3282,17 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
             return;
         }
 
+        UseGameShaders = viewState.UseGameShaders;
+        LightingMode = viewState.LightingMode;
+        UseDynamicLighting = viewState.UseDynamicLighting;
+        UseLightMaps = viewState.UseLightMaps;
+        UseLocalCoordsForWidget = viewState.UseLocalCoordsForWidget;
         ShowLights = viewState.ShowLights;
         LightRenderDistance = viewState.LightRenderDistance;
         ShowVolumes = viewState.ShowVolumes;
         ShowVolumetrics = viewState.ShowVolumetrics;
+        OutlineSelectedVolumetrics = viewState.OutlineSelectedVolumetrics;
+        TintVolumetricPreview = viewState.TintVolumetricPreview;
         ShowEmitters = viewState.ShowEmitters;
         ShowLocationActors = viewState.ShowLocationActors;
         ShowSoundPositions = viewState.ShowSoundPositions;
@@ -3221,7 +3312,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
             _explicitlyHiddenVisibleSetClasses.UnionWith(viewState.HiddenActorClasses);
         }
         _visibleActorSet.Clear();
-        if (viewState.VisibleActorKeys.Count > 0)
+        if (viewState.VisibleActorKeys is { Count: > 0 })
         {
             _visibleActorSet.UnionWith(viewState.VisibleActorKeys);
         }
@@ -3251,13 +3342,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         UseVisibleSetOnly = viewState.UseVisibleSetOnly;
 
         IsOrthographicView = viewState.IsOrthographicView;
-        RenderContext.Camera.Position = new Vector3(viewState.CameraX, viewState.CameraY, viewState.CameraZ);
-        RenderContext.Camera.Yaw = viewState.CameraYaw;
-        RenderContext.Camera.Pitch = viewState.CameraPitch;
-        if (viewState.IsOrthographicView)
-        {
-            RenderContext.Camera.OrthoWidth = viewState.CameraOrthoWidth;
-        }
+        viewState.RestoreCamera(RenderContext.Camera);
     }
 
     private void RefreshRecentsMenu()

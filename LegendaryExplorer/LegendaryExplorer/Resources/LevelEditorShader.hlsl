@@ -90,12 +90,18 @@ VS_OUT VSMainLEVertex(VS_IN_LEVERTEX input) {
 
 //level editor flags
 #define FLAG_UNLIT (1 << 28)
+#define FLAG_VOLUMETRIC_TINT (1 << 27)
 #define FLAG_WIREFRAME (1 << 29)
 #define FLAG_SELECTED (1 << 30)
 #define FLAG_PRIMITIVE (1 << 31)
 
 PS_OUT PSMain(PS_IN input) {
 	PS_OUT result = (PS_OUT)0;
+    if ((Flags & FLAG_VOLUMETRIC_TINT) != 0) {
+        result.color = float4(0.08, 0.55, 0.75, 0.18);
+        result.hitTestID = float4(HitTestID, 1.0);
+        return result;
+    }
 
 	// just color everything white
 	//result.color = float4(1.0, 1.0, 1.0, 1.0);
@@ -137,7 +143,6 @@ PS_OUT PSMain(PS_IN input) {
 	
     if ((Flags & FLAG_SELECTED) == FLAG_SELECTED)
     {
-        result.color.b *= 2;
         if ((Flags & FLAG_WIREFRAME) == FLAG_WIREFRAME)
         {
             result.color.rgba = float4(1.0, 1.0, 0, 1.0);
@@ -145,7 +150,7 @@ PS_OUT PSMain(PS_IN input) {
     }
 	
 	//the second render target is used for hit testing (clicking)
-    result.hitTestID = float4(HitTestID, 1.0f);
+    result.hitTestID = float4(HitTestID, (Flags & FLAG_SELECTED) != 0 ? 0.0f : 1.0f);
 	
 	//ignore all that, and use vertex info
     if ((Flags & FLAG_PRIMITIVE) == FLAG_PRIMITIVE)
@@ -219,6 +224,9 @@ PS_OUT_RESOLVE PSMainResolve(float4 pos : SV_POSITION) {
             const float WhitePoint = 1 / 0.0616082214;
             color = FilmicCurve(clamp(color, 0, WhitePoint)) / FilmicCurve(WhitePoint);
         }
+        if (LOAD_SAMPLE(ResolveHitTest, pixel, i).a < 0.5) {
+            color = lerp(saturate(color), float3(0.04, 0.25, 1.0), 0.45);
+        }
         sum += saturate(color);
     }
     result.color = float4(pow(sum / MSAA_SAMPLES, 1 / GAMMA), 1);
@@ -241,8 +249,8 @@ struct PS_OUT_HITPROXY {
 
 PS_OUT_HITPROXY PSMainHitProxy() {
 	PS_OUT_HITPROXY result;
-    //rgb multiplies the scene color (selection highlight). alpha replaces it, marking the pixel as game-shaded for PSMainResolve
-    result.color = (HitProxyFlags & FLAG_SELECTED) == FLAG_SELECTED ? float4(0.8, 0.8, 1.6, 2.0) : float4(1, 1, 1, 2.0);
-    result.hitTestID = float4(HitProxyID, 1.0f);
+    //Keep scene RGB unchanged; alpha marks game-shaded pixels. Hit alpha carries selection to the final resolve.
+    result.color = float4(1, 1, 1, 2.0);
+    result.hitTestID = float4(HitProxyID, (HitProxyFlags & FLAG_SELECTED) != 0 ? 0.0f : 1.0f);
 	return result;
 }

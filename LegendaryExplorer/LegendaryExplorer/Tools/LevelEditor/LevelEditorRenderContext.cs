@@ -33,6 +33,9 @@ public class LevelEditorRenderContext : MeshRenderContext
 
     public readonly BatchedPrimitives Primitives = new();
 
+    public EditorVisibilityState Visibility { get; } = new();
+    public EditorSelectionState Selection { get; } = new();
+
     public bool ShowLights;
     public bool ShowVolumes;
     public bool ShowVolumetrics;
@@ -45,6 +48,48 @@ public class LevelEditorRenderContext : MeshRenderContext
     public bool ShowStageCameras;
     public ActorProxy SelectedActor;
     public BioStageOverlayMarker SelectedBioStageMarker;
+
+    public bool UseVisibleSetOnly { get; set; }
+    public bool HideOrdinaryMeshes { get; set; }
+    public float VisibleSetDistance { get; set; } = float.PositiveInfinity;
+    public float LightRenderDistance { get; set; } = float.PositiveInfinity;
+
+    protected override bool IsLightContributing(SceneLight light)
+        => !ShowLights || !UseVisibleSetOnly || Visibility.VisibleActorKeys.Contains(
+            EditorVisibilityState.GetActorKey(light.VisibilityExport.FileRef.FilePath, light.VisibilityExport.UIndex));
+
+    public override bool IsActorVisible(ActorProxy actor)
+    {
+        if (actor.VisibilityOwner is { } owner && !IsActorVisible(owner)) return false;
+        if ((actor.IsLight && !ShowLights)
+            || (actor.IsVolume && !ShowVolumes)
+            || (actor.IsVolumetricMesh && !ShowVolumetrics)
+            || (actor.IsEmitter && !ShowEmitters)
+            || (actor.IsLocationActor && !ShowLocationActors)
+            || (actor.IsAmbientSound && !ShowSoundPositions)
+            || (actor.IsCinematicActor && !ShowCinematicActors)
+            || (actor.IsDecalActor && !ShowDecalActors))
+        {
+            return false;
+        }
+
+        Vector3 delta = actor.Location - Camera.Position;
+        if (actor.IsLight && delta.LengthSquared() > LightRenderDistance * LightRenderDistance)
+        {
+            return false;
+        }
+
+        float distanceSquared = Camera.IsOrthographic ? delta.X * delta.X + delta.Y * delta.Y : delta.LengthSquared();
+        if (actor.VisibilityOwner is null && UseVisibleSetOnly && !Visibility.IsInVisibleSet(
+                EditorVisibilityState.GetActorKey(actor.Export.FileRef.FilePath, actor.Export.UIndex),
+                distanceSquared, VisibleSetDistance * VisibleSetDistance))
+        {
+            return false;
+        }
+
+        return !HideOrdinaryMeshes || actor.IsVolume || actor.IsVolumetricMesh || actor.IsLight
+            || actor.IsEmitter || actor.IsLocationActor || actor.IsAmbientSound || actor.IsCinematicActor || actor.IsDecalActor;
+    }
 
     private bool IsReadOnly;
     private bool _ctrlSelectionLatched;
@@ -253,6 +298,12 @@ public class LevelEditorRenderContext : MeshRenderContext
         {
             if (HitProxies.TryGetAt(indexes[i], out IHitProxy hitProxy) && (selected is null || selected.HitPriority < hitProxy.HitPriority))
             {
+                if (hitProxy is ActorProxy actor && !IsActorVisible(actor)
+                    || hitProxy is BioStageOverlayMarker marker && !IsActorVisible(marker.Owner)
+                    || hitProxy is AxisHitProxy && (TransformWidget.Attach is null || !IsActorVisible(TransformWidget.Attach)))
+                {
+                    continue;
+                }
                 selected = hitProxy;
             }
         }
@@ -305,6 +356,11 @@ public class LevelEditorRenderContext : MeshRenderContext
     {
         foreach (UIElement uiElem in DrawList_UI)
         {
+            if (ReferenceEquals(uiElem, TransformWidget)
+                && (TransformWidget.Attach is null || !IsActorVisible(TransformWidget.Attach)))
+            {
+                continue;
+            }
             uiElem.Draw(this);
         }
         Primitives.Render(this);
@@ -334,7 +390,9 @@ public class LevelEditorRenderContext : MeshRenderContext
 
     public void UnloadLevel()
     {
+        ClearLights();
         EmptyCaches();
+        Selection.Clear();
         HitProxies.Reset();
         DrawList_3D.DisposeAndClear();
         DrawList_UI.Clear();

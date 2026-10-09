@@ -442,10 +442,8 @@ public partial class AnimationPreviewControl : NotifyPropertyChangedControlBase
         {
             _meshContext.Camera.Position = _meshPreview.LODs[0].Mesh.TransformedBounds.Origin;
         }
-        foreach (RenderPass renderPass in Enum.GetValues<RenderPass>())
-        {
-            _meshPreview.Render(renderPass, _meshContext, 0);
-        }
+        ActorPreviewRenderPipeline.Execute(false, pass => _meshPreview.Render(pass, _meshContext, 0),
+            _meshContext.BeginTranslucentPass, _meshContext.EndLightingPass);
     }
 
     #endregion

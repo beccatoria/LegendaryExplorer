@@ -49,18 +49,6 @@ public sealed class InterpPreviewRenderCoordinator : IInterpPreviewRenderCoordin
             return;
         }
 
-        bool baseWireframe = _renderContext.Wireframe;
-        Span<RenderPass> passes = [RenderPass.Base, RenderPass.Hair];
-        foreach (RenderPass pass in passes)
-        {
-            foreach (ActorProxy actor in _session.Actors)
-            {
-                actor.Render(_renderContext, pass);
-                _renderContext.Wireframe = baseWireframe;
-            }
-        }
-
-        _renderContext.Wireframe = baseWireframe;
-        _renderContext.DrawUI();
+        ActorPreviewRenderPipeline.Render(_renderContext, _session.Actors);
     }
 }

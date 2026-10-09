@@ -3219,8 +3219,6 @@ namespace LegendaryExplorer.Tools.PackageEditor
                 IsLoadingFile = false;
                 if (QueuedGotoNumber != 0)
                 {
-                    //Wait for UI to render
-                    Dispatcher.Invoke(new Action(() => { }), DispatcherPriority.ApplicationIdle, null);
                     BusyText = $"Navigating to {QueuedGotoNumber}";
 
                     GoToNumber(QueuedGotoNumber);

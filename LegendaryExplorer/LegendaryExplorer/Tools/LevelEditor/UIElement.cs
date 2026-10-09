@@ -448,6 +448,7 @@ public class Widget : UIElement
         }
 
         PrevDragPos = new Vector2(x, y);
+        OnDragUpdate?.Invoke(Attach, _dragStartSnapshot, Attach.SnapshotTransform());
     }
 
     private static float SnapF(float value, float snapSize) =>
@@ -461,6 +462,8 @@ public class Widget : UIElement
     /// Wired by LevelEditor to push undo actions.
     /// </summary>
     public Action<ActorProxy, TransformSnapshot, TransformSnapshot> OnDragComplete;
+    public Action<ActorProxy> OnDragStart;
+    public Action<ActorProxy, TransformSnapshot, TransformSnapshot> OnDragUpdate;
 
     public void BeginDrag(int x, int y)
     {
@@ -473,6 +476,7 @@ public class Widget : UIElement
         if (Attach is not null)
         {
             _dragStartSnapshot = Attach.SnapshotTransform();
+            OnDragStart?.Invoke(Attach);
         }
     }
 
@@ -481,10 +485,7 @@ public class Widget : UIElement
         if (IsDragging && Attach is not null)
         {
             var afterSnapshot = Attach.SnapshotTransform();
-            if (!_dragStartSnapshot.Equals(afterSnapshot))
-            {
-                OnDragComplete?.Invoke(Attach, _dragStartSnapshot, afterSnapshot);
-            }
+            OnDragComplete?.Invoke(Attach, _dragStartSnapshot, afterSnapshot);
         }
         IsDragging = false;
     }

@@ -1,4 +1,5 @@
 using LegendaryExplorer.Misc;
+using LegendaryExplorer.Tools.LevelEditor.Scene3D;
 using LegendaryExplorerCore.Helpers;
 using LegendaryExplorerCore.Misc;
 using LegendaryExplorerCore.Packages;
@@ -23,6 +24,8 @@ public class OpenLevelFile : NotifyPropertyChangedBase, IPackageUser, IDisposabl
     public string FilePath => Package.FilePath;
 
     public ObservableCollectionExtended<ActorProxy> Actors { get; } = [];
+
+    public List<SceneLight> Lights { get; internal set; } = [];
 
     private readonly LevelEditor Owner;
 
@@ -99,6 +102,7 @@ public class OpenLevelFile : NotifyPropertyChangedBase, IPackageUser, IDisposabl
             actor.Dispose();
         }
         Actors.Clear();
+        Lights.Clear();
         Package.Release(this);
         _closedHandler = null;
     }

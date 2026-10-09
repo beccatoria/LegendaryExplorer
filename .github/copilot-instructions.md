@@ -4,6 +4,7 @@
 - Keep implementation progress messages concise and avoid rambling; proceed directly with requested code changes.
 - Use simple, non-technical language to ensure clarity, as the user is a beginner and prefers simple, clear guidance.
 - Do not replace or regress the user's customized Level Editor workflow/features while implementing Interp preview milestones; preserve their existing Level Editor behavior and UI. When a fix causes regression, prioritize preserving Dialogue Editor visual loading behavior with Level Editor open and avoid changes that disrupt that workflow.
+- Track implementation progress and validation in a repository master document for the Level Editor upstream integration; separate automated completion from user visual validation, and advise when a model handoff would be useful without assuming model superiority.
 - Execute steps immediately after stating that a step will start; avoid announcing starts without performing the step.
 - Perform all work on the user's fork/branch (becca-LEX) and not on scott-LEX; use scott-LEX only as an optional reference source without aiming to port all features.
 - Ensure conversation owner binding resolves from StartConversation Kismet Owner variable links (tag-based or direct object link), not by literal 'owner' actor lookup.
@@ -16,3 +17,4 @@
 ## Level Editor Guidelines
 - The user has chosen the upstream's redesigned Level Editor layout with their custom tools restored; provide a guide to tool locations.
 - Light visibility policy: with light-marker display enabled, individually hiding a light hides its real-time contribution; disabling global light-marker display leaves all level lights contributing (individual hides retained for re-enabling markers). Baked lightmap contributions are distinct.
+------------
