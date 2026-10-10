@@ -8,6 +8,7 @@ using LegendaryExplorerCore.Helpers;
 using LegendaryExplorerCore.Misc;
 using LegendaryExplorerCore.Packages;
 using LegendaryExplorerCore.SharpDX;
+using LegendaryExplorerCore.Unreal;
 using LegendaryExplorerCore.Unreal.BinaryConverters;
 using Microsoft.Win32;
 using LegendaryExplorer.Tools.PackageEditor;
@@ -187,6 +188,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
     private bool _suppressSelectionFocus;
     private int _selectionFocusSuppressionDepth;
     private bool _isApplyingGroupMove;
+    private bool _isApplyingNudge;
     private bool _isUpdatingGroupSelection;
     private int _groupableSelectionCount;
     private ActorTransformGroup _activeTransformGroup;
@@ -1343,6 +1345,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
     public ICommand GroupSelectedActorsCommand { get; set; }
     public ICommand UngroupActorsCommand { get; set; }
     public ICommand ReselectGroupCommand { get; set; }
+    public ICommand TransformNudgeCommand { get; set; }
     public ICommand OpenInInterpPreviewCommand { get; set; }
     private void LoadCommands()
     {
@@ -1405,6 +1408,108 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         GroupSelectedActorsCommand = new GenericCommand(CreateActorGroupFromSelection, () => PackageIsLoaded() && GetGroupableSelectedActors().Count >= 2);
         UngroupActorsCommand = new GenericCommand(UngroupActors, () => PackageIsLoaded() && HasActiveTransformGroup);
         ReselectGroupCommand = new GenericCommand(ReselectActiveGroup, () => PackageIsLoaded() && HasActiveTransformGroup);
+        TransformNudgeCommand = new RelayCommand(ExecuteTransformNudge);
+    }
+
+    private void ExecuteTransformNudge(object parameter)
+    {
+        if (SelectedActor is null || parameter is not string token)
+        {
+            return;
+        }
+
+        if (SelectedActor.IsReadOnly)
+        {
+            MessageBox.Show(this, "The selected actor is read-only and cannot be edited.", "Nudge Transform", MessageBoxButton.OK,
+                MessageBoxImage.Information);
+            return;
+        }
+
+        if (!TryParseTransformNudge(token, out TransformNudgeKind kind, out EWidgetAxis axis, out float direction))
+        {
+            return;
+        }
+
+        var actor = SelectedActor;
+        var before = actor.SnapshotTransform();
+        if (!TransformNudge.TryApply(actor, kind, axis, direction,
+                PosIncrement, RotIncrement, ScaleIncrement, UseLocalCoordsForWidget, out var after))
+        {
+            return;
+        }
+
+        try
+        {
+            _isApplyingNudge = true;
+            if (TryApplyGroupedLeadTransformEdit(actor, before, after, $"Nudge {DescribeNudge(kind, axis, direction)}"))
+            {
+                return;
+            }
+
+            UndoHistory.Push(new TransformAction(actor, before, after, $"Nudge {DescribeNudge(kind, axis, direction)}"));
+            _preEditSnapshot = after;
+        }
+        finally
+        {
+            _isApplyingNudge = false;
+        }
+    }
+
+    private static string DescribeNudge(TransformNudgeKind kind, EWidgetAxis axis, float direction)
+    {
+        string sign = direction >= 0 ? "+" : "-";
+        return kind switch
+        {
+            TransformNudgeKind.Translate => $"move {sign}{axis}",
+            TransformNudgeKind.Rotate => $"rotate {sign}{axis}",
+            TransformNudgeKind.Scale => $"scale {sign}{axis}",
+            TransformNudgeKind.UniformScale => $"uniform scale {sign}",
+            _ => "transform"
+        };
+    }
+
+    private static bool TryParseTransformNudge(string token, out TransformNudgeKind kind, out EWidgetAxis axis, out float direction)
+    {
+        kind = TransformNudgeKind.Translate;
+        axis = EWidgetAxis.None;
+        direction = 0;
+        if (string.IsNullOrWhiteSpace(token) || token.Length < 2)
+        {
+            return false;
+        }
+
+        char mode = char.ToUpperInvariant(token[0]);
+        char sign = token.Contains('-') ? '-' : '+';
+        direction = sign == '-' ? -1f : 1f;
+
+        kind = mode switch
+        {
+            'T' => TransformNudgeKind.Translate,
+            'R' => TransformNudgeKind.Rotate,
+            'S' => TransformNudgeKind.Scale,
+            'U' => TransformNudgeKind.UniformScale,
+            _ => kind
+        };
+        if (mode is not ('T' or 'R' or 'S' or 'U'))
+        {
+            return false;
+        }
+
+        if (kind is TransformNudgeKind.UniformScale)
+        {
+            axis = EWidgetAxis.XYZ;
+            return true;
+        }
+
+        char axisChar = token.LastOrDefault(char.IsLetter);
+        axis = char.ToUpperInvariant(axisChar) switch
+        {
+            'X' => EWidgetAxis.X,
+            'Y' => EWidgetAxis.Y,
+            'Z' => EWidgetAxis.Z,
+            _ => EWidgetAxis.None
+        };
+        return axis is not EWidgetAxis.None;
     }
 
     private async void OpenInInterpPreview()
@@ -1739,6 +1844,91 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
 
         _preEditSnapshot = after;
         return true;
+    }
+
+    public enum TransformNudgeKind
+    {
+        Translate,
+        Rotate,
+        Scale,
+        UniformScale
+    }
+
+    public static class TransformNudge
+    {
+        public static bool TryApply(ActorProxy actor, TransformNudgeKind kind, EWidgetAxis axis, float direction,
+            float posIncrement, float rotIncrement, float scaleIncrement, bool useLocalCoords, out TransformSnapshot after)
+        {
+            var before = actor.SnapshotTransform();
+            switch (kind)
+            {
+                case TransformNudgeKind.Translate:
+                    {
+                        float step = MathF.Abs(posIncrement);
+                        if (step <= 0) break;
+                        actor.Location += ResolveTranslationDelta(actor.Rotation, axis, direction * step, useLocalCoords);
+                        break;
+                    }
+                case TransformNudgeKind.Rotate:
+                    {
+                        float step = MathF.Abs(rotIncrement);
+                        if (step <= 0) break;
+                        float radians = direction * step * (MathF.PI / 180f);
+                        Matrix4x4 delta = axis switch
+                        {
+                            EWidgetAxis.X => Matrix4x4.CreateRotationX(radians),
+                            EWidgetAxis.Y => Matrix4x4.CreateRotationY(radians),
+                            EWidgetAxis.Z => Matrix4x4.CreateRotationZ(radians),
+                            _ => Matrix4x4.Identity
+                        };
+                        Matrix4x4 current = ActorUtils.ComposeLocalToWorld(Vector3.Zero, actor.Rotation, Vector3.One);
+                        actor.Rotation = (useLocalCoords ? delta * current : current * delta).GetRotator();
+                        break;
+                    }
+                case TransformNudgeKind.Scale:
+                    {
+                        float step = MathF.Abs(scaleIncrement);
+                        if (step <= 0) break;
+                        Vector3 delta = axis switch
+                        {
+                            EWidgetAxis.X => new Vector3(step, 0, 0),
+                            EWidgetAxis.Y => new Vector3(0, step, 0),
+                            EWidgetAxis.Z => new Vector3(0, 0, step),
+                            _ => Vector3.Zero
+                        };
+                        actor.DrawScale3D += delta * direction;
+                        break;
+                    }
+                case TransformNudgeKind.UniformScale:
+                    {
+                        float step = MathF.Abs(scaleIncrement);
+                        if (step <= 0) break;
+                        actor.DrawScale += direction * step;
+                        break;
+                    }
+            }
+
+            after = actor.SnapshotTransform();
+            return !before.Equals(after);
+        }
+
+        private static Vector3 ResolveTranslationDelta(Rotator rotation, EWidgetAxis axis, float magnitude, bool useLocalCoords)
+        {
+            Vector3 local = axis switch
+            {
+                EWidgetAxis.X => new Vector3(magnitude, 0, 0),
+                EWidgetAxis.Y => new Vector3(0, magnitude, 0),
+                EWidgetAxis.Z => new Vector3(0, 0, magnitude),
+                _ => Vector3.Zero
+            };
+            if (!useLocalCoords)
+            {
+                return local;
+            }
+
+            Matrix4x4 basis = ActorUtils.ComposeLocalToWorld(Vector3.Zero, rotation, Vector3.One);
+            return Vector3.Transform(local, basis);
+        }
     }
 
     #region Selective Visibility
@@ -2586,7 +2776,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
 
     private void OnActorPropertyChanged(object sender, PropertyChangedEventArgs e)
     {
-        if (_isApplyingUndoRedo || _isApplyingGroupMove || RenderContext.TransformWidget.IsDragging) return;
+        if (_isApplyingUndoRedo || _isApplyingGroupMove || _isApplyingNudge || RenderContext.TransformWidget.IsDragging) return;
         if (e.PropertyName is not (nameof(ActorProxy.Location) or nameof(ActorProxy.Rotation) or nameof(ActorProxy.DrawScale) or nameof(ActorProxy.DrawScale3D))) return;
 
         if (sender is ActorProxy actor && _preEditSnapshot is { } before)

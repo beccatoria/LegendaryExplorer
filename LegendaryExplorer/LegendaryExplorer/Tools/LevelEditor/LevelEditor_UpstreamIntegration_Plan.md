@@ -400,6 +400,25 @@ Already merged unrelated compiler/Doxygen changes are not to be reverted.
 - User clarifies that Interp Preview must be launched separately. The earlier combined-preview wording must not be interpreted as a required Level Editor-to-Interp launch workflow.
 - This general acceptance does not establish individual results for every proposed ownership test or every game asset, and does not expand the deferred Interp scope. Historical pending-acceptance statements above are superseded by this checkpoint.
 
+### Post-milestone usability follow-up — local-coords transform nudges
+
+- Added compact step-based nudge controls inside existing **Actor Position**, **Actor Rotation**, and **Actor DrawScale** sections to reduce gizmo-drag dependence without adding new panels.
+- Nudges use existing increments (`PosIncrement`, `RotIncrement`, `ScaleIncrement`) and one shared command path:
+  - Translate: `T±X/Y/Z`
+  - Rotate: `R±X/Y/Z`
+  - Scale axis: `S±X/Y/Z`
+  - Uniform scale: `U±`
+- Behavior follows the current Local Coords contract:
+  - Translation applies local basis when Local Coords is enabled; world axes when disabled.
+  - Rotation composes pre/post matrices consistent with widget local/world behavior.
+  - Scale updates axis draw-scale components and uniform draw-scale in configured step amounts.
+- Nudges reuse existing transform-group/undo workflows. Group lead nudges push one grouped batch action; non-group nudges push one transform action. Property-change undo suppression prevents duplicate history entries during command execution.
+- Validation:
+  - Solution build: **pass**.
+  - Layout contract test: **pass**.
+  - New deterministic tests (`TransformNudgeTests`): **4 passed** via `dotnet test --filter FullyQualifiedName~TransformNudgeTests`.
+  - Full suite baseline remains **138 total, 135 passed, 0 failed, 3 existing Castle-proxy skips**.
+
 ### Historical combined acceptance suggestions — no longer a gate
 
 Do not repeat already accepted lighting, volumetric, group/highlight, layout/theme, navigation/settings or Package Editor handoff checks. Only the following combined ownership/workflow results remain unreported; if already performed, reporting that result is sufficient.

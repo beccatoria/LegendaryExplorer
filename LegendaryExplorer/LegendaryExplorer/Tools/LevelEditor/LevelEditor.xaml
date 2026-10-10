@@ -506,6 +506,15 @@
                                 <TextBlock Text=" Increment:  " VerticalAlignment="Center" />
                                 <xctk:SingleUpDown Value="{Binding PosIncrement, RelativeSource={RelativeSource AncestorType={x:Type local:LevelEditor}}}" Minimum="0" ButtonSpinnerLocation="Left" FormatString="F3"/>
                             </StackPanel>
+                            <WrapPanel Margin="0,4,0,0">
+                                <TextBlock Text="Nudge" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                <Button x:Name="NudgeTranslatePosX" Content="+X" Command="{Binding TransformNudgeCommand, RelativeSource={RelativeSource AncestorType={x:Type local:LevelEditor}}}" CommandParameter="T+X" Padding="4,1" Margin="0,0,2,0" ToolTip="Move +X by Increment"/>
+                                <Button Content="-X" Command="{Binding TransformNudgeCommand, RelativeSource={RelativeSource AncestorType={x:Type local:LevelEditor}}}" CommandParameter="T-X" Padding="4,1" Margin="0,0,4,0" ToolTip="Move -X by Increment"/>
+                                <Button Content="+Y" Command="{Binding TransformNudgeCommand, RelativeSource={RelativeSource AncestorType={x:Type local:LevelEditor}}}" CommandParameter="T+Y" Padding="4,1" Margin="0,0,2,0" ToolTip="Move +Y by Increment"/>
+                                <Button Content="-Y" Command="{Binding TransformNudgeCommand, RelativeSource={RelativeSource AncestorType={x:Type local:LevelEditor}}}" CommandParameter="T-Y" Padding="4,1" Margin="0,0,4,0" ToolTip="Move -Y by Increment"/>
+                                <Button Content="+Z" Command="{Binding TransformNudgeCommand, RelativeSource={RelativeSource AncestorType={x:Type local:LevelEditor}}}" CommandParameter="T+Z" Padding="4,1" Margin="0,0,2,0" ToolTip="Move +Z by Increment"/>
+                                <Button Content="-Z" Command="{Binding TransformNudgeCommand, RelativeSource={RelativeSource AncestorType={x:Type local:LevelEditor}}}" CommandParameter="T-Z" Padding="4,1" ToolTip="Move -Z by Increment"/>
+                            </WrapPanel>
                             <WrapPanel Margin="0, 5, 0, 0">
                                 <Button Content="Copy Location Coords" Click="CopyLocationCoordinatesButton_Click"/>
                                 <Button Content="Paste Location Coords" Click="PasteLocationCoordinatesButton_Click" Margin="10,0,0,0"/>
@@ -527,6 +536,15 @@
                                 <TextBlock Text=" Increment:  " VerticalAlignment="Center" />
                                 <xctk:IntegerUpDown Value="{Binding RotIncrement, RelativeSource={RelativeSource AncestorType={x:Type local:LevelEditor}}}" Minimum="0" ButtonSpinnerLocation="Left"/>
                             </StackPanel>
+                            <WrapPanel Margin="0,4,0,0">
+                                <TextBlock Text="Nudge" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                <Button x:Name="NudgeRotatePosX" Content="+X" Command="{Binding TransformNudgeCommand, RelativeSource={RelativeSource AncestorType={x:Type local:LevelEditor}}}" CommandParameter="R+X" Padding="4,1" Margin="0,0,2,0" ToolTip="Rotate +X by Increment degrees"/>
+                                <Button Content="-X" Command="{Binding TransformNudgeCommand, RelativeSource={RelativeSource AncestorType={x:Type local:LevelEditor}}}" CommandParameter="R-X" Padding="4,1" Margin="0,0,4,0" ToolTip="Rotate -X by Increment degrees"/>
+                                <Button Content="+Y" Command="{Binding TransformNudgeCommand, RelativeSource={RelativeSource AncestorType={x:Type local:LevelEditor}}}" CommandParameter="R+Y" Padding="4,1" Margin="0,0,2,0" ToolTip="Rotate +Y by Increment degrees"/>
+                                <Button Content="-Y" Command="{Binding TransformNudgeCommand, RelativeSource={RelativeSource AncestorType={x:Type local:LevelEditor}}}" CommandParameter="R-Y" Padding="4,1" Margin="0,0,4,0" ToolTip="Rotate -Y by Increment degrees"/>
+                                <Button Content="+Z" Command="{Binding TransformNudgeCommand, RelativeSource={RelativeSource AncestorType={x:Type local:LevelEditor}}}" CommandParameter="R+Z" Padding="4,1" Margin="0,0,2,0" ToolTip="Rotate +Z by Increment degrees"/>
+                                <Button Content="-Z" Command="{Binding TransformNudgeCommand, RelativeSource={RelativeSource AncestorType={x:Type local:LevelEditor}}}" CommandParameter="R-Z" Padding="4,1" ToolTip="Rotate -Z by Increment degrees"/>
+                            </WrapPanel>
                             <WrapPanel Margin="0, 5, 0, 0">
                                 <Button Content="Copy Rotation Coords" Click="CopyRotationCoordinatesButton_Click"/>
                                 <Button Content="Paste Rotation Coords" Click="PasteRotationCoordinatesButton_Click" Margin="10,0,0,0"/>
@@ -561,6 +579,17 @@
                                 <TextBlock Text=" Increment:  " VerticalAlignment="Center" />
                                 <xctk:SingleUpDown Value="{Binding ScaleIncrement, RelativeSource={RelativeSource AncestorType={x:Type local:LevelEditor}}}" Minimum="0" ButtonSpinnerLocation="Left" FormatString="F3"/>
                             </StackPanel>
+                            <WrapPanel Margin="0,4,0,0">
+                                <TextBlock Text="Nudge" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                <Button x:Name="NudgeScalePosX" Content="+X" Command="{Binding TransformNudgeCommand, RelativeSource={RelativeSource AncestorType={x:Type local:LevelEditor}}}" CommandParameter="S+X" Padding="4,1" Margin="0,0,2,0" ToolTip="Scale +X by Increment"/>
+                                <Button Content="-X" Command="{Binding TransformNudgeCommand, RelativeSource={RelativeSource AncestorType={x:Type local:LevelEditor}}}" CommandParameter="S-X" Padding="4,1" Margin="0,0,4,0" ToolTip="Scale -X by Increment"/>
+                                <Button Content="+Y" Command="{Binding TransformNudgeCommand, RelativeSource={RelativeSource AncestorType={x:Type local:LevelEditor}}}" CommandParameter="S+Y" Padding="4,1" Margin="0,0,2,0" ToolTip="Scale +Y by Increment"/>
+                                <Button Content="-Y" Command="{Binding TransformNudgeCommand, RelativeSource={RelativeSource AncestorType={x:Type local:LevelEditor}}}" CommandParameter="S-Y" Padding="4,1" Margin="0,0,4,0" ToolTip="Scale -Y by Increment"/>
+                                <Button Content="+Z" Command="{Binding TransformNudgeCommand, RelativeSource={RelativeSource AncestorType={x:Type local:LevelEditor}}}" CommandParameter="S+Z" Padding="4,1" Margin="0,0,2,0" ToolTip="Scale +Z by Increment"/>
+                                <Button Content="-Z" Command="{Binding TransformNudgeCommand, RelativeSource={RelativeSource AncestorType={x:Type local:LevelEditor}}}" CommandParameter="S-Z" Padding="4,1" Margin="0,0,4,0" ToolTip="Scale -Z by Increment"/>
+                                <Button Content="+U" Command="{Binding TransformNudgeCommand, RelativeSource={RelativeSource AncestorType={x:Type local:LevelEditor}}}" CommandParameter="U+" Padding="4,1" Margin="0,0,2,0" ToolTip="Uniform scale + by Increment"/>
+                                <Button Content="-U" Command="{Binding TransformNudgeCommand, RelativeSource={RelativeSource AncestorType={x:Type local:LevelEditor}}}" CommandParameter="U-" Padding="4,1" ToolTip="Uniform scale - by Increment"/>
+                            </WrapPanel>
                         </StackPanel>
                     </GroupBox>
                     <GroupBox Header="Light" Margin="5,0,5,5" BorderThickness="2"
