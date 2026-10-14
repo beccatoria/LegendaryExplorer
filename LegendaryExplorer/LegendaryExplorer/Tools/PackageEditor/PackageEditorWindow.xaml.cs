@@ -207,6 +207,7 @@ namespace LegendaryExplorer.Tools.PackageEditor
         public ICommand StructuralComparePackagesCommand { get; set; }
         public ICommand OpenOtherVersionCommand { get; set; }
         public ICommand OpenHighestMountedCommand { get; set; }
+        public ICommand OpenUnmoddedCommand { get; set; }
         public ICommand CompareToUnmoddedCommand { get; set; }
         public ICommand StructuralCompareToUnmoddedCommand { get; set; }
         public ICommand ExportAllDataCommand { get; set; }
@@ -280,6 +281,7 @@ namespace LegendaryExplorer.Tools.PackageEditor
         private void LoadCommands()
         {
             CalculateExportMD5Command = new GenericCommand(CalculateExportMD5, ExportIsSelected);
+            OpenUnmoddedCommand = new GenericCommand(() => SharedPackageTools.OpenUnmoddedInNewPackageEditor(this), () => SharedPackageTools.CanCompareToUnmodded(this));
             CompareToUnmoddedCommand = new GenericCommand(() => SharedPackageTools.ComparePackageToUnmodded(this, entryDoubleClickToTreeview), () => SharedPackageTools.CanCompareToUnmodded(this));
             StructuralCompareToUnmoddedCommand = new GenericCommand(() => SharedPackageTools.ComparePackageToUnmodded(this, entryDoubleClickToTreeview, true), () => SharedPackageTools.CanCompareToUnmodded(this));
             ComparePackagesCommand = new GenericCommand(() => SharedPackageTools.ComparePackageToAnother(this, entryDoubleClickToTreeview), PackageIsLoaded);

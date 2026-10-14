@@ -168,6 +168,7 @@
                     <MenuItem Header="LECL Data Editor" ToolTip="Edits metadata stored in this package that is used in mod development tools" Command="{Binding LECLEditorCommand}"/>
                     <MenuItem Header="Compare with another package" ToolTip="Compare another version of this package to see what exports and imports have changed" Command="{Binding ComparePackagesCommand}"/>
                     <MenuItem Header="Compare with unmodded" ToolTip="Compare with the (hopefully) unmodded version of this package to see what exports and imports have changed" Command="{Binding CompareToUnmoddedCommand}"/>
+                    <MenuItem Header="Open unmodded" ToolTip="Find and open the unmodded basegame candidate of this package in a new Package Editor window" Command="{Binding OpenUnmoddedCommand}"/>
                     <MenuItem Header="Structural Compare with another package" Command="{Binding StructuralComparePackagesCommand}"
                               ToolTip="Compare another version of this package to see what exports and imports have changed. This comparison method tries to match entries based on their paths, not their indexes." />
                     <MenuItem Header="Structural Compare with unmodded" Command="{Binding StructuralCompareToUnmoddedCommand}"

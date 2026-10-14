@@ -94,6 +94,60 @@ namespace LegendaryExplorer.Packages
             });
         }
 
+        public static void OpenUnmoddedInNewPackageEditor(WPFBase wpfBase)
+        {
+            if (wpfBase.Pcc == null) return;
+
+            if (!wpfBase.Pcc.Game.IsMEGame())
+            {
+                MessageBox.Show(wpfBase, "Can only open packages from the Original Trilogy or Legendary Edition.",
+                    "Can't open unmodded", MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
+
+            Task.Run(() =>
+            {
+                wpfBase.BusyText = "Finding unmodded candidates...";
+                wpfBase.IsBusy = true;
+                return GetUnmoddedCandidatesForPackage(wpfBase);
+            }).ContinueWithOnUIThread(foundCandidates =>
+            {
+                wpfBase.IsBusy = false;
+                if (!foundCandidates.Result.Any())
+                {
+                    MessageBox.Show(wpfBase, "Cannot find any candidates for this file!");
+                    return;
+                }
+
+                var choices = foundCandidates.Result.DiskFiles.ToList();
+                choices.AddRange(foundCandidates.Result.SFARPackageStreams.Select(x => x.Key));
+
+                var choice = InputComboBoxDialog.GetValue(wpfBase, "Choose file to open:",
+                    "Open unmodded file", choices, choices.Last());
+                if (string.IsNullOrEmpty(choice))
+                {
+                    return;
+                }
+
+                var packageEditor = new PackageEditorWindow();
+                if (foundCandidates.Result.DiskFiles.Contains(choice))
+                {
+                    packageEditor.LoadFile(choice);
+                    packageEditor.Show();
+                }
+                else if (foundCandidates.Result.SFARPackageStreams.TryGetValue(choice, out var packageStream))
+                {
+                    packageStream.Position = 0;
+                    packageEditor.LoadFileFromStream(packageStream, choice);
+                    packageEditor.Show();
+                }
+                else
+                {
+                    MessageBox.Show("Selected candidate not found in the lists! This is a bug", "OH NO");
+                }
+            });
+        }
+
         /// <summary>
         /// Compares two ME packages and returns a list of differences between their entries and names.
         /// </summary>
