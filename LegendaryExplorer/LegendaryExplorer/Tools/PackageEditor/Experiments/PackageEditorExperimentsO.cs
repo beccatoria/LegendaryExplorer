@@ -59,6 +59,33 @@ namespace LegendaryExplorer.Tools.PackageEditor.Experiments
             public MessageBoxImage EarlyExitIcon { get; init; } = MessageBoxImage.Information;
         }
 
+        private sealed class KismetShortLinkIssue
+        {
+            public int ExportNumber { get; init; }
+            public string ExportPath { get; init; }
+            public string ClassName { get; init; }
+            public int? ExplicitInputCount { get; init; }
+            public int? DefaultInputCount { get; init; }
+            public int? ExplicitOutputCount { get; init; }
+            public int? DefaultOutputCount { get; init; }
+
+            public string BuildIssueSummary()
+            {
+                List<string> issues = [];
+                if (ExplicitInputCount.HasValue && DefaultInputCount.HasValue && ExplicitInputCount.Value < DefaultInputCount.Value)
+                {
+                    issues.Add($"InputLinks {ExplicitInputCount.Value}/{DefaultInputCount.Value}");
+                }
+
+                if (ExplicitOutputCount.HasValue && DefaultOutputCount.HasValue && ExplicitOutputCount.Value < DefaultOutputCount.Value)
+                {
+                    issues.Add($"OutputLinks {ExplicitOutputCount.Value}/{DefaultOutputCount.Value}");
+                }
+
+                return string.Join(", ", issues);
+            }
+        }
+
         public static void FindClosestLights(PackageEditorWindow pew)
         {
             if (pew?.Pcc is null)
@@ -108,6 +135,316 @@ namespace LegendaryExplorer.Tools.PackageEditor.Experiments
                 }
             };
             dlg.Show();
+        }
+
+        public static void ScanKismetLinksShorterThanClassDefault(PackageEditorWindow pew)
+        {
+            if (pew?.Pcc is null)
+            {
+                return;
+            }
+
+            IMEPackage pcc = pew.Pcc;
+            var unresolvedClasses = new HashSet<string>(StringComparer.Ordinal);
+            List<KismetShortLinkIssue> issues = AnalyzePackageForShortKismetLinks(pcc, unresolvedClasses);
+            List<EntryStringPair> findings = issues
+                .Select(issue => new EntryStringPair(pcc.GetEntry(issue.ExportNumber),
+                    $"#{issue.ExportNumber} {issue.ExportPath} ({issue.ClassName}) - {issue.BuildIssueSummary()}"))
+                .OrderBy(x => (x.Entry as IEntry)?.UIndex ?? int.MaxValue)
+                .ToList();
+
+            if (findings.Count == 0)
+            {
+                string unresolvedSuffix = unresolvedClasses.Count > 0
+                    ? $"\n\nSkipped {unresolvedClasses.Count} classes where default links could not be resolved."
+                    : "";
+                MessageBox.Show(pew,
+                    $"No exports were found with explicit InputLinks/OutputLinks shorter than class defaults.{unresolvedSuffix}",
+                    "Scan Kismet Links Shorter Than Class Default",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                return;
+            }
+
+            string subtitle = $"Found {findings.Count} possible issues in {pcc.FileNameNoExtension}";
+            if (unresolvedClasses.Count > 0)
+            {
+                subtitle += $" (skipped {unresolvedClasses.Count} unresolved class defaults)";
+            }
+
+            var dlg = new ListDialog(findings,
+                "Kismet links shorter than class default",
+                subtitle,
+                pew,
+                1100,
+                600)
+            {
+                DoubleClickEntryHandler = entryItem =>
+                {
+                    if (entryItem?.Entry is IEntry entryToSelect)
+                    {
+                        pew.GoToNumber(entryToSelect.UIndex);
+                        pew.Activate();
+                    }
+                }
+            };
+            dlg.Show();
+        }
+
+        public static void ScanFolderForKismetLinksShorterThanClassDefault(PackageEditorWindow pew)
+        {
+            if (pew is null)
+            {
+                return;
+            }
+
+            var folderDialog = new CommonOpenFileDialog("Select folder to scan")
+            {
+                IsFolderPicker = true,
+                EnsurePathExists = true,
+                Multiselect = false
+            };
+
+            if (folderDialog.ShowDialog(pew) != CommonFileDialogResult.Ok || string.IsNullOrWhiteSpace(folderDialog.FileName))
+            {
+                return;
+            }
+
+            string rootPath = folderDialog.FileName;
+            List<string> packageFiles = Directory
+                .EnumerateFiles(rootPath, "*.pcc", SearchOption.AllDirectories)
+                .ToList();
+
+            if (!packageFiles.Any())
+            {
+                MessageBox.Show(pew,
+                    "No .pcc files were found in the selected folder.",
+                    "Scan Folder for Short Kismet Links", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            int scannedPackages = 0;
+            int skippedFiles = 0;
+            int totalIssues = 0;
+            int unresolvedClassTotal = 0;
+            List<string> findings = [];
+
+            foreach (string filePath in packageFiles)
+            {
+                try
+                {
+                    using IMEPackage package = MEPackageHandler.OpenMEPackage(filePath, forceLoadFromDisk: true);
+                    scannedPackages++;
+
+                    var unresolvedClasses = new HashSet<string>(StringComparer.Ordinal);
+                    List<KismetShortLinkIssue> issues = AnalyzePackageForShortKismetLinks(package, unresolvedClasses)
+                        .OrderBy(x => x.ExportNumber)
+                        .ToList();
+
+                    unresolvedClassTotal += unresolvedClasses.Count;
+                    totalIssues += issues.Count;
+
+                    findings.AddRange(issues.Select(issue =>
+                        $"{filePath} | #{issue.ExportNumber} {issue.ExportPath} ({issue.ClassName}) - {issue.BuildIssueSummary()}"));
+                }
+                catch
+                {
+                    skippedFiles++;
+                }
+            }
+
+            if (!findings.Any())
+            {
+                MessageBox.Show(pew,
+                    $"Scanned {scannedPackages} .pcc file(s). No exports were found with explicit InputLinks/OutputLinks shorter than class defaults. Skipped {skippedFiles} file(s).",
+                    "Scan Folder for Short Kismet Links", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            string subtitle = $"Found {totalIssues} possible issue(s) in {scannedPackages} scanned .pcc file(s). Skipped {skippedFiles} file(s).";
+            if (unresolvedClassTotal > 0)
+            {
+                subtitle += $" Skipped {unresolvedClassTotal} unresolved class default lookup(s).";
+            }
+
+            ListDialog dialog = new(findings,
+                "Folder scan: Kismet links shorter than class default",
+                subtitle,
+                pew, 1700, 700);
+            dialog.Show();
+        }
+
+        private static List<KismetShortLinkIssue> AnalyzePackageForShortKismetLinks(IMEPackage pcc, HashSet<string> unresolvedClasses)
+        {
+            var defaultLinkCountCache = new Dictionary<string, (int? InputCount, int? OutputCount)?>(StringComparer.Ordinal);
+            var classDefaultsPackageCache = new PackageCache();
+            List<KismetShortLinkIssue> issues = [];
+
+            foreach (ExportEntry export in pcc.Exports.Where(x => x.IsA("SequenceOp")))
+            {
+                PropertyCollection props = export.GetProperties();
+                ArrayProperty<StructProperty> explicitInputLinks = props.GetProp<ArrayProperty<StructProperty>>("InputLinks");
+                ArrayProperty<StructProperty> explicitOutputLinks = props.GetProp<ArrayProperty<StructProperty>>("OutputLinks");
+
+                if (explicitInputLinks is null && explicitOutputLinks is null)
+                {
+                    continue;
+                }
+
+                if (!TryGetDefaultLinkCounts(pcc, export.ClassName, defaultLinkCountCache, classDefaultsPackageCache, out var defaultCounts))
+                {
+                    unresolvedClasses.Add(export.ClassName);
+                    continue;
+                }
+
+                bool hasInputIssue = explicitInputLinks is not null
+                                     && defaultCounts.InputCount.HasValue
+                                     && explicitInputLinks.Count < defaultCounts.InputCount.Value;
+                bool hasOutputIssue = explicitOutputLinks is not null
+                                      && defaultCounts.OutputCount.HasValue
+                                      && explicitOutputLinks.Count < defaultCounts.OutputCount.Value;
+
+                if (!hasInputIssue && !hasOutputIssue)
+                {
+                    continue;
+                }
+
+                issues.Add(new KismetShortLinkIssue
+                {
+                    ExportNumber = export.UIndex,
+                    ExportPath = export.InstancedFullPath,
+                    ClassName = export.ClassName,
+                    ExplicitInputCount = explicitInputLinks?.Count,
+                    DefaultInputCount = defaultCounts.InputCount,
+                    ExplicitOutputCount = explicitOutputLinks?.Count,
+                    DefaultOutputCount = defaultCounts.OutputCount
+                });
+            }
+
+            return issues;
+        }
+
+        private static bool TryGetDefaultLinkCounts(
+            IMEPackage pcc,
+            string className,
+            Dictionary<string, (int? InputCount, int? OutputCount)?> defaultLinkCountCache,
+            PackageCache classDefaultsPackageCache,
+            out (int? InputCount, int? OutputCount) defaultCounts)
+        {
+            if (defaultLinkCountCache.TryGetValue(className, out var cachedCounts))
+            {
+                if (cachedCounts.HasValue)
+                {
+                    defaultCounts = cachedCounts.Value;
+                    return true;
+                }
+
+                defaultCounts = default;
+                return false;
+            }
+
+            try
+            {
+                ClassInfo classInfo = GlobalUnrealObjectInfo.GetClassOrStructInfo(pcc.Game, className);
+                if (classInfo is null)
+                {
+                    defaultLinkCountCache[className] = null;
+                    defaultCounts = default;
+                    return false;
+                }
+
+                int? inputCount = null;
+                int? outputCount = null;
+                while (classInfo is not null && (!inputCount.HasValue || !outputCount.HasValue))
+                {
+                    if (TryGetClassDefaultsProperties(pcc, classInfo, classDefaultsPackageCache, out PropertyCollection classDefaultProps))
+                    {
+                        inputCount ??= classDefaultProps.GetProp<ArrayProperty<StructProperty>>("InputLinks")?.Count;
+                        outputCount ??= classDefaultProps.GetProp<ArrayProperty<StructProperty>>("OutputLinks")?.Count;
+                    }
+
+                    classInfo = classInfo.baseClass is not null
+                        && GlobalUnrealObjectInfo.GetClasses(pcc.Game).TryGetValue(classInfo.baseClass, out ClassInfo baseClassInfo)
+                        ? baseClassInfo
+                        : null;
+                }
+
+                defaultCounts = (inputCount, outputCount);
+
+                defaultLinkCountCache[className] = defaultCounts;
+                return true;
+            }
+            catch
+            {
+                defaultLinkCountCache[className] = null;
+                defaultCounts = default;
+                return false;
+            }
+        }
+
+        private static bool TryGetClassDefaultsProperties(IMEPackage targetPackage, ClassInfo classInfo, PackageCache packageCache, out PropertyCollection classDefaultProps)
+        {
+            classDefaultProps = null;
+            string filepath = Path.Combine(MEDirectories.GetBioGamePath(targetPackage.Game), classInfo.pccPath);
+            string loadPath = null;
+            Stream loadStream = null;
+
+            if (File.Exists(classInfo.pccPath))
+            {
+                loadPath = classInfo.pccPath;
+            }
+            else if (classInfo.pccPath == GlobalUnrealObjectInfo.Me3ExplorerCustomNativeAdditionsName)
+            {
+                loadStream = LegendaryExplorerCoreUtilities.GetCustomAppResourceStream(targetPackage.Game);
+            }
+            else if (File.Exists(filepath))
+            {
+                loadPath = filepath;
+            }
+            else if (targetPackage.Game == MEGame.ME1)
+            {
+                filepath = Path.Combine(ME1Directory.DefaultGamePath, classInfo.pccPath);
+                if (File.Exists(filepath))
+                {
+                    loadPath = filepath;
+                }
+            }
+
+            if (loadStream is null && loadPath is null && targetPackage.FilePath != classInfo.pccPath)
+            {
+                return false;
+            }
+
+            IMEPackage importPcc;
+            if (loadStream is not null)
+            {
+                importPcc = MEPackageHandler.OpenMEPackageFromStream(loadStream);
+            }
+            else if (loadPath is not null)
+            {
+                packageCache.TryGetCachedPackage(loadPath, true, out importPcc);
+            }
+            else
+            {
+                importPcc = targetPackage;
+            }
+
+            try
+            {
+                ExportEntry classExport = importPcc.GetUExport(classInfo.exportIndex);
+                UClass classBin = ObjectBinary.From<UClass>(classExport);
+                ExportEntry classDefaults = importPcc.GetUExport(classBin.Defaults);
+                classDefaultProps = classDefaults.GetProperties();
+                return true;
+            }
+            finally
+            {
+                if (loadPath is not null && !packageCache.TryGetCachedPackage(loadPath, false, out _))
+                {
+                    importPcc.Dispose();
+                }
+                loadStream?.Dispose();
+            }
         }
 
         /// <summary>

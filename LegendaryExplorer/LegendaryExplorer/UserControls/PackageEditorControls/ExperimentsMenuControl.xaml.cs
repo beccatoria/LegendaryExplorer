@@ -1784,6 +1784,16 @@ namespace LegendaryExplorer.UserControls.PackageEditorControls
             PackageEditorExperimentsO.ResetSavedSceneOffset(GetPEWindow());
         }
 
+        private void ScanKismetLinksShorterThanClassDefault_Click(object sender, RoutedEventArgs e)
+        {
+            PackageEditorExperimentsO.ScanKismetLinksShorterThanClassDefault(GetPEWindow());
+        }
+
+        private void ScanFolderForKismetLinksShorterThanClassDefault_Click(object sender, RoutedEventArgs e)
+        {
+            PackageEditorExperimentsO.ScanFolderForKismetLinksShorterThanClassDefault(GetPEWindow());
+        }
+
         private void ScanAndRegenerateCorruptedSmallMips_Click(object sender, RoutedEventArgs e)
         {
             PackageEditorExperimentsO.ScanAndRegenerateCorruptedSmallBlockCompressedMips(GetPEWindow());
