@@ -191,7 +191,7 @@ namespace LegendaryExplorer.Tools.PackageEditor.Experiments
             dlg.Show();
         }
 
-        public static void ScanFolderForKismetLinksShorterThanClassDefault(PackageEditorWindow pew)
+        public static async void ScanFolderForKismetLinksShorterThanClassDefault(PackageEditorWindow pew)
         {
             if (pew is null)
             {
@@ -211,9 +211,20 @@ namespace LegendaryExplorer.Tools.PackageEditor.Experiments
             }
 
             string rootPath = folderDialog.FileName;
-            List<string> packageFiles = Directory
-                .EnumerateFiles(rootPath, "*.pcc", SearchOption.AllDirectories)
-                .ToList();
+            List<string> packageFiles;
+            try
+            {
+                packageFiles = Directory
+                    .EnumerateFiles(rootPath, "*.pcc", SearchOption.AllDirectories)
+                    .ToList();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(pew,
+                    $"Could not enumerate .pcc files in the selected folder.\n\n{ex.Message}",
+                    "Scan Folder for Short Kismet Links", MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
 
             if (!packageFiles.Any())
             {
@@ -223,55 +234,91 @@ namespace LegendaryExplorer.Tools.PackageEditor.Experiments
                 return;
             }
 
-            int scannedPackages = 0;
-            int skippedFiles = 0;
-            int totalIssues = 0;
-            int unresolvedClassTotal = 0;
-            List<string> findings = [];
-
-            foreach (string filePath in packageFiles)
+            try
             {
-                try
+                pew.IsBusy = true;
+                pew.BusyText = $"Scanning Kismet links: 0/{packageFiles.Count} (0%)";
+                TaskbarHelper.SetProgressState(TaskbarProgressBarState.Normal);
+                TaskbarHelper.SetProgress(0, packageFiles.Count);
+
+                (int scannedPackages, int skippedFiles, int totalIssues, int unresolvedClassTotal, List<string> findings) results =
+                    await Task.Run(() =>
+                    {
+                        int scannedPackages = 0;
+                        int skippedFiles = 0;
+                        int totalIssues = 0;
+                        int unresolvedClassTotal = 0;
+                        List<string> findings = [];
+
+                        for (int i = 0; i < packageFiles.Count; i++)
+                        {
+                            string filePath = packageFiles[i];
+
+                            try
+                            {
+                                using IMEPackage package = MEPackageHandler.OpenMEPackage(filePath, forceLoadFromDisk: true);
+                                scannedPackages++;
+
+                                var unresolvedClasses = new HashSet<string>(StringComparer.Ordinal);
+                                List<KismetShortLinkIssue> issues = AnalyzePackageForShortKismetLinks(package, unresolvedClasses)
+                                    .OrderBy(x => x.ExportNumber)
+                                    .ToList();
+
+                                unresolvedClassTotal += unresolvedClasses.Count;
+                                totalIssues += issues.Count;
+
+                                findings.AddRange(issues.Select(issue =>
+                                    $"{filePath} | #{issue.ExportNumber} {issue.ExportPath} ({issue.ClassName}) - {issue.BuildIssueSummary()}"));
+                            }
+                            catch
+                            {
+                                skippedFiles++;
+                            }
+
+                            int completed = i + 1;
+                            int percent = (int)((completed / (double)packageFiles.Count) * 100);
+                            pew.Dispatcher.Invoke(() =>
+                            {
+                                pew.BusyText = $"Scanning Kismet links: {completed}/{packageFiles.Count} ({percent}%)";
+                                TaskbarHelper.SetProgress(completed, packageFiles.Count);
+                            }, DispatcherPriority.Background);
+                        }
+
+                        return (scannedPackages, skippedFiles, totalIssues, unresolvedClassTotal, findings);
+                    });
+
+                if (!results.findings.Any())
                 {
-                    using IMEPackage package = MEPackageHandler.OpenMEPackage(filePath, forceLoadFromDisk: true);
-                    scannedPackages++;
-
-                    var unresolvedClasses = new HashSet<string>(StringComparer.Ordinal);
-                    List<KismetShortLinkIssue> issues = AnalyzePackageForShortKismetLinks(package, unresolvedClasses)
-                        .OrderBy(x => x.ExportNumber)
-                        .ToList();
-
-                    unresolvedClassTotal += unresolvedClasses.Count;
-                    totalIssues += issues.Count;
-
-                    findings.AddRange(issues.Select(issue =>
-                        $"{filePath} | #{issue.ExportNumber} {issue.ExportPath} ({issue.ClassName}) - {issue.BuildIssueSummary()}"));
+                    MessageBox.Show(pew,
+                        $"Scanned {results.scannedPackages} .pcc file(s). No exports were found with explicit InputLinks/OutputLinks shorter than class defaults. Skipped {results.skippedFiles} file(s).",
+                        "Scan Folder for Short Kismet Links", MessageBoxButton.OK, MessageBoxImage.Information);
+                    return;
                 }
-                catch
+
+                string subtitle = $"Found {results.totalIssues} possible issue(s) in {results.scannedPackages} scanned .pcc file(s). Skipped {results.skippedFiles} file(s).";
+                if (results.unresolvedClassTotal > 0)
                 {
-                    skippedFiles++;
+                    subtitle += $" Skipped {results.unresolvedClassTotal} unresolved class default lookup(s).";
                 }
+
+                ListDialog dialog = new(results.findings,
+                    "Folder scan: Kismet links shorter than class default",
+                    subtitle,
+                    pew, 1700, 700);
+                dialog.Show();
             }
-
-            if (!findings.Any())
+            catch (Exception ex)
             {
                 MessageBox.Show(pew,
-                    $"Scanned {scannedPackages} .pcc file(s). No exports were found with explicit InputLinks/OutputLinks shorter than class defaults. Skipped {skippedFiles} file(s).",
-                    "Scan Folder for Short Kismet Links", MessageBoxButton.OK, MessageBoxImage.Information);
-                return;
+                    $"Folder scan failed.\n\n{ex.Message}",
+                    "Scan Folder for Short Kismet Links", MessageBoxButton.OK, MessageBoxImage.Error);
             }
-
-            string subtitle = $"Found {totalIssues} possible issue(s) in {scannedPackages} scanned .pcc file(s). Skipped {skippedFiles} file(s).";
-            if (unresolvedClassTotal > 0)
+            finally
             {
-                subtitle += $" Skipped {unresolvedClassTotal} unresolved class default lookup(s).";
+                pew.IsBusy = false;
+                pew.BusyText = "";
+                TaskbarHelper.SetProgressState(TaskbarProgressBarState.NoProgress);
             }
-
-            ListDialog dialog = new(findings,
-                "Folder scan: Kismet links shorter than class default",
-                subtitle,
-                pew, 1700, 700);
-            dialog.Show();
         }
 
         private static List<KismetShortLinkIssue> AnalyzePackageForShortKismetLinks(IMEPackage pcc, HashSet<string> unresolvedClasses)
