@@ -75,11 +75,12 @@ namespace LegendaryExplorer.DialogueEditor
         private async void OpenInInterpPreview_Clicked(ConversationExtended conversation, DialogueNodeExtended node)
         {
             InterpPreviewShellWindow preview = GetOrCreateInterpPreviewWindow();
+            bool hasLoadedLevels = preview.LoadedLevelCount > 0;
 
             IReadOnlyList<string> levelPaths = ResolveLevelFilePathsForPreview();
             InterpPreviewLauncherRequest request = new(levelPaths)
             {
-                ReplaceOnFirstLevel = true,
+                ReplaceOnFirstLevel = !hasLoadedLevels,
                 Conversation = conversation,
                 Node = node,
                 EnsurePlayerContext = true,
@@ -89,9 +90,18 @@ namespace LegendaryExplorer.DialogueEditor
             InterpPreviewLauncherResult result = await preview.ExecuteLauncherRequestAsync(request).ConfigureAwait(true);
             if (levelPaths.Count > 0)
             {
-                StatusText = result.HadFailure
-                    ? $"Interp Preview auto-load: loaded {result.LoadedCount}/{result.TotalCount} level files."
-                    : $"Interp Preview auto-load: loaded {result.LoadedCount} level files.";
+                if (hasLoadedLevels)
+                {
+                    StatusText = result.HadFailure
+                        ? $"Interp Preview reused existing scene and attempted to add {result.LoadedCount}/{result.TotalCount} level files."
+                        : $"Interp Preview reused existing scene and added {result.LoadedCount} level files.";
+                }
+                else
+                {
+                    StatusText = result.HadFailure
+                        ? $"Interp Preview auto-load: loaded {result.LoadedCount}/{result.TotalCount} level files."
+                        : $"Interp Preview auto-load: loaded {result.LoadedCount} level files.";
+                }
             }
             else
             {

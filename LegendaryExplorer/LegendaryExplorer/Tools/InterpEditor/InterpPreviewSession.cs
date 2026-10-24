@@ -8,11 +8,16 @@ namespace LegendaryExplorer.Tools.InterpEditor;
 
 public sealed class InterpPreviewSession : IInterpPreviewSession
 {
+    private readonly Guid _sessionId = Guid.NewGuid();
     private readonly List<InterpPreviewOwnedResource> _resources = [];
     private readonly HashSet<InterpPreviewResourceKey> _resourceKeys = [];
     private readonly List<ActorProxy> _actors = [];
     private readonly Dictionary<string, List<ActorProxy>> _actorLookupIndex = new(StringComparer.OrdinalIgnoreCase);
+    private long _sceneGeneration;
 
+    public Guid SessionId => _sessionId;
+    public long SceneGeneration => _sceneGeneration;
+    public InterpPreviewSceneStamp SceneStamp => new(_sessionId, _sceneGeneration);
     public IList<ActorProxy> Actors => _actors;
     public int LoadedLevelCount => _resources.Count(resource => resource.Key.Kind == InterpPreviewResourceKind.Level);
     public int TotalResourceCount => _resources.Count;
@@ -51,6 +56,7 @@ public sealed class InterpPreviewSession : IInterpPreviewSession
         {
             IReadOnlyList<ActorProxy> removedActors = _actors.ToArray();
             IReadOnlyList<ActorProxy> addedActors = ReplaceAllWithLevelCore(loadedLevel, out IReadOnlyList<InterpPreviewOwnedResource> retiredResources);
+            IncrementSceneGeneration();
             return new InterpPreviewSessionCommitResult(addedActors, removedActors, retiredResources);
         }
 
@@ -59,7 +65,8 @@ public sealed class InterpPreviewSession : IInterpPreviewSession
             return CommitPlayerContext(loadedLevel);
         }
 
-        return new InterpPreviewSessionCommitResult(AddLevel(loadedLevel), [], []);
+        IReadOnlyList<ActorProxy> added = AddLevel(loadedLevel);
+        return new InterpPreviewSessionCommitResult(added, [], []);
     }
 
     public IReadOnlyList<ActorProxy> AddLevel(InterpPreviewLoadedLevel loadedLevel)
@@ -77,6 +84,8 @@ public sealed class InterpPreviewSession : IInterpPreviewSession
         {
             IndexActor(actor);
         }
+
+        IncrementSceneGeneration();
 
         return ownedResource.Actors;
     }
@@ -116,6 +125,7 @@ public sealed class InterpPreviewSession : IInterpPreviewSession
             }
 
             RebuildLookupIndex();
+            IncrementSceneGeneration();
             return new InterpPreviewSessionCommitResult(replacement.Actors, removedActors, removedResources);
         }
         catch
@@ -141,6 +151,7 @@ public sealed class InterpPreviewSession : IInterpPreviewSession
     public IReadOnlyList<ActorProxy> ReplaceAllWithLevel(InterpPreviewLoadedLevel loadedLevel)
     {
         IReadOnlyList<ActorProxy> addedActors = ReplaceAllWithLevelCore(loadedLevel, out IReadOnlyList<InterpPreviewOwnedResource> retiredResources);
+        IncrementSceneGeneration();
         foreach (InterpPreviewOwnedResource retiredResource in retiredResources)
         {
             retiredResource.Dispose();
@@ -215,6 +226,7 @@ public sealed class InterpPreviewSession : IInterpPreviewSession
 
     public void ClearLevels()
     {
+        bool hadLevels = _resources.Count > 0;
         _actors.Clear();
         _actorLookupIndex.Clear();
         foreach (InterpPreviewOwnedResource resource in _resources)
@@ -224,6 +236,44 @@ public sealed class InterpPreviewSession : IInterpPreviewSession
 
         _resources.Clear();
         _resourceKeys.Clear();
+
+        if (hadLevels)
+        {
+            IncrementSceneGeneration();
+        }
+    }
+
+    public InterpPreviewSceneSnapshot CreateSceneSnapshot()
+    {
+        var resources = new List<InterpPreviewSceneResourceDescriptor>(_resources.Count);
+        var actors = new List<InterpPreviewSceneActorDescriptor>(_actors.Count);
+        InterpPreviewPlayerVariant loadedPlayerVariant = InterpPreviewPlayerVariant.None;
+
+        foreach (InterpPreviewOwnedResource resource in _resources)
+        {
+            resources.Add(new InterpPreviewSceneResourceDescriptor(resource.Key, resource.DisplayName));
+            if (resource.Key.Kind == InterpPreviewResourceKind.PlayerContext)
+            {
+                loadedPlayerVariant = resource.Key.PlayerVariant;
+            }
+
+            foreach (ActorProxy actor in resource.Actors)
+            {
+                if (actor?.Export is null || actor.Export.UIndex <= 0)
+                {
+                    continue;
+                }
+
+                var actorId = new InterpPreviewActorId(resource.Key, actor.Export.UIndex);
+                actors.Add(new InterpPreviewSceneActorDescriptor(
+                    actorId,
+                    actor.Tag.Instanced,
+                    actor.DisplayText,
+                    isPlayerRole: resource.Key.Kind == InterpPreviewResourceKind.PlayerContext));
+            }
+        }
+
+        return new InterpPreviewSceneSnapshot(SceneStamp, resources, actors, loadedPlayerVariant);
     }
 
     public void Dispose()
@@ -283,6 +333,11 @@ public sealed class InterpPreviewSession : IInterpPreviewSession
         return string.IsNullOrWhiteSpace(lookup)
             ? string.Empty
             : lookup.Trim();
+    }
+
+    private void IncrementSceneGeneration()
+    {
+        _sceneGeneration++;
     }
 
 }

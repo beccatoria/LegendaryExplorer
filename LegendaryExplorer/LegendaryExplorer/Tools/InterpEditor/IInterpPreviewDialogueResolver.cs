@@ -15,6 +15,7 @@ public sealed class InterpPreviewDialogueResolutionRequest
 {
     private Func<string, IReadOnlyList<ActorProxy>> _loadedSceneActorLookup;
     private IReadOnlyList<string> _loadedLevelPaths = [];
+    private InterpPreviewSceneSnapshot _sceneSnapshot;
 
     public InterpPreviewDialogueResolutionRequest(ConversationExtended conversation, DialogueNodeExtended node)
     {
@@ -25,6 +26,7 @@ public sealed class InterpPreviewDialogueResolutionRequest
     public ConversationExtended Conversation { get; }
     public DialogueNodeExtended Node { get; }
     public IReadOnlyList<string> LoadedLevelPaths => _loadedLevelPaths;
+    public InterpPreviewSceneSnapshot SceneSnapshot => _sceneSnapshot;
     public bool PreferFemalePlayer { get; internal set; } = true;
 
     public IReadOnlyList<ActorProxy> FindLoadedSceneActors(string lookup)
@@ -40,6 +42,11 @@ public sealed class InterpPreviewDialogueResolutionRequest
     internal void SetLoadedLevelPaths(IReadOnlyList<string> loadedLevelPaths)
     {
         _loadedLevelPaths = loadedLevelPaths ?? [];
+    }
+
+    internal void SetSceneSnapshot(InterpPreviewSceneSnapshot sceneSnapshot)
+    {
+        _sceneSnapshot = sceneSnapshot;
     }
 }
 

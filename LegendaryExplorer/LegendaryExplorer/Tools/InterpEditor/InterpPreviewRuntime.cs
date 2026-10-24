@@ -189,6 +189,7 @@ public sealed class InterpPreviewRuntime : IInterpPreviewRuntime
         {
             request.SetLoadedSceneActorLookup(_session.FindActorsByLookup);
             request.SetLoadedLevelPaths(_session.LoadedLevelPaths);
+            request.SetSceneSnapshot(_session.CreateSceneSnapshot());
         }
 
         InterpPreviewDialogueResolution resolution = _dialogueResolver.Resolve(request);

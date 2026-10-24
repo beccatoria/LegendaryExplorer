@@ -246,6 +246,9 @@ public class InterpPreviewRuntimeTests
 
     private sealed class StubSession : IInterpPreviewSession
     {
+        public Guid SessionId { get; } = Guid.NewGuid();
+        public long SceneGeneration { get; set; }
+        public InterpPreviewSceneStamp SceneStamp => new(SessionId, SceneGeneration);
         public IList<ActorProxy> Actors { get; } = new List<ActorProxy>();
         public int LoadedLevelCount { get; set; }
         public int TotalResourceCount => LoadedLevelCount;
@@ -260,6 +263,7 @@ public class InterpPreviewRuntimeTests
         public bool ContainsLevelPath(string fullPath) => false;
         public bool ContainsResource(InterpPreviewResourceKey key) => false;
         public IReadOnlyList<ActorProxy> FindActorsByLookup(string fullPath) => [];
+        public InterpPreviewSceneSnapshot CreateSceneSnapshot() => new(SceneStamp, [], [], InterpPreviewPlayerVariant.None);
         public InterpPreviewSessionCommitResult CommitLevel(InterpPreviewLoadedLevel loadedLevel, bool replace)
         {
             CommitCalls++;

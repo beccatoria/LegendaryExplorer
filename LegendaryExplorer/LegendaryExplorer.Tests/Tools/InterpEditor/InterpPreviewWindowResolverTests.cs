@@ -1,5 +1,9 @@
 using LegendaryExplorer.Tools.InterpEditor;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using System;
+using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace LegendaryExplorer.Tests.Tools.InterpEditor;
 
@@ -64,6 +68,47 @@ public class InterpPreviewWindowResolverTests
 
         Assert.AreSame(existing, resolved);
         Assert.AreEqual(1, normalizeCalls);
+    }
+
+    [TestMethod]
+    public async Task ResolveOrCreate_ConcurrentOverlap_AlwaysUsesUsableExistingWindow()
+    {
+        var existing = new TestWindowRef { IsLoaded = true };
+        var current = new TestWindowRef { IsLoaded = true };
+        int factoryCalls = 0;
+        int normalizeCalls = 0;
+        var resolvedWindows = new List<TestWindowRef>();
+        var gate = new object();
+
+        Task[] requests = new Task[32];
+        for (int i = 0; i < requests.Length; i++)
+        {
+            requests[i] = Task.Run(() =>
+            {
+                TestWindowRef resolved = InterpPreviewWindowResolver.ResolveOrCreate(
+                    current,
+                    existing,
+                    factory: () =>
+                    {
+                        Interlocked.Increment(ref factoryCalls);
+                        return new TestWindowRef { IsLoaded = true };
+                    },
+                    isUsable: window => window.IsLoaded,
+                    normalize: _ => Interlocked.Increment(ref normalizeCalls));
+
+                lock (gate)
+                {
+                    resolvedWindows.Add(resolved);
+                }
+            });
+        }
+
+        await Task.WhenAll(requests);
+
+        Assert.AreEqual(0, factoryCalls);
+        Assert.AreEqual(requests.Length, normalizeCalls);
+        Assert.AreEqual(requests.Length, resolvedWindows.Count);
+        Assert.IsTrue(resolvedWindows.TrueForAll(window => ReferenceEquals(existing, window)));
     }
 
     private sealed class TestWindowRef

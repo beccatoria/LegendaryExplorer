@@ -278,39 +278,74 @@ public class InterpPreviewShellWindow : NotifyPropertyChangedWindowBase, IActorE
         int loadedCount = 0;
         bool hadFailure = false;
         int totalCount = request.LevelPaths?.Count ?? 0;
-        for (int i = 0; i < totalCount; i++)
+        IReadOnlyList<string> normalizedLevelPaths = request.LevelPaths ?? [];
+
+        if (!InterpPreviewLauncherLevelBatch.TryNormalizeDistinctLevelPaths(request.LevelPaths, out normalizedLevelPaths))
         {
-            if (!IsLauncherRequestCurrent(requestId))
+            return InterpPreviewLauncherResult.Failed("Launcher request contained an invalid level path.");
+        }
+
+        totalCount = normalizedLevelPaths.Count;
+
+        if (request.ReplaceOnFirstLevel && totalCount > 1)
+        {
+            InterpPreviewLauncherLevelBatchResult batchResult = await InterpPreviewLauncherLevelBatch.ExecuteTransactionalReplaceAsync(
+                _runtime,
+                normalizedLevelPaths,
+                this,
+                () => IsLauncherRequestCurrent(requestId)).ConfigureAwait(true);
+
+            foreach (InterpPreviewCommittedLevelResult committedLevel in batchResult.CommittedLevels)
             {
-                return InterpPreviewLauncherResult.Superseded("Launcher request was superseded.");
+                ApplyCommittedOperation(committedLevel.OperationResult, committedLevel.Path, updateCamera: true);
             }
 
-            string path = request.LevelPaths[i];
-            if (string.IsNullOrWhiteSpace(path))
-            {
-                hadFailure = true;
-                continue;
-            }
+            loadedCount = batchResult.LoadedCount;
+            hadFailure = batchResult.HadFailure;
 
-            InterpPreviewOperationResult result = await _runtime.ExecuteLoadOperationAsync(path, request.ReplaceOnFirstLevel && i == 0, this).ConfigureAwait(true);
-            switch (result.Outcome)
+            switch (batchResult.TerminalOutcome)
             {
-                case InterpPreviewOperationOutcome.Committed:
-                    ApplyCommittedOperation(result, path, updateCamera: true);
-                    loadedCount++;
-                    break;
-                case InterpPreviewOperationOutcome.NoChange:
-                    loadedCount++;
-                    break;
-                case InterpPreviewOperationOutcome.Cancelled:
-                    return InterpPreviewLauncherResult.Cancelled("Launcher request was cancelled.");
-                case InterpPreviewOperationOutcome.Superseded:
+                case InterpPreviewLauncherBatchTerminalOutcome.Cancelled:
+                    return InterpPreviewLauncherResult.Cancelled(batchResult.TerminalMessage);
+                case InterpPreviewLauncherBatchTerminalOutcome.Superseded:
+                    return InterpPreviewLauncherResult.Superseded(batchResult.TerminalMessage);
+                case InterpPreviewLauncherBatchTerminalOutcome.RejectedClosing:
+                    return InterpPreviewLauncherResult.RejectedClosing(batchResult.TerminalMessage);
+                case InterpPreviewLauncherBatchTerminalOutcome.Failed:
+                    return InterpPreviewLauncherResult.Failed(batchResult.TerminalMessage);
+            }
+        }
+        else
+        {
+            for (int i = 0; i < totalCount; i++)
+            {
+                if (!IsLauncherRequestCurrent(requestId))
+                {
                     return InterpPreviewLauncherResult.Superseded("Launcher request was superseded.");
-                case InterpPreviewOperationOutcome.RejectedClosing:
-                    return InterpPreviewLauncherResult.RejectedClosing("Preview is closing.");
-                case InterpPreviewOperationOutcome.Failed:
-                    hadFailure = true;
-                    break;
+                }
+
+                string path = normalizedLevelPaths[i];
+
+                InterpPreviewOperationResult result = await _runtime.ExecuteLoadOperationAsync(path, request.ReplaceOnFirstLevel && i == 0, this).ConfigureAwait(true);
+                switch (result.Outcome)
+                {
+                    case InterpPreviewOperationOutcome.Committed:
+                        ApplyCommittedOperation(result, path, updateCamera: true);
+                        loadedCount++;
+                        break;
+                    case InterpPreviewOperationOutcome.NoChange:
+                        loadedCount++;
+                        break;
+                    case InterpPreviewOperationOutcome.Cancelled:
+                        return InterpPreviewLauncherResult.Cancelled("Launcher request was cancelled.");
+                    case InterpPreviewOperationOutcome.Superseded:
+                        return InterpPreviewLauncherResult.Superseded("Launcher request was superseded.");
+                    case InterpPreviewOperationOutcome.RejectedClosing:
+                        return InterpPreviewLauncherResult.RejectedClosing("Preview is closing.");
+                    case InterpPreviewOperationOutcome.Failed:
+                        hadFailure = true;
+                        break;
+                }
             }
         }
 
@@ -353,7 +388,7 @@ public class InterpPreviewShellWindow : NotifyPropertyChangedWindowBase, IActorE
                 return InterpPreviewLauncherResult.Superseded("Launcher request was superseded.");
             }
 
-            resolution = ResolveDialogueNodeCore(request.Conversation, request.Node, preferFemalePlayer, updateStatus: false);
+            resolution = ResolveDialogueNodeCore(request.Conversation, request.Node, preferFemalePlayer, updateStatus: true);
         }
 
         return InterpPreviewLauncherResult.Completed(loadedCount, totalCount, hadFailure, resolution);
@@ -402,8 +437,7 @@ public class InterpPreviewShellWindow : NotifyPropertyChangedWindowBase, IActorE
         };
 
         InterpPreviewDialogueResolution resolution = _runtime.ResolveDialogue(request);
-        InterpPreviewDiagnostic speakerBindingDiagnostic = resolution.Diagnostics.FirstOrDefault(d =>
-            d.Code is "SCENE_BIND_SPEAKER_MATCH" or "SCENE_BIND_SPEAKER_MISS" or "SCENE_BIND_SPEAKER_UNAVAILABLE");
+        InterpPreviewDiagnostic speakerBindingDiagnostic = GetStatusBindingDiagnostic(resolution.Diagnostics);
 
         if (!updateStatus)
         {
@@ -412,8 +446,10 @@ public class InterpPreviewShellWindow : NotifyPropertyChangedWindowBase, IActorE
 
         if (resolution.IsResolved)
         {
+            string sourceSummary = BuildSourceSummary(resolution);
+            string targetSummary = BuildTargetSummary(resolution);
             string bindingSuffix = speakerBindingDiagnostic is null ? string.Empty : $" {speakerBindingDiagnostic.Message}";
-            UpdateStatus($"Line {node?.NodeCount} ({(node?.IsReply == true ? "Reply" : "Entry")}) is ready for preview (InterpData #{resolution.InterpData.UIndex}).{bindingSuffix}");
+            UpdateStatus($"Line {node?.NodeCount} ({(node?.IsReply == true ? "Reply" : "Entry")}) is ready for preview ({sourceSummary}; {targetSummary}).{bindingSuffix}");
         }
         else
         {
@@ -422,6 +458,138 @@ public class InterpPreviewShellWindow : NotifyPropertyChangedWindowBase, IActorE
         }
 
         return resolution;
+    }
+
+    private static string BuildSourceSummary(InterpPreviewDialogueResolution resolution)
+    {
+        if (resolution?.InterpData is null)
+        {
+            return "source unknown";
+        }
+
+        if (HasDiagnosticCode(resolution.Diagnostics, "INTERP_DISCOVERY_SELECTED"))
+        {
+            return "source: graph discovery";
+        }
+
+        if (HasDiagnosticCode(resolution.Diagnostics, "INTERP_DIRECT"))
+        {
+            return "source: selected line";
+        }
+
+        if (HasDiagnosticCode(resolution.Diagnostics, "INTERP_FALLBACK"))
+        {
+            return "source: linked conversation fallback";
+        }
+
+        return $"source export #{resolution.InterpData.UIndex}";
+    }
+
+    private static string BuildTargetSummary(InterpPreviewDialogueResolution resolution)
+    {
+        if (resolution?.Diagnostics is null || resolution.Diagnostics.Count == 0)
+        {
+            return "target checks unavailable";
+        }
+
+        int boundCount = CountDiagnosticsByCode(resolution.Diagnostics, "ACTOR_TAG_BOUND");
+        int missingCount = CountDiagnosticsByCode(resolution.Diagnostics, "ACTOR_TAG_MISSING");
+        int ambiguousCount = CountDiagnosticsByCode(resolution.Diagnostics, "ACTOR_TAG_AMBIGUOUS");
+
+        if (boundCount > 0 || missingCount > 0 || ambiguousCount > 0)
+        {
+            return $"targets: bound {boundCount}, missing {missingCount}, ambiguous {ambiguousCount}";
+        }
+
+        if (HasDiagnosticCode(resolution.Diagnostics, "TARGET_ACTION_UNRESOLVED"))
+        {
+            return "targets skipped: action unresolved";
+        }
+
+        if (HasDiagnosticCode(resolution.Diagnostics, "ACTOR_BINDING_SCENE_UNAVAILABLE"))
+        {
+            return "targets unresolved: scene snapshot unavailable";
+        }
+
+        if (HasDiagnosticCode(resolution.Diagnostics, "TARGET_TRACK_UNSUPPORTED"))
+        {
+            int unsupportedCount = CountDiagnosticsByCode(resolution.Diagnostics, "TARGET_TRACK_UNSUPPORTED");
+            return unsupportedCount == 1
+                ? "targets partial: 1 unsupported track schema"
+                : $"targets partial: {unsupportedCount} unsupported track schemas";
+        }
+
+        return "targets: no actor match diagnostics";
+    }
+
+    private static InterpPreviewDiagnostic GetStatusBindingDiagnostic(IReadOnlyList<InterpPreviewDiagnostic> diagnostics)
+    {
+        if (diagnostics is null || diagnostics.Count == 0)
+        {
+            return null;
+        }
+
+        string[] priorityCodes =
+        [
+            "SCENE_BIND_OWNER_MISS",
+            "SCENE_BIND_PLAYER_MISS",
+            "SCENE_BIND_OWNER_MATCH",
+            "SCENE_BIND_PLAYER_MATCH",
+            "SCENE_BIND_SPEAKER_MISS",
+            "SCENE_BIND_SPEAKER_MATCH",
+            "SCENE_BIND_SPEAKER_UNAVAILABLE"
+        ];
+
+        for (int i = 0; i < priorityCodes.Length; i++)
+        {
+            string code = priorityCodes[i];
+            for (int j = 0; j < diagnostics.Count; j++)
+            {
+                if (string.Equals(diagnostics[j].Code, code, StringComparison.Ordinal))
+                {
+                    return diagnostics[j];
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private static bool HasDiagnosticCode(IReadOnlyList<InterpPreviewDiagnostic> diagnostics, string code)
+    {
+        if (diagnostics is null || diagnostics.Count == 0 || string.IsNullOrWhiteSpace(code))
+        {
+            return false;
+        }
+
+        for (int i = 0; i < diagnostics.Count; i++)
+        {
+            if (string.Equals(diagnostics[i].Code, code, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static int CountDiagnosticsByCode(IReadOnlyList<InterpPreviewDiagnostic> diagnostics, string code)
+    {
+        if (diagnostics is null || diagnostics.Count == 0 || string.IsNullOrWhiteSpace(code))
+        {
+            return 0;
+        }
+
+        int count = 0;
+        for (int i = 0; i < diagnostics.Count; i++)
+        {
+            if (string.Equals(diagnostics[i].Code, code, StringComparison.Ordinal))
+            {
+                count++;
+            }
+        }
+
+        return count;
     }
 
     public async Task EnsurePlayerContextLoadedAsync(ConversationExtended conversation, DialogueNodeExtended node)

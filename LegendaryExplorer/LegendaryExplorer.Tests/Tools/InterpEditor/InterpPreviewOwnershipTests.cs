@@ -277,6 +277,66 @@ public class InterpPreviewOwnershipTests
         Assert.AreSame(playerActor, matches[0]);
     }
 
+    [TestMethod]
+    public void Session_SceneGeneration_IncrementsOnPublicMutations_AndNotOnEmptyClear()
+    {
+        using var session = new InterpPreviewSession();
+
+        long generation0 = session.SceneGeneration;
+        session.CommitLevel(new InterpPreviewLoadedLevel("C:\\Test\\LevelA.pcc", package: null, actors: new List<ActorProxy>()), replace: false);
+        long generation1 = session.SceneGeneration;
+
+        session.CommitLevel(new InterpPreviewLoadedLevel("C:\\Test\\LevelB.pcc", package: null, actors: new List<ActorProxy>()), replace: true);
+        long generation2 = session.SceneGeneration;
+
+        session.CommitLevel(new InterpPreviewLoadedLevel(
+            "C:\\Test\\BioP_Char.pcc",
+            package: null,
+            actors: new List<ActorProxy>(),
+            InterpPreviewResourceKind.PlayerContext,
+            InterpPreviewPlayerVariant.Female),
+            replace: false);
+        long generation3 = session.SceneGeneration;
+
+        session.ClearLevels();
+        long generation4 = session.SceneGeneration;
+
+        session.ClearLevels();
+        long generation5 = session.SceneGeneration;
+
+        Assert.AreEqual(generation0 + 1, generation1);
+        Assert.AreEqual(generation1 + 1, generation2);
+        Assert.AreEqual(generation2 + 1, generation3);
+        Assert.AreEqual(generation3 + 1, generation4);
+        Assert.AreEqual(generation4, generation5);
+    }
+
+    [TestMethod]
+    public void Session_CreateSceneSnapshot_ReturnsImmutableSceneStampAndDescriptors()
+    {
+        using var session = new InterpPreviewSession();
+        string levelPath = Path.GetFullPath("C:\\Test\\LevelA.pcc");
+        string playerPath = Path.GetFullPath("C:\\Test\\BioP_Char.pcc");
+
+        session.AddLevel(new InterpPreviewLoadedLevel(levelPath, package: null, actors: new List<ActorProxy>()));
+        session.AddLevel(new InterpPreviewLoadedLevel(
+            playerPath,
+            package: null,
+            actors: new List<ActorProxy>(),
+            InterpPreviewResourceKind.PlayerContext,
+            InterpPreviewPlayerVariant.Male));
+
+        InterpPreviewSceneSnapshot snapshot = session.CreateSceneSnapshot();
+        long generationAtSnapshot = session.SceneGeneration;
+
+        session.ClearLevels();
+
+        Assert.AreEqual(session.SessionId, snapshot.Stamp.SessionId);
+        Assert.AreEqual(generationAtSnapshot, snapshot.Stamp.Generation);
+        Assert.AreEqual(2, snapshot.Resources.Count);
+        Assert.AreEqual(InterpPreviewPlayerVariant.Male, snapshot.LoadedPlayerVariant);
+    }
+
     private static ActorProxy CreateDisposableTestActor()
     {
         var actor = (ActorProxy)RuntimeHelpers.GetUninitializedObject(typeof(ActorProxy));

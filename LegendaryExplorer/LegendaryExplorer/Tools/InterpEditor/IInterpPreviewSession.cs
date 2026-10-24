@@ -39,6 +39,9 @@ public sealed class InterpPreviewSessionCommitResult
 
 public interface IInterpPreviewSession : IDisposable
 {
+    Guid SessionId { get; }
+    long SceneGeneration { get; }
+    InterpPreviewSceneStamp SceneStamp { get; }
     IList<ActorProxy> Actors { get; }
     int LoadedLevelCount { get; }
     int TotalResourceCount { get; }
@@ -47,6 +50,7 @@ public interface IInterpPreviewSession : IDisposable
     bool ContainsLevelPath(string fullPath);
     bool ContainsResource(InterpPreviewResourceKey key);
     IReadOnlyList<ActorProxy> FindActorsByLookup(string lookup);
+    InterpPreviewSceneSnapshot CreateSceneSnapshot();
     InterpPreviewSessionCommitResult CommitLevel(InterpPreviewLoadedLevel loadedLevel, bool replace);
     IReadOnlyList<ActorProxy> AddLevel(InterpPreviewLoadedLevel loadedLevel);
     IReadOnlyList<ActorProxy> ReplaceAllWithLevel(InterpPreviewLoadedLevel loadedLevel);

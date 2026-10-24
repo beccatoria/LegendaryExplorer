@@ -95,6 +95,29 @@ public class InterpPreviewLoadCoordinatorTests
     }
 
     [TestMethod]
+    [Timeout(15000)]
+    public async Task LoadLevelAsync_SecondSamePathLoadCancelsFirstInFlightLoad()
+    {
+        using var firstLoadStarted = new ManualResetEventSlim(false);
+        var levelLoader = new FirstCallBlocksUntilCancelledThenSucceedsLoader(firstLoadStarted);
+        var session = new StubSession();
+        using var coordinator = new InterpPreviewLoadCoordinator(levelLoader, session);
+
+        const string samePath = "C:\\Test\\SameInFlight.pcc";
+        Task<InterpPreviewLoadResult> firstLoadTask = coordinator.LoadLevelAsync(samePath, replace: false, actorEditorContext: null, onReplace: null);
+        Assert.IsTrue(firstLoadStarted.Wait(TimeSpan.FromSeconds(2)), "First load did not start in time.");
+
+        Task<InterpPreviewLoadResult> secondLoadTask = coordinator.LoadLevelAsync(samePath, replace: false, actorEditorContext: null, onReplace: null);
+
+        InterpPreviewLoadResult firstResult = await AwaitWithTimeout(firstLoadTask, TimeSpan.FromSeconds(5), "First same-path load task did not complete after being superseded.");
+        InterpPreviewLoadResult secondResult = await AwaitWithTimeout(secondLoadTask, TimeSpan.FromSeconds(5), "Second same-path load task did not complete.");
+
+        Assert.AreEqual(InterpPreviewLoadOutcome.Cancelled, firstResult.Outcome);
+        Assert.AreEqual(InterpPreviewLoadOutcome.Loaded, secondResult.Outcome);
+        Assert.AreEqual(2, levelLoader.Calls);
+    }
+
+    [TestMethod]
     public async Task LoadLevelAsync_ReturnsSuperseded_AndDisposesPreparedResource_WhenCanContinueTurnsFalseAfterPrepare()
     {
         var session = new StubSession();
@@ -256,6 +279,9 @@ public class InterpPreviewLoadCoordinatorTests
 
     private sealed class StubSession : IInterpPreviewSession
     {
+        public Guid SessionId { get; } = Guid.NewGuid();
+        public long SceneGeneration => 0;
+        public InterpPreviewSceneStamp SceneStamp => new(SessionId, SceneGeneration);
         public bool ContainsLevelPathResult { get; set; }
         public IList<ActorProxy> Actors { get; } = new List<ActorProxy>();
         public int LoadedLevelCount => 0;
@@ -266,6 +292,7 @@ public class InterpPreviewLoadCoordinatorTests
         public bool ContainsLevelPath(string fullPath) => ContainsLevelPathResult;
         public bool ContainsResource(InterpPreviewResourceKey key) => false;
         public IReadOnlyList<ActorProxy> FindActorsByLookup(string lookup) => [];
+        public InterpPreviewSceneSnapshot CreateSceneSnapshot() => new(SceneStamp, [], [], InterpPreviewPlayerVariant.None);
         public InterpPreviewSessionCommitResult CommitLevel(InterpPreviewLoadedLevel loadedLevel, bool replace)
         {
             IReadOnlyList<ActorProxy> added = replace

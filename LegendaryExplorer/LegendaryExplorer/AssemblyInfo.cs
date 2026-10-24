@@ -12,3 +12,4 @@ using System.Windows;
 
 //Use LibraryImport and explicit marshalling instead of DLLImport magic
 [assembly: DisableRuntimeMarshalling]
+[assembly: InternalsVisibleTo("LegendaryExplorer.Tests")]
