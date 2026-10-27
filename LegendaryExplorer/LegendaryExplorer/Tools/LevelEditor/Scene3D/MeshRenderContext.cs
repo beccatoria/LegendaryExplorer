@@ -294,7 +294,7 @@ public class MeshRenderContext : RenderContext
     public PreviewLighting Lighting { get; } = new();
 
     //Materials whose game shaders haven't been loaded yet
-    private readonly List<MaterialRenderProxy> PendingGameShaderLoads = [];
+    private readonly HashSet<MaterialRenderProxy> PendingGameShaderLoads = [];
 
     private readonly Lock LightsLock = new();
     //replaced rather than modified, so it can be read without locking
@@ -404,6 +404,25 @@ public class MeshRenderContext : RenderContext
             if (index < 0 || ReferenceEquals(previous, replacement)) return;
             var updated = (SceneLight[])Lights.Clone();
             updated[index] = replacement;
+            Lights = updated;
+            LightsVersion++;
+            RefreshLightVisibility();
+        }
+    }
+
+    public void ReplaceLights(IReadOnlyDictionary<SceneLight, SceneLight> replacements)
+    {
+        if (replacements.Count == 0) return;
+        lock (LightsLock)
+        {
+            SceneLight[] updated = null;
+            for (int i = 0; i < Lights.Length; i++)
+            {
+                if (!replacements.TryGetValue(Lights[i], out var replacement) || ReferenceEquals(replacement, Lights[i])) continue;
+                updated ??= (SceneLight[])Lights.Clone();
+                updated[i] = replacement;
+            }
+            if (updated is null) return;
             Lights = updated;
             LightsVersion++;
             RefreshLightVisibility();
@@ -1000,6 +1019,59 @@ public class MeshRenderContext : RenderContext
         }
     }
 
+    internal void RemovePendingGameShaderLoad(MaterialRenderProxy material)
+    {
+        lock (PendingGameShaderLoads) PendingGameShaderLoads.Remove(material);
+    }
+
+    /// <summary>Tracks registrations so even a constructor that fails halfway cannot retain a cancelled scene.</summary>
+    public SceneLoadResourceScope TrackSceneLoadResources() => new(this);
+
+    public sealed class SceneLoadResourceScope : IDisposable
+    {
+        private MeshRenderContext _context;
+        private readonly HashSet<MeshStaticLighting> _staticLighting;
+        private readonly HashSet<MaterialRenderProxy> _pendingMaterials;
+        private readonly HashSet<LightEnvironmentPrimitive> _primitives = [];
+        private bool _committed;
+
+        internal SceneLoadResourceScope(MeshRenderContext context)
+        {
+            _context = context;
+            _staticLighting = new(context.GetStaticLightings());
+            lock (context.PendingGameShaderLoads) _pendingMaterials = new(context.PendingGameShaderLoads);
+            lock (context.LightEnvironments)
+                foreach (var environment in context.LightEnvironments.Values) _primitives.UnionWith(environment.GetPrimitives());
+        }
+
+        public void Commit() => _committed = true;
+
+        public void Dispose()
+        {
+            var context = _context;
+            _context = null;
+            if (context is null) return;
+            try
+            {
+                if (_committed) return;
+                foreach (var lighting in context.GetStaticLightings())
+                    if (!_staticLighting.Contains(lighting)) lighting.Dispose();
+                lock (context.PendingGameShaderLoads)
+                    context.PendingGameShaderLoads.RemoveWhere(material => !_pendingMaterials.Contains(material));
+                lock (context.LightEnvironments)
+                    foreach (var environment in context.LightEnvironments.Values.ToArray())
+                        foreach (var primitive in environment.GetPrimitives())
+                            if (!_primitives.Contains(primitive)) context.RemoveLightEnvironmentPrimitive(environment, primitive);
+            }
+            finally
+            {
+                _staticLighting.Clear();
+                _pendingMaterials.Clear();
+                _primitives.Clear();
+            }
+        }
+    }
+
     /// <summary>
     /// Whether any materials have been created whose game shaders haven't been loaded by <see cref="LoadPendingGameShaders"/>
     /// </summary>
@@ -1478,7 +1550,8 @@ public class MeshRenderContext : RenderContext
 
 
         using var factory = new D2D.Factory(D2D.FactoryType.SingleThreaded, App.IsDebug ? D2D.DebugLevel.Information : D2D.DebugLevel.None);
-        RenderTarget2D = new D2D.RenderTarget(factory, newBackBuffer.QueryInterface<Surface>(), new D2D.RenderTargetProperties(new D2D.PixelFormat(Format.Unknown, D2D.AlphaMode.Premultiplied)));
+        using var surface = newBackBuffer.QueryInterface<Surface>();
+        RenderTarget2D = new D2D.RenderTarget(factory, surface, new D2D.RenderTargetProperties(new D2D.PixelFormat(Format.Unknown, D2D.AlphaMode.Premultiplied)));
         statsTextBrush = new D2D.SolidColorBrush(RenderTarget2D, new RawColor4(1, 1, 1, 1), new D2D.BrushProperties { Opacity = 1 });
         statsShadowBrush = new D2D.SolidColorBrush(RenderTarget2D, new RawColor4(0, 0, 0, 1), new D2D.BrushProperties { Opacity = 1 });
         errorTextBrush = new D2D.SolidColorBrush(RenderTarget2D, new RawColor4(0.2f, 0, 0, 1), new D2D.BrushProperties { Opacity = 1 });

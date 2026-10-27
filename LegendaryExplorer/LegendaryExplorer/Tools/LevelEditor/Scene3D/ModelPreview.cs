@@ -113,6 +113,7 @@ public enum RenderPass
 /// </summary>
 public abstract class ModelPreviewMaterial<Vertex> where Vertex : IVertexBase
 {
+    public virtual void ReleasePendingShaders() { }
 
     public RenderPass Pass;
 
@@ -243,6 +244,7 @@ public class TexturedPreviewMaterial : ModelPreviewMaterial<WorldVertex>
 
 file class LEShaderPreviewMaterial : ModelPreviewMaterial<LEVertex>
 {
+    public override void ReleasePendingShaders() => RenderProxy.CancelPendingShaderLoad();
     private readonly RenderTargetBlendDescription BlendDescription;
 
     public readonly Dictionary<string, PreviewTextureCache.TextureEntry> TextureMap = [];
@@ -927,6 +929,7 @@ public class ModelPreview<TVertex> : IDisposable where TVertex : IVertexBase
     /// </summary>
     public void Dispose()
     {
+        foreach (var material in Materials.Values) material.ReleasePendingShaders();
         Materials.Clear();
         foreach (var lod in LODs)
         {

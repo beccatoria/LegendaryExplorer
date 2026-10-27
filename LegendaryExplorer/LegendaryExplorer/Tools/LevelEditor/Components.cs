@@ -680,7 +680,14 @@ public class LightComponentProxy : PrimitiveComponentProxy
 
     public SceneLight GetPreviewLight(PackageCache cache, SceneLight baseline)
     {
-        originalLight ??= baseline;
+        if (originalLight is null || (!ReferenceEquals(baseline, originalLight) && !ReferenceEquals(baseline, previewLight)))
+        {
+            // A package refresh can supply a new baseline without rebuilding this marker.
+            // Do not replace that fresh snapshot with a cached light from an earlier update.
+            originalLight = baseline;
+            previewState = null;
+            previewLight = null;
+        }
         var state = (LocalToWorld, Radius, SourceRadius, Brightness, LightColor,
             LightingChannelStatic, LightingChannelDynamic, LightingChannelCompositeDynamic);
         if (state == initialState) return originalLight;

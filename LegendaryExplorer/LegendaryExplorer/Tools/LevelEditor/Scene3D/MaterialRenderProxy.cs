@@ -282,6 +282,8 @@ public class MaterialRenderProxy : MaterialInstanceConstantLevelEditor
         }
     }
 
+    public void CancelPendingShaderLoad() => Context.RemovePendingGameShaderLoad(this);
+
     /// <summary>
     /// Call if rendering with game shaders fails, so that this material falls back to the LEX shader
     /// </summary>

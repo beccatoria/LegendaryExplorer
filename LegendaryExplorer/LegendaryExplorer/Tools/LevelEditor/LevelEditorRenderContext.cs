@@ -1,4 +1,4 @@
-using LegendaryExplorer.Tools.LevelEditor.Scene3D;
+﻿using LegendaryExplorer.Tools.LevelEditor.Scene3D;
 using LegendaryExplorerCore.Gammtek.Extensions;
 using LegendaryExplorerCore.Helpers;
 using LegendaryExplorerCore.SharpDX;
@@ -55,8 +55,7 @@ public class LevelEditorRenderContext : MeshRenderContext
     public float LightRenderDistance { get; set; } = float.PositiveInfinity;
 
     protected override bool IsLightContributing(SceneLight light)
-        => !ShowLights || !UseVisibleSetOnly || Visibility.VisibleActorKeys.Contains(
-            EditorVisibilityState.GetActorKey(light.VisibilityExport.FileRef.FilePath, light.VisibilityExport.UIndex));
+        => !ShowLights || !UseVisibleSetOnly || Visibility.VisibleActorKeys.Contains(light.VisibilityKey);
 
     public override bool IsActorVisible(ActorProxy actor)
     {
@@ -73,8 +72,7 @@ public class LevelEditorRenderContext : MeshRenderContext
             return false;
         }
 
-        Vector3 delta = actor.Location - Camera.Position;
-        if (actor.IsLight && delta.LengthSquared() > LightRenderDistance * LightRenderDistance)
+        if (actor.IsLight && Vector3.DistanceSquared(actor.Location, Camera.Position) > LightRenderDistance * LightRenderDistance)
         {
             return false;
         }
@@ -400,7 +398,14 @@ public class LevelEditorRenderContext : MeshRenderContext
         HitProxies.Reset();
         DrawList_3D.DisposeAndClear();
         DrawList_UI.Clear();
+        SelectedActor = null;
+        SelectedBioStageMarker = null;
+        ClearLeftClickHistory();
+        _ctrlSelectionLatched = false;
+        LastActorSelectionWasAdditive = false;
         TransformWidget.Attach = null;
+        TransformWidget.EndDrag();
+        TransformWidget.CurrentAxis = EWidgetAxis.None;
     }
 
     public override void CreateSizeDependentResources(int width, int height, Texture2D newBackBuffer)
@@ -418,6 +423,15 @@ public class LevelEditorRenderContext : MeshRenderContext
         if (DrawList_3D.Remove(actor))
         {
             HitProxies.RemoveAt(actor.HitID);
+            if (ReferenceEquals(SelectedActor, actor)) SelectedActor = null;
+            if (ReferenceEquals(SelectedBioStageMarker?.Owner, actor)) SelectedBioStageMarker = null;
+            if (ReferenceEquals(_lastLeftClickedActor, actor)) ClearLeftClickHistory();
+            if (ReferenceEquals(TransformWidget.Attach, actor))
+            {
+                TransformWidget.Attach = null;
+                TransformWidget.EndDrag();
+                TransformWidget.CurrentAxis = EWidgetAxis.None;
+            }
         }
     }
 

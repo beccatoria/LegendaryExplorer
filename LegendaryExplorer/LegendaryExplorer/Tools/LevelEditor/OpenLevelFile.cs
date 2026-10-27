@@ -17,6 +17,7 @@ namespace LegendaryExplorer.Tools.LevelEditor;
 /// </summary>
 public class OpenLevelFile : NotifyPropertyChangedBase, IPackageUser, IDisposable
 {
+    public bool IsDisposed { get; private set; }
     public IMEPackage Package { get; }
     public ExportEntry LevelExport { get; }
     public int LoadOrder { get; }
@@ -26,6 +27,10 @@ public class OpenLevelFile : NotifyPropertyChangedBase, IPackageUser, IDisposabl
     public ObservableCollectionExtended<ActorProxy> Actors { get; } = [];
 
     public List<SceneLight> Lights { get; internal set; } = [];
+    private readonly LevelLightPreviewUpdater _lightPreviews = new();
+    public LevelLightUpdateDependencies LightDependencies { get; } = new();
+
+    public void UpdateLightPreviews(MeshRenderContext context) => _lightPreviews.Update(Actors, Lights, context);
 
     private readonly LevelEditor Owner;
 
@@ -67,13 +72,23 @@ public class OpenLevelFile : NotifyPropertyChangedBase, IPackageUser, IDisposabl
         Package = package;
         LevelExport = levelExport;
         LoadOrder = loadOrder;
+        Actors.CollectionChanged += ActorsChanged;
     }
+
+    private void ActorsChanged(object sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
+        => _lightPreviews.Invalidate();
 
     #region IPackageUser
 
     public void HandleUpdate(List<PackageUpdate> updates)
     {
-        Owner.HandleFileUpdate(this, updates);
+        if (IsDisposed || Owner.Dispatcher.HasShutdownStarted) return;
+        if (!Owner.Dispatcher.CheckAccess())
+        {
+            var snapshot = updates.ToList();
+            Owner.Dispatcher.BeginInvoke(new Action(() => HandleUpdate(snapshot)));
+        }
+        else Owner.HandleFileUpdate(this, updates);
     }
 
     private Action _closedHandler;
@@ -90,13 +105,20 @@ public class OpenLevelFile : NotifyPropertyChangedBase, IPackageUser, IDisposabl
 
     public void HandleSaveStateChange(bool isSaving)
     {
-        Owner.HandleSaveStateChange(isSaving);
+        if (IsDisposed || Owner.Dispatcher.HasShutdownStarted) return;
+        if (!Owner.Dispatcher.CheckAccess())
+            Owner.Dispatcher.BeginInvoke(new Action(() => HandleSaveStateChange(isSaving)));
+        else Owner.HandleSaveStateChange(isSaving);
     }
 
     #endregion
 
     public void Dispose()
     {
+        if (IsDisposed) return;
+        IsDisposed = true;
+        Actors.CollectionChanged -= ActorsChanged;
+        _lightPreviews.Clear();
         foreach (var actor in Actors)
         {
             actor.Dispose();

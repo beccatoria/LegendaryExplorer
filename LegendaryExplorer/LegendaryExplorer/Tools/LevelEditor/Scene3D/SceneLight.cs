@@ -29,6 +29,24 @@ public sealed class SceneLight
     public SceneLightType Type { get; }
     public ExportEntry Export { get; }
     public ExportEntry VisibilityExport { get; private set; }
+    private string _visibilityKey;
+    private string _visibilityPackagePath;
+    private int _visibilityExportIndex;
+    public string VisibilityKey
+    {
+        get
+        {
+            string path = VisibilityExport.FileRef.FilePath;
+            int index = VisibilityExport.UIndex;
+            if (_visibilityKey is null || path != _visibilityPackagePath || index != _visibilityExportIndex)
+            {
+                _visibilityPackagePath = path;
+                _visibilityExportIndex = index;
+                _visibilityKey = EditorVisibilityState.GetActorKey(path, index);
+            }
+            return _visibilityKey;
+        }
+    }
 
     /// <summary>
     /// Identifies the light in shadow maps
@@ -399,7 +417,7 @@ public sealed class SceneLight
     /// <summary>
     /// Reads the lights in a level's actors. (Stand-alone light actors, and StaticLightCollectionActors)
     /// </summary>
-    public static List<SceneLight> LoadLevelLights(Level level, PackageCache packageCache)
+    public static List<SceneLight> LoadLevelLights(Level level, PackageCache packageCache, Action<ExportEntry> registerSource = null)
     {
         IMEPackage pcc = level.Export.FileRef;
         var lights = new List<SceneLight>();
@@ -413,6 +431,7 @@ public sealed class SceneLight
             {
                 if (actor.ClassName == "StaticLightCollectionActor")
                 {
+                    registerSource?.Invoke(actor);
                     //StaticLightCollectionActor::UpdateComponentsInternal gives each component its stored transform
                     var collection = actor.GetBinaryData<StaticLightCollectionActor>();
                     for (int i = 0; i < collection.Components.Count; i++)
@@ -426,11 +445,14 @@ public sealed class SceneLight
                 }
                 else if (actor.GetProperty<ObjectProperty>("LightComponent")?.ResolveToEntry(pcc) is ExportEntry lightComponent)
                 {
+                    registerSource?.Invoke(actor);
+                    registerSource?.Invoke(lightComponent);
                     TryAdd(lightComponent, actor.ClassName, ActorUtils.GetLocalToWorld(actor), actor);
                 }
             }
             catch
             {
+                registerSource?.Invoke(actor);
                 //an actor that can't be read just has no lights
             }
         }
