@@ -13,6 +13,8 @@ public partial class VisibleSetsManagerDialog : TrackingNotifyPropertyChangedWin
     public ObservableCollectionExtended<string> VisibleClasses { get; } = [];
     public ObservableCollectionExtended<string> HiddenClasses { get; } = [];
     public bool ClearActorLevelSettingsRequested { get; private set; }
+    public HashSet<string> ResetActorSettingsForClasses { get; } = new(System.StringComparer.OrdinalIgnoreCase);
+    public bool? AllClassesVisibility { get; private set; }
 
     public ObservableCollectionExtended<string> FilteredVisibleClasses { get; } = [];
     public ObservableCollectionExtended<string> FilteredHiddenClasses { get; } = [];
@@ -61,10 +63,9 @@ public partial class VisibleSetsManagerDialog : TrackingNotifyPropertyChangedWin
 
     private void AddAll_Click(object sender, RoutedEventArgs e)
     {
-        if (HiddenClasses.Count is 0)
-        {
-            return;
-        }
+        AllClassesVisibility = true;
+        ResetActorSettingsForClasses.UnionWith(VisibleClasses);
+        ResetActorSettingsForClasses.UnionWith(HiddenClasses);
 
         VisibleClasses.AddRange(HiddenClasses);
         HiddenClasses.Clear();
@@ -90,10 +91,9 @@ public partial class VisibleSetsManagerDialog : TrackingNotifyPropertyChangedWin
 
     private void ClearAll_Click(object sender, RoutedEventArgs e)
     {
-        if (VisibleClasses.Count is 0)
-        {
-            return;
-        }
+        AllClassesVisibility = false;
+        ResetActorSettingsForClasses.UnionWith(VisibleClasses);
+        ResetActorSettingsForClasses.UnionWith(HiddenClasses);
 
         HiddenClasses.AddRange(VisibleClasses);
         VisibleClasses.Clear();
@@ -129,6 +129,7 @@ public partial class VisibleSetsManagerDialog : TrackingNotifyPropertyChangedWin
         if (HiddenClasses_ListBox.SelectedItems.Count is 0) return;
 
         List<string> moving = HiddenClasses_ListBox.SelectedItems.Cast<string>().ToList();
+        ResetActorSettingsForClasses.UnionWith(moving);
         foreach (string className in moving)
         {
             HiddenClasses.Remove(className);
@@ -149,6 +150,7 @@ public partial class VisibleSetsManagerDialog : TrackingNotifyPropertyChangedWin
         if (VisibleClasses_ListBox.SelectedItems.Count is 0) return;
 
         List<string> moving = VisibleClasses_ListBox.SelectedItems.Cast<string>().ToList();
+        ResetActorSettingsForClasses.UnionWith(moving);
         foreach (string className in moving)
         {
             VisibleClasses.Remove(className);

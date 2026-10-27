@@ -54,6 +54,25 @@ public class ActorProxy : NotifyPropertyChangedBase, IDisposable, IHitProxy
     public ExportEntry Export { get; }
     protected IMEPackage Pcc => Export.FileRef;
 
+    private string _visibilityKey;
+    private string _visibilityPackagePath;
+    private int _visibilityExportIndex;
+    public string VisibilityKey
+    {
+        get
+        {
+            string packagePath = Pcc.FilePath;
+            int exportIndex = Export.UIndex;
+            if (_visibilityKey is null || _visibilityPackagePath != packagePath || _visibilityExportIndex != exportIndex)
+            {
+                _visibilityPackagePath = packagePath;
+                _visibilityExportIndex = exportIndex;
+                _visibilityKey = EditorVisibilityState.GetActorKey(packagePath, exportIndex);
+            }
+            return _visibilityKey;
+        }
+    }
+
     public string OwningFileName => System.IO.Path.GetFileName(Pcc.FilePath);
     public int ActorUIndex => Export.UIndex;
 
@@ -221,7 +240,15 @@ public class ActorProxy : NotifyPropertyChangedBase, IDisposable, IHitProxy
     protected LightComponentProxy LightEditorComponent { get; set; }
     public bool SupportsLightProperties => LightEditorComponent is not null;
     public virtual bool IsVolume => false;
-    public bool IsVolumetricMesh => Components.OfType<MeshComponentProxy>().Any(component => component.IsVolumetric);
+    public bool IsVolumetricMesh
+    {
+        get
+        {
+            foreach (var component in Components)
+                if (component is MeshComponentProxy { IsVolumetric: true }) return true;
+            return false;
+        }
+    }
     public bool IsEmitter { get; protected set; }
     public bool IsStartPoint { get; protected set; }
     public bool IsTargetPoint { get; protected set; }

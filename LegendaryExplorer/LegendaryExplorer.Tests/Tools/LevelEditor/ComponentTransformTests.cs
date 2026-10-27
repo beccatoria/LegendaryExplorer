@@ -90,6 +90,7 @@ public class ComponentTransformTests
         using var package = MEPackageHandler.CreateMemoryEmptyPackage("VisibilityPolicy.pcc", MEGame.LE3);
         var export = CreateExport(package, null, "Actor", "Actor", []);
         using var actor = new TestActor(export);
+        Assert.AreSame(actor.VisibilityKey, actor.VisibilityKey);
         var context = new LevelEditorRenderContext { UseVisibleSetOnly = true, VisibleSetDistance = 10 };
         context.Camera.Position = Vector3.Zero;
         Assert.IsFalse(context.IsActorVisible(actor));
@@ -103,6 +104,33 @@ public class ComponentTransformTests
         Assert.IsTrue(context.IsActorVisible(actor));
         context.HideOrdinaryMeshes = true;
         Assert.IsFalse(context.IsActorVisible(actor));
+    }
+
+    [TestMethod]
+    public void ActorVisibility_RepeatedModeChangesRetainSelectiveMembershipInTopDownView()
+    {
+        using var package = MEPackageHandler.CreateMemoryEmptyPackage("VisibilityModes.pcc", MEGame.LE2);
+        using var first = new TestActor(CreateExport(package, null, "First", "Actor", []));
+        using var second = new TestActor(CreateExport(package, null, "Second", "Actor", []));
+        var context = new LevelEditorRenderContext { VisibleSetDistance = 5000 };
+        context.Camera.IsOrthographic = true;
+        context.Camera.Position = new Vector3(0, 0, 40000);
+        context.Visibility.RegisterActor(first.VisibilityKey, "Actor");
+        context.Visibility.SetActorVisibility(second.VisibilityKey, false);
+        for (int i = 0; i < 10; i++)
+        {
+            context.UseVisibleSetOnly = false;
+            Assert.IsTrue(context.IsActorVisible(first));
+            Assert.IsTrue(context.IsActorVisible(second));
+            context.UseVisibleSetOnly = true;
+            Assert.IsTrue(context.IsActorVisible(first));
+            Assert.IsFalse(context.IsActorVisible(second));
+        }
+        context.Visibility.VisibleActorKeys.Clear();
+        Assert.IsFalse(context.IsActorVisible(first));
+        context.Visibility.RegisterActor(first.VisibilityKey, "Actor");
+        Assert.IsTrue(context.IsActorVisible(first));
+        Assert.IsFalse(context.IsActorVisible(second));
     }
 
     [TestMethod]

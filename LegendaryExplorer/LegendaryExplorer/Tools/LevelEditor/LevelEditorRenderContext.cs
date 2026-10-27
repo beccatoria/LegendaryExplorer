@@ -1,4 +1,4 @@
-﻿using LegendaryExplorer.Tools.LevelEditor.Scene3D;
+using LegendaryExplorer.Tools.LevelEditor.Scene3D;
 using LegendaryExplorerCore.Gammtek.Extensions;
 using LegendaryExplorerCore.Helpers;
 using LegendaryExplorerCore.SharpDX;
@@ -79,16 +79,20 @@ public class LevelEditorRenderContext : MeshRenderContext
             return false;
         }
 
-        float distanceSquared = Camera.IsOrthographic ? delta.X * delta.X + delta.Y * delta.Y : delta.LengthSquared();
         if (actor.VisibilityOwner is null && UseVisibleSetOnly && !Visibility.IsInVisibleSet(
-                EditorVisibilityState.GetActorKey(actor.Export.FileRef.FilePath, actor.Export.UIndex),
-                distanceSquared, VisibleSetDistance * VisibleSetDistance))
+                actor.VisibilityKey, GetVisibleSetDistanceSquared(actor), VisibleSetDistance * VisibleSetDistance))
         {
             return false;
         }
 
         return !HideOrdinaryMeshes || actor.IsVolume || actor.IsVolumetricMesh || actor.IsLight
             || actor.IsEmitter || actor.IsLocationActor || actor.IsAmbientSound || actor.IsCinematicActor || actor.IsDecalActor;
+    }
+
+    public float GetVisibleSetDistanceSquared(ActorProxy actor)
+    {
+        Vector3 delta = actor.Location - Camera.Position;
+        return Camera.IsOrthographic ? delta.X * delta.X + delta.Y * delta.Y : delta.LengthSquared();
     }
 
     private bool IsReadOnly;
