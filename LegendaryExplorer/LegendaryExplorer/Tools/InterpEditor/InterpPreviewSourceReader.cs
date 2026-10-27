@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
 using LegendaryExplorerCore.Dialogue;
 using LegendaryExplorerCore.Packages;
 using LegendaryExplorerCore.Unreal;
@@ -21,6 +23,7 @@ public sealed class InterpPreviewSourceReadRequest
 
     public ConversationExtended Conversation { get; }
     public DialogueNodeExtended Node { get; }
+    public CancellationToken CancellationToken { get; init; }
 }
 
 public enum InterpPreviewSourceReadOutcome
@@ -68,7 +71,7 @@ public sealed class InterpPreviewSourceReadResult
             copy[i] = source[i];
         }
 
-        return copy;
+        return Array.AsReadOnly(copy);
     }
 }
 
@@ -99,13 +102,16 @@ public sealed class InterpPreviewSourceSnapshot
         InterpPreviewNodeId? nodeId,
         InterpPreviewSourceObjectId? sequenceId,
         InterpPreviewSourceObjectId? interpDataHintId,
-        InterpPreviewNodeMetadata nodeMetadata)
+        InterpPreviewNodeMetadata nodeMetadata,
+        IReadOnlyList<InterpPreviewSpeakerSnapshot> speakers = null)
     {
         ConversationId = conversationId;
         NodeId = nodeId;
         SequenceId = sequenceId;
         InterpDataHintId = interpDataHintId;
         NodeMetadata = nodeMetadata;
+        SnapshotId = Guid.NewGuid();
+        Speakers = InterpPreviewValues.Copy(speakers);
     }
 
     public InterpPreviewSourceObjectId ConversationId { get; }
@@ -113,6 +119,15 @@ public sealed class InterpPreviewSourceSnapshot
     public InterpPreviewSourceObjectId? SequenceId { get; }
     public InterpPreviewSourceObjectId? InterpDataHintId { get; }
     public InterpPreviewNodeMetadata NodeMetadata { get; }
+    public Guid SnapshotId { get; }
+    public IReadOnlyList<InterpPreviewSpeakerSnapshot> Speakers { get; }
+}
+
+public sealed class InterpPreviewSpeakerSnapshot
+{
+    public InterpPreviewSpeakerSnapshot(int speakerId, string name) { SpeakerId = speakerId; Name = name ?? string.Empty; }
+    public int SpeakerId { get; }
+    public string Name { get; }
 }
 
 public sealed class InterpPreviewSourceReader : IInterpPreviewSourceReader
@@ -128,6 +143,7 @@ public sealed class InterpPreviewSourceReader : IInterpPreviewSourceReader
 
         ConversationExtended conversation = request.Conversation;
         DialogueNodeExtended node = request.Node;
+        request.CancellationToken.ThrowIfCancellationRequested();
 
         if (conversation?.Export is null)
         {
@@ -141,6 +157,15 @@ public sealed class InterpPreviewSourceReader : IInterpPreviewSourceReader
             return InterpPreviewSourceReadResult.Unresolved(diagnostics);
         }
 
+        var nodeList = node.IsReply ? conversation.ReplyList : conversation.EntryList;
+        if (node.NodeCount < 0 || node.NodeCount >= nodeList.Count || !ReferenceEquals(nodeList[node.NodeCount], node)
+            || !string.Equals(conversation.Export.ClassName, "BioConversation", StringComparison.Ordinal))
+        {
+            diagnostics.Add(new InterpPreviewDiagnostic(InterpPreviewDiagnosticSeverity.Error, "SOURCE_NODE_MEMBERSHIP_INVALID",
+                "The selected line does not belong to this conversation at its stated Entry/Reply index."));
+            return InterpPreviewSourceReadResult.Unresolved(diagnostics);
+        }
+
         if (!TryCreateSourceObjectId(conversation.Export, out InterpPreviewSourceObjectId conversationId))
         {
             diagnostics.Add(new InterpPreviewDiagnostic(InterpPreviewDiagnosticSeverity.Error, "SOURCE_CONVERSATION_ID_INVALID", "Conversation identity could not be created from source metadata."));
@@ -148,6 +173,9 @@ public sealed class InterpPreviewSourceReader : IInterpPreviewSourceReader
         }
 
         int nodeExportId = ReadNodeExportId(node);
+        if (node.NodeProp?.GetProp<IntProperty>("nExportID") is null && nodeExportId > 0)
+            diagnostics.Add(new(InterpPreviewDiagnosticSeverity.Warning, "SOURCE_NODE_EXPORTID_CACHED",
+                "Only the editor's cached export ID is available; source completeness is not established."));
         if (nodeExportId <= 0)
         {
             diagnostics.Add(new InterpPreviewDiagnostic(InterpPreviewDiagnosticSeverity.Warning, "SOURCE_NODE_EXPORTID_MISSING", "Selected node does not have a valid nExportID; source snapshot is partial."));
@@ -168,7 +196,9 @@ public sealed class InterpPreviewSourceReader : IInterpPreviewSourceReader
         InterpPreviewSourceObjectId? sequenceId = null;
         if (conversation.Sequence is not null)
         {
-            if (TryCreateSourceObjectId(conversation.Sequence, out InterpPreviewSourceObjectId seq))
+            if (conversation.Sequence.Game == conversation.Export.Game
+                && conversation.Sequence.ClassName == "Sequence"
+                && TryCreateSourceObjectId(conversation.Sequence, out InterpPreviewSourceObjectId seq))
             {
                 sequenceId = seq;
             }
@@ -181,7 +211,8 @@ public sealed class InterpPreviewSourceReader : IInterpPreviewSourceReader
         InterpPreviewSourceObjectId? interpHintId = null;
         if (node.InterpData is not null)
         {
-            if (TryCreateSourceObjectId(node.InterpData, out InterpPreviewSourceObjectId hint))
+            if (node.InterpData.Game == conversation.Export.Game && node.InterpData.ClassName == "InterpData"
+                && TryCreateSourceObjectId(node.InterpData, out InterpPreviewSourceObjectId hint))
             {
                 interpHintId = hint;
             }
@@ -191,8 +222,9 @@ public sealed class InterpPreviewSourceReader : IInterpPreviewSourceReader
             }
         }
 
-        var snapshot = new InterpPreviewSourceSnapshot(conversationId, nodeId, sequenceId, interpHintId, nodeMetadata);
-        return nodeId.HasValue
+        var snapshot = new InterpPreviewSourceSnapshot(conversationId, nodeId, sequenceId, interpHintId, nodeMetadata,
+            conversation.Speakers?.Select(speaker => new InterpPreviewSpeakerSnapshot(speaker.SpeakerID, speaker.SpeakerName)).ToArray());
+        return nodeId.HasValue && diagnostics.Count == 0
             ? InterpPreviewSourceReadResult.Ready(snapshot, diagnostics)
             : InterpPreviewSourceReadResult.Partial(snapshot, diagnostics);
     }

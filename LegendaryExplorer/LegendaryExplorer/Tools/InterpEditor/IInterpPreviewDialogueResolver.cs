@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using LegendaryExplorerCore.Dialogue;
 using LegendaryExplorerCore.Packages;
 using LegendaryExplorer.Tools.LevelEditor;
@@ -28,6 +29,10 @@ public sealed class InterpPreviewDialogueResolutionRequest
     public IReadOnlyList<string> LoadedLevelPaths => _loadedLevelPaths;
     public InterpPreviewSceneSnapshot SceneSnapshot => _sceneSnapshot;
     public bool PreferFemalePlayer { get; internal set; } = true;
+    public CancellationToken CancellationToken { get; init; }
+    public long RequestId { get; internal set; }
+    internal Func<bool> CanContinue { get; set; } = () => true;
+    public IReadOnlyDictionary<InterpPreviewSourceObjectId, int> BranchChoices { get; init; }
 
     public IReadOnlyList<ActorProxy> FindLoadedSceneActors(string lookup)
     {
@@ -52,25 +57,30 @@ public sealed class InterpPreviewDialogueResolutionRequest
 
 public sealed class InterpPreviewDialogueResolution
 {
-    public InterpPreviewDialogueResolution(ExportEntry interpData, IReadOnlyList<InterpPreviewDiagnostic> diagnostics)
+    public InterpPreviewDialogueResolution(InterpPreviewResolutionOutcome outcome,
+        IReadOnlyList<InterpPreviewPlanInstance> plans, IReadOnlyList<InterpPreviewDiagnostic> diagnostics,
+        InterpPreviewResolutionStamp stamp = null, InterpPreviewNodeDiscoveryResult discovery = null,
+        IReadOnlyList<InterpPreviewSourceReference> unresolvedReferences = null,
+        InterpPreviewResolutionInput input = null)
     {
-        InterpData = interpData;
-        Diagnostics = diagnostics;
+        Outcome = outcome;
+        Plans = InterpPreviewValues.Copy(plans);
+        Diagnostics = InterpPreviewValues.Copy(diagnostics);
+        Stamp = stamp;
+        Discovery = discovery;
+        UnresolvedReferences = InterpPreviewValues.Copy(unresolvedReferences);
+        Input = input;
     }
-
-    public ExportEntry InterpData { get; }
+    public InterpPreviewResolutionOutcome Outcome { get; }
+    public IReadOnlyList<InterpPreviewPlanInstance> Plans { get; }
     public IReadOnlyList<InterpPreviewDiagnostic> Diagnostics { get; }
-    public bool IsResolved => InterpData is not null;
-
-    public static InterpPreviewDialogueResolution Resolved(ExportEntry interpData, IReadOnlyList<InterpPreviewDiagnostic> diagnostics = null)
-    {
-        return new InterpPreviewDialogueResolution(interpData, diagnostics ?? []);
-    }
-
+    public InterpPreviewResolutionStamp Stamp { get; }
+    public InterpPreviewNodeDiscoveryResult Discovery { get; }
+    public IReadOnlyList<InterpPreviewSourceReference> UnresolvedReferences { get; }
+    public InterpPreviewResolutionInput Input { get; }
+    public bool HasPreviewData => System.Linq.Enumerable.Any(Plans, plan => plan.Data is not null);
     public static InterpPreviewDialogueResolution Unresolved(IReadOnlyList<InterpPreviewDiagnostic> diagnostics)
-    {
-        return new InterpPreviewDialogueResolution(null, diagnostics ?? []);
-    }
+        => new(InterpPreviewResolutionOutcome.Unresolved, [], diagnostics);
 }
 
 public sealed class InterpPreviewDiagnostic

@@ -1,8 +1,8 @@
 using LegendaryExplorer.Tools.InterpEditor;
 using LegendaryExplorer.Tools.LevelEditor;
+using LegendaryExplorerCore;
 using LegendaryExplorerCore.Packages;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using NSubstitute;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -14,64 +14,79 @@ namespace LegendaryExplorer.Tests.Tools.InterpEditor;
 [TestClass]
 public class InterpPreviewOwnershipTests
 {
+    [ClassInitialize]
+    public static void Initialize(TestContext _)
+    {
+        LegendaryExplorerCoreLib.InitLib(System.Threading.Tasks.TaskScheduler.Default);
+    }
+
     [TestMethod]
     public void LoadedLevel_Dispose_IsExactOnce_ForAbandonedCandidate()
     {
-        IMEPackage package = CreatePackageSubstituteOrInconclusive();
-        ActorProxy actor = CreateDisposableTestActor();
-        var loaded = new InterpPreviewLoadedLevel("C:\\Test\\LevelA.pcc", package, new List<ActorProxy> { actor });
+        var events = new List<string>();
+        MEPackage package = CreateTrackedPackage(events);
+        DisposalTrackingActor actor = CreateTrackingActor(package, events, "ActorA");
+        var loaded = new InterpPreviewLoadedLevel(package.FilePath, package, [actor]);
 
         loaded.Dispose();
         loaded.Dispose();
 
-        package.Received(1).Dispose();
-        Assert.IsTrue(IsActorDisposed(actor));
+        Assert.AreEqual(0, package.RefCount, "The candidate should release its single package reference exactly once.");
+        Assert.AreEqual(1, actor.DisposeCalls);
+        CollectionAssert.AreEqual(new[] { "ActorA", "package" }, events);
     }
 
     [TestMethod]
     public void LoadedLevel_ToOwnedResource_TransfersOwnershipOnlyOnce_AndDisposalTransfersToOwnedResource()
     {
-        IMEPackage package = CreatePackageSubstituteOrInconclusive();
-        ActorProxy actor = CreateDisposableTestActor();
-        var loaded = new InterpPreviewLoadedLevel("C:\\Test\\LevelA.pcc", package, new List<ActorProxy> { actor });
+        var events = new List<string>();
+        MEPackage package = CreateTrackedPackage(events);
+        DisposalTrackingActor actor = CreateTrackingActor(package, events, "ActorA");
+        var loaded = new InterpPreviewLoadedLevel(package.FilePath, package, [actor]);
 
         InterpPreviewOwnedResource resource = loaded.ToOwnedResource();
 
         loaded.Dispose();
         loaded.Dispose();
 
-        package.DidNotReceive().Dispose();
+        Assert.AreEqual(1, package.RefCount, "Transferred resources must remain alive when the old candidate is disposed.");
+        Assert.AreEqual(0, actor.DisposeCalls);
+        Assert.AreEqual(0, events.Count);
         Assert.IsFalse(loaded.IsDisposed);
         Assert.IsTrue(loaded.IsTransferred);
 
         Assert.Throws<InvalidOperationException>(() => loaded.ToOwnedResource());
+        Assert.AreEqual(1, package.RefCount);
+        Assert.AreEqual(0, events.Count);
 
         resource.Dispose();
         resource.Dispose();
 
-        package.Received(1).Dispose();
-        Assert.IsTrue(IsActorDisposed(actor));
+        Assert.AreEqual(0, package.RefCount);
+        Assert.AreEqual(1, actor.DisposeCalls);
+        CollectionAssert.AreEqual(new[] { "ActorA", "package" }, events);
     }
 
     [TestMethod]
     public void OwnedResource_DisposesActorsBeforePackage()
     {
-        IMEPackage package = CreatePackageSubstituteOrInconclusive();
-        ActorProxy actor = CreateDisposableTestActor();
+        var events = new List<string>();
+        MEPackage package = CreateTrackedPackage(events);
+        DisposalTrackingActor firstActor = CreateTrackingActor(package, events, "ActorA");
+        DisposalTrackingActor secondActor = CreateTrackingActor(package, events, "ActorB");
         var resource = new InterpPreviewOwnedResource(
-            InterpPreviewResourceKey.ForLevel("C:\\Test\\LevelA.pcc", MEGame.Unknown),
-            "C:\\Test\\LevelA.pcc",
+            InterpPreviewResourceKey.ForLevel(package.FilePath, package.Game),
+            package.FilePath,
             package,
-            new List<ActorProxy> { actor });
-
-        package
-            .When(p => p.Dispose())
-            .Do(_ => Assert.IsTrue(IsActorDisposed(actor), "Actor should be disposed before package disposal."));
+            [firstActor, secondActor]);
 
         resource.Dispose();
         resource.Dispose();
 
-        package.Received(1).Dispose();
+        Assert.AreEqual(0, package.RefCount);
+        Assert.AreEqual(1, firstActor.DisposeCalls);
+        Assert.AreEqual(1, secondActor.DisposeCalls);
+        CollectionAssert.AreEqual(new[] { "ActorA", "ActorB", "package" }, events);
     }
 
     [TestMethod]
@@ -278,6 +293,24 @@ public class InterpPreviewOwnershipTests
     }
 
     [TestMethod]
+    public void Session_AddLevel_PlayerSwitch_RetiresPreviousContextWithoutDiscardingOwnership()
+    {
+        using var session = new InterpPreviewSession();
+        ActorProxy female = CreateDisposableTestActor();
+        ActorProxy male = CreateDisposableTestActor();
+        session.AddLevel(new InterpPreviewLoadedLevel("C:/tests/Player.pcc", null, [female],
+            InterpPreviewResourceKind.PlayerContext, InterpPreviewPlayerVariant.Female));
+        session.AddLevel(new InterpPreviewLoadedLevel("C:/tests/Player.pcc", null, [male],
+            InterpPreviewResourceKind.PlayerContext, InterpPreviewPlayerVariant.Male));
+        Assert.AreEqual(1, session.TotalResourceCount);
+        Assert.IsTrue(IsActorDisposed(female));
+        Assert.IsFalse(IsActorDisposed(male));
+        Assert.AreSame(male, session.FindActorsByLookup("player")[0]);
+        session.Dispose();
+        Assert.IsTrue(IsActorDisposed(male));
+    }
+
+    [TestMethod]
     public void Session_SceneGeneration_IncrementsOnPublicMutations_AndNotOnEmptyClear()
     {
         using var session = new InterpPreviewSession();
@@ -350,16 +383,39 @@ public class InterpPreviewOwnershipTests
         return disposedField is not null && disposedField.GetValue(actor) is bool disposed && disposed;
     }
 
-    private static IMEPackage CreatePackageSubstituteOrInconclusive()
+    private static MEPackage CreateTrackedPackage(List<string> events)
     {
-        try
+        var package = (MEPackage)MEPackageHandler.CreateMemoryEmptyPackage("OwnershipTests.pcc", MEGame.LE3);
+        Assert.AreEqual(1, package.RefCount, "The fixture must begin with one owned package reference.");
+        package.NoLongerUsed += _ => events.Add("package");
+        return package;
+    }
+
+    private static DisposalTrackingActor CreateTrackingActor(IMEPackage package, List<string> events, string name)
+    {
+        var export = new ExportEntry(package, 0, name, prePropBinary: new byte[4], properties: []);
+        package.AddExport(export);
+        return new DisposalTrackingActor(export, events, name);
+    }
+
+    private sealed class DisposalTrackingActor : ActorProxy
+    {
+        private readonly List<string> _events;
+        private readonly string _name;
+
+        public DisposalTrackingActor(ExportEntry export, List<string> events, string name) : base(export)
         {
-            return Substitute.For<IMEPackage>();
+            _events = events;
+            _name = name;
         }
-        catch (TypeLoadException ex)
+
+        public int DisposeCalls { get; private set; }
+
+        protected override void Dispose(bool disposing)
         {
-            Assert.Inconclusive($"Dynamic proxy generation failed in this environment: {ex.Message}");
-            throw;
+            DisposeCalls++;
+            base.Dispose(disposing);
+            _events.Add(_name);
         }
     }
 }

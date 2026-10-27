@@ -24,6 +24,7 @@ public sealed class InterpPreviewOwnedResource : IDisposable
     public IMEPackage Package { get; }
     public IReadOnlyList<ActorProxy> Actors => _actors;
     public bool IsDisposed => Volatile.Read(ref _disposeSignaled) != 0;
+    public Exception DisposalError { get; private set; }
 
     public void Dispose()
     {
@@ -32,14 +33,16 @@ public sealed class InterpPreviewOwnedResource : IDisposable
             return;
         }
 
+        var errors = new List<Exception>();
         foreach (ActorProxy actor in _actors)
         {
             try
             {
                 actor?.Dispose();
             }
-            catch
+            catch (Exception ex)
             {
+                errors.Add(ex);
             }
         }
 
@@ -49,8 +52,10 @@ public sealed class InterpPreviewOwnedResource : IDisposable
         {
             Package?.Dispose();
         }
-        catch
+        catch (Exception ex)
         {
+            errors.Add(ex);
         }
+        if (errors.Count > 0) DisposalError = new AggregateException("Preview resource cleanup failed.", errors);
     }
 }

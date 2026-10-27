@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
 using LegendaryExplorer.Tools.InterpEditor;
 using LegendaryExplorerCore.Packages;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -51,7 +53,7 @@ public class InterpPreviewNodeDiscoveryTests
         var discovery = new InterpPreviewNodeDiscovery();
         InterpPreviewNodeDiscoveryResult result = discovery.Discover(new InterpPreviewNodeDiscoveryRequest(source, graph));
 
-        Assert.AreEqual(InterpPreviewNodeDiscoveryOutcome.Ready, result.Outcome);
+        Assert.AreEqual(InterpPreviewNodeDiscoveryOutcome.Partial, result.Outcome);
         Assert.AreEqual(2, result.Candidates.Count);
         Assert.IsTrue(HasDiagnosticCode(result, "DISCOVERY_DATA_LINK_INVALID"));
         Assert.IsTrue(HasDiagnosticCode(result, "DISCOVERY_DATA_LINK_MISSING"));
@@ -190,7 +192,7 @@ public class InterpPreviewNodeDiscoveryTests
         InterpPreviewNodeDiscoveryResult result = discovery.Discover(new InterpPreviewNodeDiscoveryRequest(source, graph, maxVisitedObjects: 50, maxVisitedEdges: 1));
 
         Assert.AreEqual(InterpPreviewNodeDiscoveryOutcome.Partial, result.Outcome);
-        Assert.AreEqual(0, result.Candidates.Count);
+        Assert.AreEqual(1, result.Candidates.Count, "The candidate reached before the limit must survive.");
         Assert.IsTrue(HasDiagnosticCode(result, "DISCOVERY_EDGE_LIMIT"));
     }
 
@@ -211,7 +213,7 @@ public class InterpPreviewNodeDiscoveryTests
         var discovery = new InterpPreviewNodeDiscovery();
         InterpPreviewNodeDiscoveryResult result = discovery.Discover(new InterpPreviewNodeDiscoveryRequest(source, graph));
 
-        Assert.AreEqual(InterpPreviewNodeDiscoveryOutcome.Ready, result.Outcome);
+        Assert.AreEqual(InterpPreviewNodeDiscoveryOutcome.Partial, result.Outcome);
         Assert.AreEqual(1, result.Candidates.Count);
         Assert.IsTrue(HasDiagnosticCode(result, "DISCOVERY_CYCLE"));
     }
@@ -267,6 +269,121 @@ public class InterpPreviewNodeDiscoveryTests
         Assert.AreEqual(30, result.Candidates[0].InterpDataId.ExportUIndex);
         Assert.AreEqual(21, result.Candidates[1].ActionId?.ExportUIndex);
         Assert.AreEqual(31, result.Candidates[1].InterpDataId.ExportUIndex);
+    }
+
+    [TestMethod]
+    public void Discover_UnequalLengthMerge_PreservesLateIncomingEdgeWithoutInventingCycle()
+    {
+        var sequence = CreateId(2);
+        var source = CreateSourceSnapshot(CreateId(1), sequence, 77, null);
+        var graph = new InterpPreviewSequenceGraphSnapshot(sequence,
+        [
+            CreateConvNode(sequence, 10, 77, [new(0, "Short", 20, 0), new(1, "Long", 30, 0)]),
+            CreateActionNode(sequence, 20, [new("Data", [50])]),
+            new(CreateId(30), "SeqAct_Log", null, [new(0, "Next", 40, 0)], []),
+            new(CreateId(40), "SeqAct_Log", null, [new(0, "Merge", 20, 1)], []),
+            CreateNode(sequence, 50, "InterpData")
+        ]);
+        var result = new InterpPreviewNodeDiscovery().Discover(new(source, graph));
+        Assert.AreEqual(InterpPreviewNodeDiscoveryOutcome.Ready, result.Outcome);
+        Assert.IsFalse(HasDiagnosticCode(result, "DISCOVERY_CYCLE"));
+        Assert.HasCount(4, result.Edges);
+        Assert.HasCount(2, result.Candidates.Single().Evidence.Single().IncomingActionEdges);
+        Assert.IsTrue(result.RequiresSelection, "The two unknown output connectors must not become an implicit first choice.");
+    }
+
+    [TestMethod]
+    public void Discover_LongRouteAndSequentialActions_PreserveTwoInstancesOfSameData()
+    {
+        var sequence = CreateId(2);
+        var nodes = new List<InterpPreviewSequenceNodeSnapshot> { CreateConvNode(sequence, 10, 77, [new(0, "Out", 11, 0)]) };
+        for (int index = 11; index < 42; index++)
+            nodes.Add(new(CreateId(index), "SeqAct_Log", null, [new(0, "Next", index + 1, 0)], []));
+        nodes.Add(CreateActionNode(sequence, 42, [new("Data", [60])], [new(0, "Finished", 43, 0)]));
+        nodes.Add(CreateActionNode(sequence, 43, [new("Data", [60])]));
+        nodes.Add(CreateNode(sequence, 60, "InterpData"));
+        var result = new InterpPreviewNodeDiscovery().Discover(new(CreateSourceSnapshot(CreateId(1), sequence, 77, null), new(sequence, nodes)));
+        Assert.AreEqual(InterpPreviewNodeDiscoveryOutcome.Ready, result.Outcome);
+        Assert.HasCount(2, result.Candidates);
+        Assert.AreEqual(result.Candidates[0].InterpDataId, result.Candidates[1].InterpDataId);
+        Assert.AreNotEqual(result.Candidates[0].ActionId, result.Candidates[1].ActionId);
+        Assert.IsFalse(result.RequiresSelection, "Sequential actions are retained without being labelled alternative timelines.");
+    }
+
+    [TestMethod]
+    [DataRow("Sequence")]
+    [DataRow("SequenceReference")]
+    [DataRow("SFXSceneShopNodePlotCheck")]
+    public void Discover_UnsupportedConnectorBoundary_DoesNotTraverseItsChildren(string className)
+    {
+        var sequence = CreateId(2);
+        var graph = new InterpPreviewSequenceGraphSnapshot(sequence,
+        [
+            CreateConvNode(sequence, 10, 77, [new(0, "Out", 20, 0)]),
+            new(CreateId(20), className, null, [new(0, "Out", 30, 0)], []),
+            CreateActionNode(sequence, 30, [new("Data", [40])]),
+            CreateNode(sequence, 40, "InterpData")
+        ]);
+        var result = new InterpPreviewNodeDiscovery().Discover(new(CreateSourceSnapshot(CreateId(1), sequence, 77, null), graph));
+        Assert.AreEqual(InterpPreviewNodeDiscoveryOutcome.Partial, result.Outcome);
+        Assert.IsEmpty(result.Candidates);
+        Assert.IsTrue(HasDiagnosticCode(result, className.StartsWith("SFX") ? "SCENE_SHOP_UNSUPPORTED" : "SEQUENCE_BOUNDARY_UNSUPPORTED"));
+    }
+
+    [TestMethod]
+    public void Discover_ExplicitBranchChoice_IsValidatedAndDoesNotConcatenateOtherRoute()
+    {
+        var sequence = CreateId(2);
+        var source = CreateSourceSnapshot(CreateId(1), sequence, 77, null);
+        var graph = new InterpPreviewSequenceGraphSnapshot(sequence,
+        [
+            CreateConvNode(sequence, 10, 77, [new(0, "A", 20, 0), new(1, "B", 21, 0)]),
+            CreateActionNode(sequence, 20, [new("Data", [30])]),
+            CreateActionNode(sequence, 21, [new("Data", [31])]),
+            CreateNode(sequence, 30, "InterpData"), CreateNode(sequence, 31, "InterpData")
+        ]);
+        var discovery = new InterpPreviewNodeDiscovery();
+        var selected = discovery.Discover(new(source, graph) { BranchChoices = new Dictionary<InterpPreviewSourceObjectId, int> { [CreateId(10)] = 1 } });
+        Assert.AreEqual(21, selected.Candidates.Single().ActionId.Value.ExportUIndex);
+        Assert.IsFalse(selected.RequiresSelection);
+        var invalid = discovery.Discover(new(source, graph) { BranchChoices = new Dictionary<InterpPreviewSourceObjectId, int> { [CreateId(10)] = 5 } });
+        Assert.AreEqual(InterpPreviewNodeDiscoveryOutcome.Partial, invalid.Outcome);
+        Assert.IsEmpty(invalid.Candidates);
+        Assert.IsTrue(HasDiagnosticCode(invalid, "DISCOVERY_BRANCH_INVALID"));
+    }
+
+    [TestMethod]
+    public void Discover_CancelledRequest_ReturnsPartialAndDoesNotClaimCompleteEnumeration()
+    {
+        var sequence = CreateId(2);
+        var graph = new InterpPreviewSequenceGraphSnapshot(sequence,
+            [CreateConvNode(sequence, 10, 77, [new(0, "Out", 20, 0)]), CreateActionNode(sequence, 20, [new("Data", [30])]), CreateNode(sequence, 30, "InterpData")]);
+        var result = new InterpPreviewNodeDiscovery().Discover(new(CreateSourceSnapshot(CreateId(1), sequence, 77, null), graph)
+            { CancellationToken = new CancellationToken(true) });
+        Assert.AreEqual(InterpPreviewNodeDiscoveryOutcome.Partial, result.Outcome);
+        Assert.IsEmpty(result.Candidates);
+        Assert.IsTrue(HasDiagnosticCode(result, "DISCOVERY_CANCELLED"));
+    }
+
+    [TestMethod]
+    public void Discover_InvalidOutputBesideValidSibling_PreservesCandidateAsPartial()
+    {
+        var sequence = CreateId(2);
+        var graph = new InterpPreviewSequenceGraphSnapshot(sequence,
+            [CreateConvNode(sequence, 10, 77, [new(0, "Out", -7, 0), new(0, "Out", 20, 0)]), CreateActionNode(sequence, 20, [new("Data", [30])]), CreateNode(sequence, 30, "InterpData")]);
+        var result = new InterpPreviewNodeDiscovery().Discover(new(CreateSourceSnapshot(CreateId(1), sequence, 77, null), graph));
+        Assert.AreEqual(InterpPreviewNodeDiscoveryOutcome.Partial, result.Outcome);
+        Assert.HasCount(1, result.Candidates);
+        Assert.IsTrue(HasDiagnosticCode(result, "DISCOVERY_EDGE_INVALID_TARGET"));
+    }
+
+    [TestMethod]
+    public void GraphSnapshot_RejectsEqualUIndexFromDifferentPackageInsteadOfConflatingIdentity()
+    {
+        var sequence = CreateId(2);
+        var other = new InterpPreviewSequenceNodeSnapshot(new(MEGame.LE3, "C:/other/package.pcc", 10), "SeqAct_Log", null, [], []);
+        Assert.ThrowsExactly<ArgumentException>(() => new InterpPreviewSequenceGraphSnapshot(sequence,
+            [CreateConvNode(sequence, 10, 77, []), other]));
     }
 
     private static InterpPreviewSourceSnapshot CreateSourceSnapshot(

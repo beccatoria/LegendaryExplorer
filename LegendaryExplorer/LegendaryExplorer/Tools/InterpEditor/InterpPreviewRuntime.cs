@@ -7,7 +7,7 @@ using LegendaryExplorer.Tools.LevelEditor;
 
 namespace LegendaryExplorer.Tools.InterpEditor;
 
-public sealed class InterpPreviewRuntime : IInterpPreviewRuntime
+public sealed partial class InterpPreviewRuntime : IInterpPreviewRuntime
 {
     private readonly IInterpPreviewSession _session;
     private readonly IInterpPreviewRenderCoordinator _renderCoordinator;
@@ -59,6 +59,24 @@ public sealed class InterpPreviewRuntime : IInterpPreviewRuntime
     public IList<ActorProxy> Actors => _session.Actors;
     public int LookupKeyCount => _session.LookupKeyCount;
     public IReadOnlyList<string> LoadedLevelPaths => _session.LoadedLevelPaths;
+    public bool IsOpen
+    {
+        get { lock (_operationLock) return _lifecycleState == InterpPreviewLifecycleState.Open; }
+    }
+
+    public bool IsRequestCurrent(long requestId) => requestId > 0 && IsOperationCurrent(requestId);
+
+    public bool TryPublishFeedback(InterpPreviewLauncherResult result, Action publish)
+    {
+        _dispatcher.VerifyAccess();
+        ArgumentNullException.ThrowIfNull(publish);
+        lock (_operationLock)
+        {
+            if (result is not { AllowsFeedback: true } || !IsRequestCurrent(result.RequestId)) return false;
+            publish();
+            return true;
+        }
+    }
     public IReadOnlyList<InterpPreviewDiagnostic> Diagnostics
     {
         get
@@ -118,27 +136,44 @@ public sealed class InterpPreviewRuntime : IInterpPreviewRuntime
 
     public async Task<InterpPreviewLoadResult> LoadLevelAsync(string path, bool replace, IActorEditorContext actorEditorContext, Action onReplace)
     {
-        InterpPreviewLoadResult result = await _loadCoordinator.LoadLevelAsync(path, replace, actorEditorContext, onReplace).ConfigureAwait(false);
-        await _dispatcher.InvokeAsync(() =>
+        // Compatibility entry point. Production launches use the whole-request API.
+        InterpPreviewLoadResult result = null;
+        InterpPreviewOperationResult operationResult = await ExecuteOperationAsync(async operationId =>
         {
-            switch (result.Outcome)
+            result = await _loadCoordinator.LoadLevelAsync(path, false, actorEditorContext, null,
+                () => IsOperationCurrent(operationId)).ConfigureAwait(false);
+            return await _dispatcher.InvokeAsync(() =>
             {
-                case InterpPreviewLoadOutcome.Cancelled:
-                    AddDiagnostic(InterpPreviewDiagnosticSeverity.Info, "LOAD_CANCELLED", "Level load was cancelled.");
-                    break;
-                case InterpPreviewLoadOutcome.Duplicate:
-                    AddDiagnostic(InterpPreviewDiagnosticSeverity.Warning, "LOAD_DUPLICATE", "Selected level is already loaded.");
-                    break;
-                case InterpPreviewLoadOutcome.Failed:
-                    AddDiagnostic(InterpPreviewDiagnosticSeverity.Error, "LOAD_FAILED", result.Error?.Message ?? "Level load failed.");
-                    break;
-                case InterpPreviewLoadOutcome.Loaded:
-                    AddDiagnostic(InterpPreviewDiagnosticSeverity.Info, "LOAD_READY", "Level load completed and is ready for scene integration.");
-                    break;
-            }
+                if (TryGetOperationRejection(operationId, out InterpPreviewOperationResult rejection))
+                {
+                    result.LoadedLevel?.Dispose();
+                    return rejection;
+                }
+                string code = result.Outcome switch
+                {
+                    InterpPreviewLoadOutcome.Loaded => "LOAD_READY",
+                    InterpPreviewLoadOutcome.Duplicate => "LOAD_DUPLICATE",
+                    InterpPreviewLoadOutcome.Failed => "LOAD_FAILED",
+                    _ => "LOAD_CANCELLED"
+                };
+                InterpPreviewDiagnosticSeverity severity = result.Outcome switch
+                {
+                    InterpPreviewLoadOutcome.Failed => InterpPreviewDiagnosticSeverity.Error,
+                    InterpPreviewLoadOutcome.Duplicate => InterpPreviewDiagnosticSeverity.Warning,
+                    _ => InterpPreviewDiagnosticSeverity.Info
+                };
+                AddOperationDiagnostic(operationId, severity, code,
+                    result.Error?.Message ?? "Level preparation completed.");
+                return InterpPreviewOperationResult.NoChange();
+            }).ConfigureAwait(false);
         }).ConfigureAwait(false);
 
-        return result;
+        return operationResult.Outcome switch
+        {
+            InterpPreviewOperationOutcome.Superseded => InterpPreviewLoadResult.Superseded(),
+            InterpPreviewOperationOutcome.RejectedClosing => InterpPreviewLoadResult.Cancelled(),
+            _ => result
+        };
     }
 
     public Task<InterpPreviewOperationResult> ExecuteLoadOperationAsync(string path, bool replace, IActorEditorContext actorEditorContext)
@@ -177,12 +212,16 @@ public sealed class InterpPreviewRuntime : IInterpPreviewRuntime
     public InterpPreviewDialogueResolution ResolveDialogue(InterpPreviewDialogueResolutionRequest request)
     {
         _dispatcher.VerifyAccess();
+        long sourceOperationId;
+        InterpPreviewSceneStamp sourceSceneStamp;
         lock (_operationLock)
         {
             if (_lifecycleState != InterpPreviewLifecycleState.Open)
             {
-                return InterpPreviewDialogueResolution.Unresolved([]);
+                return new(InterpPreviewResolutionOutcome.RejectedClosing, [], []);
             }
+            sourceOperationId = _latestOperationId;
+            sourceSceneStamp = _session.SceneStamp;
         }
 
         if (request is not null)
@@ -193,8 +232,15 @@ public sealed class InterpPreviewRuntime : IInterpPreviewRuntime
         }
 
         InterpPreviewDialogueResolution resolution = _dialogueResolver.Resolve(request);
-        ReplaceDiagnostics(resolution.Diagnostics);
-        return resolution;
+        lock (_operationLock)
+        {
+            if (_lifecycleState != InterpPreviewLifecycleState.Open)
+                return new(InterpPreviewResolutionOutcome.RejectedClosing, [], []);
+            if (_latestOperationId != sourceOperationId || !_session.SceneStamp.Equals(sourceSceneStamp))
+                return new(InterpPreviewResolutionOutcome.Stale, [], []);
+            ReplaceDiagnostics(resolution.Diagnostics);
+            return resolution;
+        }
     }
 
     public void CancelPendingLoad()
@@ -372,7 +418,7 @@ public sealed class InterpPreviewRuntime : IInterpPreviewRuntime
         }
     }
 
-    private InterpPreviewOperationResult ExecuteCommitLoadedLevelCore(long operationId, InterpPreviewLoadedLevel loadedLevel, bool replace)
+    private InterpPreviewOperationResult ExecuteCommitLoadedLevelCore(long operationId, InterpPreviewLoadedLevel loadedLevel, bool replace, bool publishDiagnostics = true)
     {
         _dispatcher.VerifyAccess();
         if (loadedLevel is null)
@@ -390,7 +436,8 @@ public sealed class InterpPreviewRuntime : IInterpPreviewRuntime
             try
             {
                 InterpPreviewSessionCommitResult commitResult = _session.CommitLevel(loadedLevel, replace);
-                AddDiagnostic(InterpPreviewDiagnosticSeverity.Info, "LEVEL_ADDED", $"Loaded {loadedLevel.FullPath}.");
+                if (!commitResult.Changed) return InterpPreviewOperationResult.NoChange("Requested resource is already loaded.");
+                if (publishDiagnostics) AddDiagnostic(InterpPreviewDiagnosticSeverity.Info, "LEVEL_ADDED", $"Loaded {loadedLevel.FullPath}.");
                 return InterpPreviewOperationResult.Committed(
                     commitResult.AddedActors,
                     commitResult.RemovedActors,
@@ -399,7 +446,7 @@ public sealed class InterpPreviewRuntime : IInterpPreviewRuntime
             }
             catch (Exception ex)
             {
-                AddDiagnostic(InterpPreviewDiagnosticSeverity.Error, "LEVEL_COMMIT_FAILED", ex.Message);
+                if (publishDiagnostics) AddDiagnostic(InterpPreviewDiagnosticSeverity.Error, "LEVEL_COMMIT_FAILED", ex.Message);
                 return InterpPreviewOperationResult.Failed(ex, "Level commit failed.");
             }
         }

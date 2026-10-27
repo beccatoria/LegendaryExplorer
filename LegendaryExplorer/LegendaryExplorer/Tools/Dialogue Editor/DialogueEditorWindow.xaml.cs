@@ -1,4 +1,4 @@
-﻿using LegendaryExplorer.Dialogs;
+using LegendaryExplorer.Dialogs;
 using LegendaryExplorer.DialogueEditor.DialogueEditorExperiments;
 using LegendaryExplorer.Misc;
 using LegendaryExplorer.SharedUI;
@@ -74,46 +74,68 @@ namespace LegendaryExplorer.DialogueEditor
 
         private async void OpenInInterpPreview_Clicked(ConversationExtended conversation, DialogueNodeExtended node)
         {
-            InterpPreviewShellWindow preview = GetOrCreateInterpPreviewWindow();
-            bool hasLoadedLevels = preview.LoadedLevelCount > 0;
-
-            IReadOnlyList<string> levelPaths = ResolveLevelFilePathsForPreview();
-            InterpPreviewLauncherRequest request = new(levelPaths)
+            InterpPreviewShellWindow preview = null;
+            InterpPreviewLauncherResult result = null;
+            try
             {
-                ReplaceOnFirstLevel = !hasLoadedLevels,
-                Conversation = conversation,
-                Node = node,
-                EnsurePlayerContext = true,
-                ResolveDialogue = true
-            };
+                preview = GetOrCreateInterpPreviewWindow();
+                bool hasLoadedLevels = preview.LoadedLevelCount > 0;
 
-            InterpPreviewLauncherResult result = await preview.ExecuteLauncherRequestAsync(request).ConfigureAwait(true);
-            if (levelPaths.Count > 0)
-            {
-                if (hasLoadedLevels)
+                IReadOnlyList<string> levelPaths = ResolveLevelFilePathsForPreview();
+                InterpPreviewLauncherRequest request = new(levelPaths)
                 {
-                    StatusText = result.HadFailure
-                        ? $"Interp Preview reused existing scene and attempted to add {result.LoadedCount}/{result.TotalCount} level files."
-                        : $"Interp Preview reused existing scene and added {result.LoadedCount} level files.";
-                }
+                    ReplaceOnFirstLevel = !hasLoadedLevels,
+                    Conversation = conversation,
+                    Node = node,
+                    EnsurePlayerContext = true,
+                    ResolveDialogue = true
+                };
+
+                result = await preview.ExecuteLauncherRequestAsync(request).ConfigureAwait(true);
+                preview.TryPublishResult(result, () =>
+                {
+                    if (result.Outcome == InterpPreviewLauncherOutcome.Failed)
+                    {
+                        StatusText = result.Message ?? "Interp Preview could not complete this request. See Diagnostics.";
+                        BringPreviewToFront(preview, result);
+                        return;
+                    }
+                    if (levelPaths.Count > 0)
+                    {
+                        if (hasLoadedLevels)
+                        {
+                            StatusText = result.HadFailure
+                                ? $"Interp Preview reused existing scene and attempted to add {result.LoadedCount}/{result.TotalCount} level files."
+                                : $"Interp Preview reused existing scene and added {result.LoadedCount} level files.";
+                        }
+                        else
+                        {
+                            StatusText = result.HadFailure
+                                ? $"Interp Preview auto-load: loaded {result.LoadedCount}/{result.TotalCount} level files."
+                                : $"Interp Preview auto-load: loaded {result.LoadedCount} level files.";
+                        }
+                    }
+                    else
+                    {
+                        StatusText = "Interp Preview auto-load: no level path resolved. Use Open Level in Interp Preview.";
+                    }
+
+                    if (result.DialogueResolution is not { HasPreviewData: true })
+                    {
+                        MessageBox.Show("Interp Preview could not resolve InterpData for the selected node. See Diagnostics panel in Interp Preview for details.", "Interp Preview", MessageBoxButton.OK, MessageBoxImage.Information);
+                    }
+
+                    BringPreviewToFront(preview, result);
+                });
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine(ex);
+                if (preview is null)
+                    MessageBox.Show($"Unable to open Interp Preview:\n{ex.Message}", "Interp Preview", MessageBoxButton.OK, MessageBoxImage.Error);
                 else
-                {
-                    StatusText = result.HadFailure
-                        ? $"Interp Preview auto-load: loaded {result.LoadedCount}/{result.TotalCount} level files."
-                        : $"Interp Preview auto-load: loaded {result.LoadedCount} level files.";
-                }
+                    preview.TryPublishResult(result, () => StatusText = $"Interp Preview: {ex.Message}");
             }
-            else
-            {
-                StatusText = "Interp Preview auto-load: no level path resolved. Use Open Level in Interp Preview.";
-            }
-
-            if (result.DialogueResolution is not { IsResolved: true })
-            {
-                MessageBox.Show("Interp Preview could not resolve InterpData for the selected node. See Diagnostics panel in Interp Preview for details.", "Interp Preview", MessageBoxButton.OK, MessageBoxImage.Information);
-            }
-
-            BringPreviewToFront(preview);
         }
 
         private InterpPreviewShellWindow GetOrCreateInterpPreviewWindow()
@@ -130,7 +152,7 @@ namespace LegendaryExplorer.DialogueEditor
                     preview.Show();
                     return preview;
                 },
-                isUsable: window => window is { IsLoaded: true },
+                isUsable: window => window is { IsUsable: true },
                 normalize: window =>
                 {
                     if (window is not null && window.WindowState == WindowState.Minimized)
@@ -140,7 +162,7 @@ namespace LegendaryExplorer.DialogueEditor
                 });
         }
 
-        private void BringPreviewToFront(InterpPreviewShellWindow preview)
+        private void BringPreviewToFront(InterpPreviewShellWindow preview, InterpPreviewLauncherResult result)
         {
             if (preview is null)
             {
@@ -149,21 +171,20 @@ namespace LegendaryExplorer.DialogueEditor
 
             void ActivatePreviewWindow()
             {
-                if (!preview.IsLoaded)
+                preview.TryPublishResult(result, () =>
                 {
-                    return;
-                }
 
-                if (preview.WindowState == WindowState.Minimized)
-                {
-                    preview.WindowState = WindowState.Normal;
-                }
+                    if (preview.WindowState == WindowState.Minimized)
+                    {
+                        preview.WindowState = WindowState.Normal;
+                    }
 
-                bool wasTopmost = preview.Topmost;
-                preview.Topmost = true;
-                preview.Activate();
-                preview.Focus();
-                preview.Topmost = wasTopmost;
+                    bool wasTopmost = preview.Topmost;
+                    preview.Topmost = true;
+                    preview.Activate();
+                    preview.Focus();
+                    preview.Topmost = wasTopmost;
+                });
             }
 
             Dispatcher.BeginInvoke(new Action(ActivatePreviewWindow), DispatcherPriority.ApplicationIdle);

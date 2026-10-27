@@ -182,42 +182,46 @@ public sealed class InterpPreviewActorRealizer : IInterpPreviewActorRealizer
         }
         catch (OperationCanceledException)
         {
-            await DisposeCandidateAsync(actors, package, preparedResource).ConfigureAwait(false);
-            return InterpPreviewRealizeResult.Cancelled();
+            Exception cleanupError = await DisposeCandidateAsync(actors, package, preparedResource).ConfigureAwait(false);
+            return cleanupError is null ? InterpPreviewRealizeResult.Cancelled() : InterpPreviewRealizeResult.Failed(cleanupError);
         }
         catch (InterpPreviewSupersededException)
         {
-            await DisposeCandidateAsync(actors, package, preparedResource).ConfigureAwait(false);
-            return InterpPreviewRealizeResult.Superseded();
+            Exception cleanupError = await DisposeCandidateAsync(actors, package, preparedResource).ConfigureAwait(false);
+            return cleanupError is null ? InterpPreviewRealizeResult.Superseded() : InterpPreviewRealizeResult.Failed(cleanupError);
         }
         catch (Exception ex)
         {
-            await DisposeCandidateAsync(actors, package, preparedResource).ConfigureAwait(false);
-            return InterpPreviewRealizeResult.Failed(ex);
+            Exception cleanupError = await DisposeCandidateAsync(actors, package, preparedResource).ConfigureAwait(false);
+            return InterpPreviewRealizeResult.Failed(cleanupError is null ? ex : new AggregateException(ex, cleanupError));
         }
     }
 
-    private Task DisposeCandidateAsync(
+    private Task<Exception> DisposeCandidateAsync(
         IEnumerable<ActorProxy> actors,
         IMEPackage package,
         InterpPreviewPreparedResource preparedResource)
     {
         if (package is null)
         {
-            preparedResource.Dispose();
-            return Task.CompletedTask;
+            try { preparedResource.Dispose(); return Task.FromResult<Exception>(null); }
+            catch (Exception ex) { return Task.FromResult(ex); }
         }
 
         return _dispatcher.InvokeAsync(() =>
         {
             _dispatcher.VerifyAccess();
+            var errors = new List<Exception>();
             foreach (ActorProxy actor in actors)
             {
-                actor?.Dispose();
+                try { actor?.Dispose(); }
+                catch (Exception ex) { errors.Add(ex); }
             }
 
-            package.Dispose();
+            try { package.Dispose(); }
+            catch (Exception ex) { errors.Add(ex); }
             preparedResource.MarkRealizationDisposed();
+            return errors.Count == 0 ? null : (Exception)new AggregateException("Preview candidate cleanup failed.", errors);
         });
     }
 

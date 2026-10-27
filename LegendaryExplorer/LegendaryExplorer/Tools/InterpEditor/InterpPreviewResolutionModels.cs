@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using LegendaryExplorerCore.Packages;
@@ -253,7 +254,7 @@ public sealed class InterpPreviewSceneSnapshot
             copy[i] = source[i];
         }
 
-        return copy;
+        return Array.AsReadOnly(copy);
     }
 
     private static IReadOnlyDictionary<string, IReadOnlyList<InterpPreviewSceneActorDescriptor>> BuildTagIndex(IReadOnlyList<InterpPreviewSceneActorDescriptor> actors)
@@ -281,7 +282,8 @@ public sealed class InterpPreviewSceneSnapshot
             group.Add(actor);
         }
 
-        return index.ToDictionary(kvp => kvp.Key, kvp => (IReadOnlyList<InterpPreviewSceneActorDescriptor>)Snapshot(kvp.Value), StringComparer.OrdinalIgnoreCase);
+        return new ReadOnlyDictionary<string, IReadOnlyList<InterpPreviewSceneActorDescriptor>>(
+            index.ToDictionary(kvp => kvp.Key, kvp => Snapshot(kvp.Value), StringComparer.OrdinalIgnoreCase));
     }
 
     private static IReadOnlyDictionary<InterpPreviewSourceObjectId, IReadOnlyList<InterpPreviewSceneActorDescriptor>> BuildSourceIdIndex(IReadOnlyList<InterpPreviewSceneActorDescriptor> actors)
@@ -304,7 +306,8 @@ public sealed class InterpPreviewSceneSnapshot
             group.Add(actor);
         }
 
-        return index.ToDictionary(kvp => kvp.Key, kvp => (IReadOnlyList<InterpPreviewSceneActorDescriptor>)Snapshot(kvp.Value));
+        return new ReadOnlyDictionary<InterpPreviewSourceObjectId, IReadOnlyList<InterpPreviewSceneActorDescriptor>>(
+            index.ToDictionary(kvp => kvp.Key, kvp => Snapshot(kvp.Value)));
     }
 }
 

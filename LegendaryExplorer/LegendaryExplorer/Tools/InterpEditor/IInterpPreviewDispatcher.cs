@@ -44,7 +44,7 @@ public sealed class InterpPreviewWpfDispatcher : IInterpPreviewDispatcher
             return Task.CompletedTask;
         }
 
-        return _dispatcher.InvokeAsync(action).Task;
+        return _dispatcher.InvokeAsync(action, DispatcherPriority.Normal, cancellationToken).Task;
     }
 
     public Task<T> InvokeAsync<T>(Func<T> action, CancellationToken cancellationToken = default)
@@ -60,13 +60,14 @@ public sealed class InterpPreviewWpfDispatcher : IInterpPreviewDispatcher
             return Task.FromResult(action());
         }
 
-        return _dispatcher.InvokeAsync(action).Task;
+        return _dispatcher.InvokeAsync(action, DispatcherPriority.Normal, cancellationToken).Task;
     }
 
     public Task YieldAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return _dispatcher.InvokeAsync(() => { }).Task;
+        // Let pending input/render work run before scheduling the next actor batch.
+        return _dispatcher.InvokeAsync(() => { }, DispatcherPriority.Background, cancellationToken).Task;
     }
 }
 

@@ -70,6 +70,30 @@ public class InterpPreviewRuntimeTests
     }
 
     [TestMethod]
+    [DataRow("close")]
+    [DataRow("supersede")]
+    [DataRow("scene")]
+    public void ResolveDialogue_RejectsResultInvalidatedDuringSourceReading_WithoutPublishingDiagnostics(string change)
+    {
+        var session = new StubSession();
+        var resolver = new StubDialogueResolver
+        {
+            Result = InterpPreviewDialogueResolution.Unresolved([new(InterpPreviewDiagnosticSeverity.Info, "UNPUBLISHED_SOURCE", "Old source result")])
+        };
+        using var runtime = CreateRuntime(session, new StubLoadCoordinator(), resolver);
+        resolver.BeforeReturn = () =>
+        {
+            if (change == "close") Assert.IsTrue(runtime.ShutdownAsync().IsCompleted);
+            else if (change == "supersede") runtime.CancelPendingLoad();
+            else session.SceneGeneration++;
+        };
+        var result = runtime.ResolveDialogue(new(null, null));
+        Assert.AreEqual(change == "close" ? InterpPreviewResolutionOutcome.RejectedClosing : InterpPreviewResolutionOutcome.Stale, result.Outcome);
+        Assert.IsFalse(runtime.Diagnostics.Any(diagnostic => diagnostic.Code == "UNPUBLISHED_SOURCE"));
+        Assert.IsEmpty(result.Plans);
+    }
+
+    [TestMethod]
     public async Task ExecuteCommitOperationAsync_DisposesCandidate_WhenRejectedClosing()
     {
         var session = new StubSession();
@@ -264,6 +288,10 @@ public class InterpPreviewRuntimeTests
         public bool ContainsResource(InterpPreviewResourceKey key) => false;
         public IReadOnlyList<ActorProxy> FindActorsByLookup(string fullPath) => [];
         public InterpPreviewSceneSnapshot CreateSceneSnapshot() => new(SceneStamp, [], [], InterpPreviewPlayerVariant.None);
+        public InterpPreviewSessionCommitResult CommitCollection(IReadOnlyList<InterpPreviewLoadedLevel> candidates,
+            IReadOnlyList<string> paths, Action<InterpPreviewSessionCommitResult, Action> publish)
+            => throw new NotSupportedException("This legacy API test does not execute launcher transactions.");
+
         public InterpPreviewSessionCommitResult CommitLevel(InterpPreviewLoadedLevel loadedLevel, bool replace)
         {
             CommitCalls++;
@@ -369,9 +397,11 @@ public class InterpPreviewRuntimeTests
     private sealed class StubDialogueResolver : IInterpPreviewDialogueResolver
     {
         public InterpPreviewDialogueResolution Result { get; set; } = InterpPreviewDialogueResolution.Unresolved([]);
+        public Action BeforeReturn;
 
         public InterpPreviewDialogueResolution Resolve(InterpPreviewDialogueResolutionRequest request)
         {
+            BeforeReturn?.Invoke();
             return Result;
         }
     }

@@ -1514,35 +1514,51 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
 
     private async void OpenInInterpPreview()
     {
-        if (OpenFiles.Count == 0)
+        InterpPreviewShellWindow preview = null;
+        LegendaryExplorer.Tools.InterpEditor.InterpPreviewLauncherResult result = null;
+        try
         {
-            return;
+            if (OpenFiles.Count == 0)
+            {
+                return;
+            }
+
+            preview = GetOrCreateInterpPreviewWindow();
+            List<string> paths = OpenFiles
+                .Select(f => f.FilePath)
+                .Where(path => !string.IsNullOrWhiteSpace(path) && File.Exists(path))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (paths.Count == 0)
+            {
+                StatusBar_LeftMostText.Text = "Interp Preview: no valid level files to load.";
+                return;
+            }
+
+            result = await preview.ExecuteLauncherRequestAsync(new InterpPreviewLauncherRequest(paths)
+            {
+                ReplaceOnFirstLevel = true
+            }).ConfigureAwait(true);
+
+            preview.TryPublishResult(result, () =>
+            {
+
+                StatusBar_LeftMostText.Text = result.HadFailure
+                    ? $"Interp Preview loaded {result.LoadedCount}/{result.TotalCount} level(s)."
+                    : $"Interp Preview loaded {result.LoadedCount} level(s).";
+
+                BringPreviewToFront(preview, result);
+            });
         }
-
-        InterpPreviewShellWindow preview = GetOrCreateInterpPreviewWindow();
-        List<string> paths = OpenFiles
-            .Select(f => f.FilePath)
-            .Where(path => !string.IsNullOrWhiteSpace(path) && File.Exists(path))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-        if (paths.Count == 0)
+        catch (Exception ex)
         {
-            StatusBar_LeftMostText.Text = "Interp Preview: no valid level files to load.";
-            BringPreviewToFront(preview);
-            return;
+            System.Diagnostics.Debug.WriteLine(ex);
+            if (preview is null)
+                MessageBox.Show($"Unable to open Interp Preview:\n{ex.Message}", "Interp Preview", MessageBoxButton.OK, MessageBoxImage.Error);
+            else
+                preview.TryPublishResult(result, () => StatusBar_LeftMostText.Text = $"Interp Preview: {ex.Message}");
         }
-
-        var result = await preview.ExecuteLauncherRequestAsync(new InterpPreviewLauncherRequest(paths)
-        {
-            ReplaceOnFirstLevel = true
-        }).ConfigureAwait(true);
-
-        StatusBar_LeftMostText.Text = result.HadFailure
-            ? $"Interp Preview loaded {result.LoadedCount}/{result.TotalCount} level(s)."
-            : $"Interp Preview loaded {result.LoadedCount} level(s).";
-
-        BringPreviewToFront(preview);
     }
 
     private InterpPreviewShellWindow GetOrCreateInterpPreviewWindow()
@@ -1559,7 +1575,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
                 created.Show();
                 return created;
             },
-            window => window is { IsLoaded: true },
+            window => window is { IsUsable: true },
             window =>
             {
                 if (window is not null && window.WindowState == WindowState.Minimized)
@@ -1576,7 +1592,7 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
         return _interpPreviewWindow;
     }
 
-    private void BringPreviewToFront(InterpPreviewShellWindow preview)
+    private void BringPreviewToFront(InterpPreviewShellWindow preview, LegendaryExplorer.Tools.InterpEditor.InterpPreviewLauncherResult result)
     {
         if (preview is null)
         {
@@ -1585,21 +1601,20 @@ public partial class LevelEditor : NotifyPropertyChangedWindowBase, IActorEditor
 
         void ActivatePreviewWindow()
         {
-            if (!preview.IsLoaded)
+            preview.TryPublishResult(result, () =>
             {
-                return;
-            }
 
-            if (preview.WindowState == WindowState.Minimized)
-            {
-                preview.WindowState = WindowState.Normal;
-            }
+                if (preview.WindowState == WindowState.Minimized)
+                {
+                    preview.WindowState = WindowState.Normal;
+                }
 
-            bool wasTopmost = preview.Topmost;
-            preview.Topmost = true;
-            preview.Activate();
-            preview.Focus();
-            preview.Topmost = wasTopmost;
+                bool wasTopmost = preview.Topmost;
+                preview.Topmost = true;
+                preview.Activate();
+                preview.Focus();
+                preview.Topmost = wasTopmost;
+            });
         }
 
         Dispatcher.BeginInvoke(new Action(ActivatePreviewWindow), DispatcherPriority.ApplicationIdle);

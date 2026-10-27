@@ -38,7 +38,7 @@ public sealed class InterpPreviewTrackTargetReadRequest
             copy[i] = source[i];
         }
 
-        return copy;
+        return Array.AsReadOnly(copy);
     }
 }
 
@@ -93,7 +93,7 @@ public sealed class InterpPreviewTrackTargetReadResult
             copy[i] = source[i];
         }
 
-        return copy;
+        return Array.AsReadOnly(copy);
     }
 }
 
@@ -160,7 +160,7 @@ public sealed class InterpPreviewInterpDataSnapshot
             copy[i] = source[i];
         }
 
-        return copy;
+        return Array.AsReadOnly(copy);
     }
 }
 
@@ -195,7 +195,7 @@ public sealed class InterpPreviewInterpGroupSnapshot
             copy[i] = source[i];
         }
 
-        return copy;
+        return Array.AsReadOnly(copy);
     }
 }
 
@@ -218,12 +218,17 @@ public sealed class InterpPreviewInterpTrackSnapshot
 
 public sealed class InterpPreviewActionVariableLinkSnapshot
 {
-    public InterpPreviewActionVariableLinkSnapshot(string linkDesc)
+    public InterpPreviewActionVariableLinkSnapshot(string linkDesc, InterpPreviewSourceObjectId? actionId = null,
+        IReadOnlyList<InterpPreviewSourceReference> linkedVariables = null)
     {
         LinkDesc = linkDesc ?? string.Empty;
+        ActionId = actionId;
+        LinkedVariables = InterpPreviewValues.Copy(linkedVariables);
     }
 
     public string LinkDesc { get; }
+    public InterpPreviewSourceObjectId? ActionId { get; }
+    public IReadOnlyList<InterpPreviewSourceReference> LinkedVariables { get; }
 }
 
 public sealed class InterpPreviewTrackTargetReader : IInterpPreviewTrackTargetReader

@@ -9,16 +9,19 @@ public sealed class InterpPreviewSessionCommitResult
     public InterpPreviewSessionCommitResult(
         IReadOnlyList<ActorProxy> addedActors,
         IReadOnlyList<ActorProxy> removedActors,
-        IReadOnlyList<InterpPreviewOwnedResource> retiredResources = null)
+        IReadOnlyList<InterpPreviewOwnedResource> retiredResources = null,
+        bool changed = true)
     {
         AddedActors = Snapshot(addedActors);
         RemovedActors = Snapshot(removedActors);
         RetiredResources = Snapshot(retiredResources);
+        Changed = changed;
     }
 
     public IReadOnlyList<ActorProxy> AddedActors { get; }
     public IReadOnlyList<ActorProxy> RemovedActors { get; }
     public IReadOnlyList<InterpPreviewOwnedResource> RetiredResources { get; }
+    public bool Changed { get; }
 
     private static IReadOnlyList<T> Snapshot<T>(IReadOnlyList<T> source)
     {
@@ -52,6 +55,10 @@ public interface IInterpPreviewSession : IDisposable
     IReadOnlyList<ActorProxy> FindActorsByLookup(string lookup);
     InterpPreviewSceneSnapshot CreateSceneSnapshot();
     InterpPreviewSessionCommitResult CommitLevel(InterpPreviewLoadedLevel loadedLevel, bool replace);
+    // null desired paths adds to the current scene; an empty set clears it.
+    // Publication must apply render changes and invoke commitScene exactly once, last.
+    InterpPreviewSessionCommitResult CommitCollection(IReadOnlyList<InterpPreviewLoadedLevel> candidates,
+        IReadOnlyList<string> desiredLevelPaths, Action<InterpPreviewSessionCommitResult, Action> publish);
     IReadOnlyList<ActorProxy> AddLevel(InterpPreviewLoadedLevel loadedLevel);
     IReadOnlyList<ActorProxy> ReplaceAllWithLevel(InterpPreviewLoadedLevel loadedLevel);
     void ClearLevels();

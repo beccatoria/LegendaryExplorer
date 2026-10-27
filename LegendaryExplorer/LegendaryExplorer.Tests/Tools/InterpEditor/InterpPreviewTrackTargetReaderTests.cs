@@ -376,7 +376,7 @@ public class InterpPreviewTrackTargetReaderTests
     }
 
     [TestMethod]
-    public void ReadTargets_UnsupportedTrackDiagnostics_AggregatesByClass()
+    public void ReadTargets_FloatPropAndDirector_DoNotReportUnsupportedTracks()
     {
         InterpPreviewSourceObjectId actionId = CreateId(150);
         InterpPreviewSourceObjectId interpDataId = CreateId(250);
@@ -409,6 +409,34 @@ public class InterpPreviewTrackTargetReaderTests
         int unsupportedCount = result.Diagnostics.Count(d => string.Equals(d.Code, "TARGET_TRACK_UNSUPPORTED", StringComparison.Ordinal));
         Assert.AreEqual(0, unsupportedCount);
         Assert.IsTrue(HasDiagnosticCode(result, "TARGET_TRACK_NONACTOR"));
+    }
+
+    [TestMethod]
+    public void ReadTargets_UnsupportedTrackDiagnostics_AggregatesByClass()
+    {
+        var request = new InterpPreviewTrackTargetReadRequest(
+            CreateId(160),
+            new InterpPreviewInterpDataSnapshot(CreateId(260),
+            [
+                new InterpPreviewInterpGroupSnapshot(CreateId(270), "owner",
+                [
+                    new InterpPreviewInterpTrackSnapshot(CreateId(370), "InterpTrackEvent"),
+                    new InterpPreviewInterpTrackSnapshot(CreateId(371), "InterpTrackEvent"),
+                    new InterpPreviewInterpTrackSnapshot(CreateId(372), "InterpTrackSound"),
+                    new InterpPreviewInterpTrackSnapshot(CreateId(373), "InterpTrackFloatProp")
+                ])
+            ]),
+            [new InterpPreviewActionVariableLinkSnapshot("owner")]);
+
+        InterpPreviewTrackTargetReadResult result = new InterpPreviewTrackTargetReader().ReadTargets(request);
+
+        Assert.AreEqual(InterpPreviewTrackTargetReadOutcome.Partial, result.Outcome);
+        Assert.AreEqual(1, result.Targets.Count);
+        Assert.AreEqual("InterpTrackFloatProp", result.Targets[0].TrackClassName);
+        InterpPreviewDiagnostic[] unsupported = result.Diagnostics.Where(d => d.Code == "TARGET_TRACK_UNSUPPORTED").ToArray();
+        Assert.AreEqual(2, unsupported.Length, "Repeated tracks should produce one diagnostic per unsupported class.");
+        Assert.AreEqual("Track class 'InterpTrackEvent' is not yet supported for target extraction (2 track(s)).", unsupported[0].Message);
+        Assert.AreEqual("Track class 'InterpTrackSound' is not yet supported for target extraction.", unsupported[1].Message);
     }
 
     [TestMethod]

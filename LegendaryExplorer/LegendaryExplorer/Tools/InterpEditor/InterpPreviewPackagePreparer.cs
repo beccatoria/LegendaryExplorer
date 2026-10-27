@@ -23,7 +23,7 @@ public sealed class InterpPreviewPackagePreparer : IInterpPreviewPackagePreparer
         {
             cancellationToken.ThrowIfCancellationRequested();
             string fullPath = Path.GetFullPath(path);
-            package = MEPackageHandler.OpenMEPackage(fullPath, forceLoadFromDisk: true);
+            package = InterpPreviewPackageOwnership.OpenIndependent(fullPath);
             cancellationToken.ThrowIfCancellationRequested();
 
             ExportEntry levelExport = package.Exports.FirstOrDefault(export => export.ClassName == "Level");

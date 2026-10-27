@@ -14,6 +14,10 @@ public interface IInterpPreviewRuntime : IDisposable
     int LookupKeyCount { get; }
     IReadOnlyList<InterpPreviewDiagnostic> Diagnostics { get; }
     IReadOnlyList<string> LoadedLevelPaths { get; }
+    bool IsOpen { get; }
+    bool IsRequestCurrent(long requestId);
+    bool TryPublishFeedback(InterpPreviewLauncherResult result, Action publish);
+    Task<InterpPreviewLauncherResult> ExecuteLauncherRequestAsync(InterpPreviewLauncherRequest request, IActorEditorContext context, IInterpPreviewLauncherHost host);
     bool ContainsResource(InterpPreviewResourceKey key);
 
     void Attach(LevelEditorRenderContext renderContext);

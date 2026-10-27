@@ -29,6 +29,7 @@ public class InterpPreviewDialogueResolverTests
         ExportEntry directInterpData = CreateExport(package, "DirectData", "InterpData");
         ExportEntry discoveredInterpData = CreateExport(package, "DiscoveredData", "InterpData");
 
+        ConnectData(actionExport, discoveredInterpData);
         var conversation = new ConversationExtended(conversationExport);
         var node = CreateNode(nodeExportId: 111, isReply: false);
         node.InterpData = directInterpData;
@@ -54,16 +55,44 @@ public class InterpPreviewDialogueResolverTests
                     evidence: [])
             ],
             []));
-        var targetReader = new StubTrackTargetReader(InterpPreviewTrackTargetReadResult.Unresolved([]));
+        var targetReader = new CapturingTrackTargetReader(InterpPreviewTrackTargetReadResult.Unresolved([]));
         var bindingResolver = new StubActorBindingResolver(InterpPreviewActorBindingResult.Unresolved([]));
 
         var resolver = new InterpPreviewDialogueResolver(sourceReader, discovery, targetReader, bindingResolver);
         InterpPreviewDialogueResolution result = resolver.Resolve(new InterpPreviewDialogueResolutionRequest(conversation, node));
 
-        Assert.IsTrue(result.IsResolved);
-        Assert.AreEqual(directInterpData, result.InterpData);
-        Assert.IsTrue(HasDiagnosticCode(result.Diagnostics, "INTERP_DIRECT"));
+        Assert.IsTrue(result.HasPreviewData);
+        Assert.AreEqual(discoveredInterpData.UIndex, result.Plans.Single().InterpDataId.ExportUIndex);
+        AssertSelectedSource(result, "INTERP_DISCOVERY_SELECTED");
         Assert.IsTrue(HasDiagnosticCode(result.Diagnostics, "PIPE_SOURCE_OK"));
+        Assert.AreEqual(1, targetReader.CallCount);
+        Assert.AreEqual(discoveredInterpData.UIndex, targetReader.LastRequest.InterpData.InterpDataId.ExportUIndex);
+        Assert.AreEqual(actionExport.UIndex, targetReader.LastRequest.ActionId.ExportUIndex);
+    }
+
+    [TestMethod]
+    public void Resolve_WhenDiscoveryUnavailable_PreservesValidatedHintAsPartialWithoutActionBindings()
+    {
+        using var package = MEPackageHandler.CreateMemoryEmptyPackage("ResolverFallback.pcc", MEGame.LE3);
+        var conversation = new ConversationExtended(CreateExport(package, "Conversation", "BioConversation"));
+        ExportEntry directInterpData = CreateExport(package, "DirectData", "InterpData");
+        var node = CreateNode(nodeExportId: 112, isReply: false);
+        node.InterpData = directInterpData;
+        conversation.EntryList.Add(node);
+        var targetReader = new CapturingTrackTargetReader(InterpPreviewTrackTargetReadResult.Unresolved([]));
+        var resolver = new InterpPreviewDialogueResolver(
+            new InterpPreviewSourceReader(),
+            new InterpPreviewNodeDiscovery(),
+            targetReader,
+            new StubActorBindingResolver(InterpPreviewActorBindingResult.Unresolved([])));
+
+        InterpPreviewDialogueResolution result = resolver.Resolve(new InterpPreviewDialogueResolutionRequest(conversation, node));
+
+        Assert.AreEqual(directInterpData.UIndex, result.Plans.Single().InterpDataId.ExportUIndex);
+        Assert.AreEqual(InterpPreviewResolutionOutcome.Partial, result.Outcome);
+        Assert.IsTrue(HasDiagnosticCode(result.Diagnostics, "INTERP_HINT_ONLY"));
+        Assert.AreEqual(0, targetReader.CallCount);
+        Assert.IsTrue(HasDiagnosticCode(result.Diagnostics, "TARGET_ACTION_UNRESOLVED"));
     }
 
     [TestMethod]
@@ -98,16 +127,18 @@ public class InterpPreviewDialogueResolverTests
             ],
             []));
 
-        var targetReader = new StubTrackTargetReader(InterpPreviewTrackTargetReadResult.Unresolved([]));
+        var targetReader = new CapturingTrackTargetReader(InterpPreviewTrackTargetReadResult.Unresolved([]));
 
         var bindingResolver = new StubActorBindingResolver(InterpPreviewActorBindingResult.Unresolved([]));
 
         var resolver = new InterpPreviewDialogueResolver(sourceReader, discovery, targetReader, bindingResolver);
         InterpPreviewDialogueResolution result = resolver.Resolve(new InterpPreviewDialogueResolutionRequest(conversation, node));
 
-        Assert.IsTrue(result.IsResolved);
-        Assert.AreEqual(directInterpData, result.InterpData);
+        Assert.IsTrue(result.HasPreviewData);
+        Assert.AreEqual(discoveredInterpData.UIndex, result.Plans.Single().InterpDataId.ExportUIndex);
+        AssertSelectedSource(result, "INTERP_DISCOVERY_SELECTED");
         Assert.IsTrue(HasDiagnosticCode(result.Diagnostics, "TARGET_ACTION_UNRESOLVED"));
+        Assert.AreEqual(0, targetReader.CallCount);
     }
 
     [TestMethod]
@@ -115,12 +146,26 @@ public class InterpPreviewDialogueResolverTests
     {
         using var conversationPackage = MEPackageHandler.CreateMemoryEmptyPackage("ResolverIntegration.pcc", MEGame.LE3);
         ExportEntry conversationExport = CreateExport(conversationPackage, "Conversation", "BioConversation");
-        ExportEntry discoveredInterpData = CreateExport(conversationPackage, "DiscoveredData", "InterpData");
+
         ExportEntry directInterpData = CreateExport(conversationPackage, "DirectData", "InterpData");
 
         string tempPackagePath = Path.Combine(Path.GetTempPath(), $"InterpPreviewExternalAction_{Guid.NewGuid():N}.pcc");
         using var externalActionPackage = MEPackageHandler.CreateMemoryEmptyPackage(tempPackagePath, MEGame.LE3);
         ExportEntry externalAction = CreateExport(externalActionPackage, "InterpActionExternal", "SeqAct_Interp");
+        var variableClass = new ImportEntry(externalActionPackage)
+        {
+            ObjectName = "SeqVar_Object", ClassName = "Class", PackageFile = "Engine"
+        };
+        externalActionPackage.AddImport(variableClass);
+        externalAction.WriteProperty(new ArrayProperty<StructProperty>(
+            [new StructProperty("SeqVarLink", new PropertyCollection
+            {
+                new StrProperty("Camera", "LinkDesc"),
+                new ObjectProperty(variableClass.UIndex, "ExpectedType"),
+                new ArrayProperty<ObjectProperty>("LinkedVariables")
+            })], "VariableLinks"));
+        ExportEntry discoveredInterpData = CreateExport(externalActionPackage, "DiscoveredData", "InterpData");
+        ConnectData(externalAction, discoveredInterpData);
         externalActionPackage.Save(tempPackagePath);
 
         try
@@ -154,14 +199,18 @@ public class InterpPreviewDialogueResolverTests
             var resolver = new InterpPreviewDialogueResolver(sourceReader, discovery, targetReader, bindingResolver);
             InterpPreviewDialogueResolution result = resolver.Resolve(new InterpPreviewDialogueResolutionRequest(conversation, node));
 
-            Assert.IsTrue(result.IsResolved);
-            Assert.AreEqual(directInterpData, result.InterpData);
+            Assert.IsTrue(result.HasPreviewData);
+            Assert.AreEqual(discoveredInterpData.UIndex, result.Plans.Single().InterpDataId.ExportUIndex);
+            AssertSelectedSource(result, "INTERP_DISCOVERY_SELECTED");
             Assert.IsFalse(HasDiagnosticCode(result.Diagnostics, "TARGET_ACTION_UNRESOLVED"));
             Assert.AreEqual(1, targetReader.CallCount);
             Assert.IsNotNull(targetReader.LastRequest);
             Assert.AreEqual(externalAction.UIndex, targetReader.LastRequest.ActionId.ExportUIndex);
             Assert.AreEqual(MEGame.LE3, targetReader.LastRequest.ActionId.Game);
             Assert.AreEqual(Path.GetFullPath(tempPackagePath), targetReader.LastRequest.ActionId.PackagePath);
+            Assert.AreEqual(discoveredInterpData.UIndex, targetReader.LastRequest.InterpData.InterpDataId.ExportUIndex);
+            Assert.AreEqual(2, targetReader.LastRequest.ActionVariableLinks.Count);
+            Assert.AreEqual("Camera", targetReader.LastRequest.ActionVariableLinks[0].LinkDesc);
         }
         finally
         {
@@ -170,6 +219,17 @@ public class InterpPreviewDialogueResolverTests
                 File.Delete(tempPackagePath);
             }
         }
+    }
+
+    private static void ConnectData(ExportEntry action, ExportEntry data)
+    {
+        var links = action.GetProperty<ArrayProperty<StructProperty>>("VariableLinks") ?? new("VariableLinks");
+        links.Add(new StructProperty("SeqVarLink", new PropertyCollection
+        {
+            new StrProperty("Data", "LinkDesc"),
+            new ArrayProperty<ObjectProperty>([new ObjectProperty(data.UIndex)], "LinkedVariables")
+        }));
+        action.WriteProperty(links);
     }
 
     private static DialogueNodeExtended CreateNode(int nodeExportId, bool isReply)
@@ -197,19 +257,27 @@ public class InterpPreviewDialogueResolverTests
 
     private static ExportEntry CreateExport(IMEPackage package, string name, string className)
     {
-        ImportEntry classImport = package.Imports.Count > 0
-            ? package.Imports[0]
-            : new ImportEntry(package) { ObjectName = className, ClassName = "Class", PackageFile = "Engine" };
-
-        if (package.Imports.Count == 0)
+        ImportEntry classImport = package.Imports.FirstOrDefault(import =>
+            import.ClassName == "Class" && import.ObjectName.Instanced == className);
+        if (classImport is null)
         {
+            classImport = new ImportEntry(package) { ObjectName = className, ClassName = "Class", PackageFile = "Engine" };
             package.AddImport(classImport);
         }
 
         var export = new ExportEntry(package, 0, name, prePropBinary: new byte[4], properties: []);
         export.Class = classImport;
         package.AddExport(export);
+        Assert.AreEqual(className, export.ClassName, "Fixture exports must use the requested Unreal class.");
         return export;
+    }
+
+    private static void AssertSelectedSource(InterpPreviewDialogueResolution result, string expectedCode)
+    {
+        string[] sourceCodes = ["INTERP_DISCOVERY_SELECTED", "INTERP_DIRECT", "INTERP_FALLBACK"];
+        InterpPreviewDiagnostic[] selectedSources = result.Diagnostics.Where(d => sourceCodes.Contains(d.Code)).ToArray();
+        Assert.AreEqual(1, selectedSources.Length, "Exactly one source-selection diagnostic should be emitted.");
+        Assert.AreEqual(expectedCode, selectedSources[0].Code);
     }
 
     private static bool HasDiagnosticCode(IReadOnlyList<InterpPreviewDiagnostic> diagnostics, string code)
@@ -239,18 +307,6 @@ public class InterpPreviewDialogueResolverTests
         }
 
         public InterpPreviewNodeDiscoveryResult Discover(InterpPreviewNodeDiscoveryRequest request) => _result;
-    }
-
-    private sealed class StubTrackTargetReader : IInterpPreviewTrackTargetReader
-    {
-        private readonly InterpPreviewTrackTargetReadResult _result;
-
-        public StubTrackTargetReader(InterpPreviewTrackTargetReadResult result)
-        {
-            _result = result;
-        }
-
-        public InterpPreviewTrackTargetReadResult ReadTargets(InterpPreviewTrackTargetReadRequest request) => _result;
     }
 
     private sealed class CapturingTrackTargetReader : IInterpPreviewTrackTargetReader

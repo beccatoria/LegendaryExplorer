@@ -293,6 +293,10 @@ public class InterpPreviewLoadCoordinatorTests
         public bool ContainsResource(InterpPreviewResourceKey key) => false;
         public IReadOnlyList<ActorProxy> FindActorsByLookup(string lookup) => [];
         public InterpPreviewSceneSnapshot CreateSceneSnapshot() => new(SceneStamp, [], [], InterpPreviewPlayerVariant.None);
+        public InterpPreviewSessionCommitResult CommitCollection(IReadOnlyList<InterpPreviewLoadedLevel> candidates,
+            IReadOnlyList<string> paths, Action<InterpPreviewSessionCommitResult, Action> publish)
+            => throw new NotSupportedException("This legacy API test does not execute launcher transactions.");
+
         public InterpPreviewSessionCommitResult CommitLevel(InterpPreviewLoadedLevel loadedLevel, bool replace)
         {
             IReadOnlyList<ActorProxy> added = replace

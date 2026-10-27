@@ -10,7 +10,7 @@ public sealed class PreviewLevelLightRegistry
 {
     private readonly MeshRenderContext _context;
     private readonly Func<IMEPackage, List<SceneLight>> _loadLights;
-    private readonly Dictionary<IMEPackage, List<SceneLight>> _lights = new();
+    private Dictionary<IMEPackage, List<SceneLight>> _lights = new();
 
     public PreviewLevelLightRegistry(MeshRenderContext context, Func<IMEPackage, List<SceneLight>> loadLights = null)
     {
@@ -42,4 +42,36 @@ public sealed class PreviewLevelLightRegistry
     }
 
     public void Clear() => Synchronize(Array.Empty<IMEPackage>());
+
+    // Opt-in for Interp Preview transactions; ordinary Level Editor synchronization is unchanged.
+    public void SynchronizeTransactional(IEnumerable<IMEPackage> packages, Action commitScene)
+    {
+        var active = packages.ToHashSet();
+        // Load every incoming light set before removing old lights. Rollback reuses the
+        // original SceneLight objects, so it never relies on re-reading a failing package.
+        var added = active.Where(package => !_lights.ContainsKey(package))
+            .ToDictionary(package => package, _loadLights);
+        var removed = _lights.Where(pair => !active.Contains(pair.Key)).ToArray();
+        var next = _lights.Where(pair => active.Contains(pair.Key)).Concat(added)
+            .ToDictionary(pair => pair.Key, pair => pair.Value);
+        try
+        {
+            foreach (var pair in added) _context.AddLights(pair.Value);
+            foreach (var pair in removed) _context.RemoveLights(pair.Value);
+            // Cache eviction is safe before publication; these caches rebuild on demand.
+            foreach (var pair in removed) _context.ForgetLevel(pair.Key);
+            commitScene();
+        }
+        catch
+        {
+            foreach (var pair in added) _context.RemoveLights(pair.Value);
+            foreach (var pair in removed)
+            {
+                _context.RemoveLights(pair.Value);
+                _context.AddLights(pair.Value);
+            }
+            throw;
+        }
+        _lights = next;
+    }
 }

@@ -18,6 +18,7 @@ public sealed class InterpPreviewDialogueResolver : IInterpPreviewDialogueResolv
     private readonly IInterpPreviewNodeDiscovery _nodeDiscovery;
     private readonly IInterpPreviewTrackTargetReader _trackTargetReader;
     private readonly IInterpPreviewActorBindingResolver _actorBindingResolver;
+    private readonly Func<string, IMEPackage> _openSourcePackage;
 
     public InterpPreviewDialogueResolver()
         : this(
@@ -32,8 +33,9 @@ public sealed class InterpPreviewDialogueResolver : IInterpPreviewDialogueResolv
         IInterpPreviewSourceReader sourceReader,
         IInterpPreviewNodeDiscovery nodeDiscovery,
         IInterpPreviewTrackTargetReader trackTargetReader,
-        IInterpPreviewActorBindingResolver actorBindingResolver)
+        IInterpPreviewActorBindingResolver actorBindingResolver, Func<string, IMEPackage> openSourcePackage = null)
     {
+        _openSourcePackage = openSourcePackage;
         _sourceReader = sourceReader ?? throw new ArgumentNullException(nameof(sourceReader));
         _nodeDiscovery = nodeDiscovery ?? throw new ArgumentNullException(nameof(nodeDiscovery));
         _trackTargetReader = trackTargetReader ?? throw new ArgumentNullException(nameof(trackTargetReader));
@@ -43,425 +45,134 @@ public sealed class InterpPreviewDialogueResolver : IInterpPreviewDialogueResolv
     public InterpPreviewDialogueResolution Resolve(InterpPreviewDialogueResolutionRequest request)
     {
         var diagnostics = new List<InterpPreviewDiagnostic>();
-
-        if (request is null)
-        {
-            diagnostics.Add(new InterpPreviewDiagnostic(InterpPreviewDiagnosticSeverity.Error, "REQUEST_NULL", "Unable to preview line: no dialogue request was provided."));
-            return InterpPreviewDialogueResolution.Unresolved(diagnostics);
-        }
-
-        ConversationExtended conversation = request.Conversation;
-        DialogueNodeExtended node = request.Node;
-
-        if (conversation is null)
-        {
-            diagnostics.Add(new InterpPreviewDiagnostic(InterpPreviewDiagnosticSeverity.Error, "CONVERSATION_NULL", "Unable to preview line: conversation data is missing."));
-            return InterpPreviewDialogueResolution.Unresolved(diagnostics);
-        }
-
-        if (node is null)
-        {
-            diagnostics.Add(new InterpPreviewDiagnostic(InterpPreviewDiagnosticSeverity.Error, "NODE_NULL", "Unable to preview line: no dialogue line is selected."));
-            return InterpPreviewDialogueResolution.Unresolved(diagnostics);
-        }
-
-        string nodeContext = BuildNodeContext(conversation, node);
-        AddSceneBindingDiagnostics(request, conversation, node, diagnostics);
-
-        InterpPreviewSourceReadResult sourceResult = _sourceReader.Read(new InterpPreviewSourceReadRequest(conversation, node));
-        AddDiagnostics(diagnostics, sourceResult.Diagnostics);
-
-        InterpPreviewNodeDiscoveryResult discoveryResult = null;
-        InterpPreviewDiscoveredInterpData selectedDiscovered = null;
-        if (sourceResult.Snapshot is not null)
-        {
-            InterpPreviewSequenceGraphSnapshot graph = BuildSequenceGraphSnapshot(conversation, sourceResult.Snapshot.SequenceId, diagnostics);
-            discoveryResult = _nodeDiscovery.Discover(new InterpPreviewNodeDiscoveryRequest(sourceResult.Snapshot, graph));
-            AddDiagnostics(diagnostics, discoveryResult.Diagnostics);
-
-            if (discoveryResult.Candidates.Count > 0)
-            {
-                selectedDiscovered = discoveryResult.Candidates.FirstOrDefault(c => !c.IsHintOnly) ?? discoveryResult.Candidates[0];
-                if (discoveryResult.Candidates.Count > 1)
-                {
-                    diagnostics.Add(new InterpPreviewDiagnostic(InterpPreviewDiagnosticSeverity.Warning, "INTERP_MULTIPLE_CANDIDATES", $"Found {discoveryResult.Candidates.Count} InterpData candidates for {nodeContext}; using first deterministic candidate for compatibility."));
-                }
-            }
-        }
-
-        ExportEntry discoveredInterpData = null;
-        InterpPreviewSourceObjectId discoveredActionId = default;
-        IReadOnlyList<InterpPreviewActionVariableLinkSnapshot> discoveredActionLinks = null;
-        if (selectedDiscovered is not null)
-        {
-            if (TryResolveExportFromSourceId(conversation, selectedDiscovered.InterpDataId, out ExportEntry resolvedInterp)
-                && resolvedInterp is not null
-                && string.Equals(resolvedInterp.ClassName, "InterpData", StringComparison.Ordinal))
-            {
-                discoveredInterpData = resolvedInterp;
-            }
-
-            if (selectedDiscovered.ActionId is InterpPreviewSourceObjectId actionId
-                && TryReadActionVariableLinksFromSourceId(conversation, actionId, out InterpPreviewSourceObjectId resolvedActionId, out IReadOnlyList<InterpPreviewActionVariableLinkSnapshot> resolvedActionLinks))
-            {
-                discoveredActionId = resolvedActionId;
-                discoveredActionLinks = resolvedActionLinks;
-            }
-        }
-
-        ExportEntry directInterpData = node.InterpData as ExportEntry;
-
-        ExportEntry fallbackInterpData = null;
+        var plans = new List<InterpPreviewPlanInstance>();
+        InterpPreviewResolutionStamp stamp = null;
+        InterpPreviewNodeDiscoveryResult discovery = null;
+        InterpPreviewResolutionInput input = null;
+        IReadOnlyList<InterpPreviewSourceReference> unresolvedReferences = [];
+        if (request?.Conversation?.Export is null || request.Node is null)
+            return InterpPreviewDialogueResolution.Unresolved([new(InterpPreviewDiagnosticSeverity.Error,
+                "SOURCE_REQUEST_INVALID", "A conversation and one of its selected lines are required.")]);
         try
         {
-            fallbackInterpData = conversation.ParseSingleNodeInterpData(node);
+            var sourceResult = _sourceReader.Read(new(request.Conversation, request.Node) { CancellationToken = request.CancellationToken });
+            diagnostics.AddRange(sourceResult.Diagnostics);
+            if (sourceResult.Snapshot is not { } source) return InterpPreviewDialogueResolution.Unresolved(diagnostics);
+            stamp = new(request.RequestId, source.SnapshotId, request.SceneSnapshot?.Stamp,
+                request.PreferFemalePlayer ? InterpPreviewPlayerVariant.Female : InterpPreviewPlayerVariant.Male);
+            using var scope = new InterpPreviewSourceScope(request, diagnostics, _openSourcePackage);
+            unresolvedReferences = scope.UnresolvedReferences;
+            scope.Check();
+            var graph = source.SequenceId is { } sequenceId ? scope.ReadGraph(sequenceId) : null;
+            input = new(source, graph, request.SceneSnapshot, stamp, request.BranchChoices);
+            discovery = _nodeDiscovery.Discover(new(source, graph)
+            {
+                CancellationToken = request.CancellationToken,
+                BranchChoices = input.BranchChoices
+            });
+            diagnostics.AddRange(discovery.Diagnostics);
+            bool complete = sourceResult.Outcome == InterpPreviewSourceReadOutcome.Ready
+                && discovery.Outcome == InterpPreviewNodeDiscoveryOutcome.Ready;
+            // Source-choice diagnostics describe the complete set, never a first chosen export.
+            if (discovery.Candidates.Any(candidate => !candidate.IsHintOnly))
+                diagnostics.Add(new(InterpPreviewDiagnosticSeverity.Info, "INTERP_DISCOVERY_SELECTED",
+                    $"Preserved {discovery.Candidates.Count} action/Data instance(s) from the selected line's graph."));
+            foreach (var candidate in discovery.Candidates)
+            {
+                scope.Check();
+                InterpPreviewInterpDataSnapshot copiedData = null;
+                IReadOnlyList<InterpPreviewActionVariableLinkSnapshot> copiedLinks = [];
+                try
+                {
+                    bool instanceComplete = !candidate.IsHintOnly;
+                    var dataExport = scope.Resolve(candidate.InterpDataId, "InterpData");
+                    var data = dataExport is null ? null : scope.ReadData(dataExport, ref instanceComplete);
+                    copiedData = data;
+                    IReadOnlyList<InterpPreviewActionVariableLinkSnapshot> actionLinks = [];
+                    InterpPreviewTrackTargetReadResult targets = null;
+                    InterpPreviewActorBindingResult bindings = null;
+                    if (candidate.ActionId is { } actionId && data is not null)
+                    {
+                        var action = scope.Resolve(actionId, "SeqAct_Interp");
+                        if (action is not null)
+                        {
+                            var rawLinks = scope.ReadVariableLinks(action, ref instanceComplete);
+                            // Proof of association is the action's actual Data link. Neither a cached
+                            // node hint nor an unrelated action may lend its variable links to this Data.
+                            bool associated = rawLinks.Where(link => link.LinkDesc.Equals("Data", StringComparison.OrdinalIgnoreCase))
+                                .SelectMany(link => link.LinkedNodeExportUIndexes).Any(index => index > 0
+                                    && action.FileRef.TryGetUExport(index, out var linkedData)
+                                    && InterpPreviewSourceScope.Id(linkedData).Equals(candidate.InterpDataId));
+                            if (associated)
+                            {
+                                actionLinks = rawLinks.Select((link, index) => new InterpPreviewActionVariableLinkSnapshot(link.LinkDesc,
+                                    actionId, link.LinkedNodeExportUIndexes.Select(variable => new InterpPreviewSourceReference(actionId,
+                                        $"VariableLinks[{index}]/{link.LinkDesc}", variable)).ToArray())).ToArray();
+                                copiedLinks = actionLinks;
+                                targets = _trackTargetReader.ReadTargets(new(actionId, data, actionLinks));
+                                diagnostics.AddRange(targets.Diagnostics);
+                                instanceComplete &= targets.Outcome == InterpPreviewTrackTargetReadOutcome.Ready;
+                                if (targets.Targets.Count > 0 && request.SceneSnapshot is not null)
+                                {
+                                    bindings = _actorBindingResolver.Resolve(new(request.SceneSnapshot, targets.Targets));
+                                    diagnostics.AddRange(bindings.Diagnostics);
+                                    instanceComplete &= bindings.Outcome == InterpPreviewActorBindingOutcome.Ready;
+                                }
+                                else if (targets.Targets.Count > 0)
+                                {
+                                    instanceComplete = false;
+                                    diagnostics.Add(new(InterpPreviewDiagnosticSeverity.Warning, "ACTOR_BINDING_SCENE_UNAVAILABLE", "The copied scene snapshot is unavailable for target binding."));
+                                }
+                                // S5 replaces the existing group-label shortcut with actual variable authority.
+                                if (targets.Targets.Any(target => target.Role == InterpPreviewTrackTargetRole.GroupVariable))
+                                {
+                                    instanceComplete = false;
+                                    diagnostics.Add(new(InterpPreviewDiagnosticSeverity.Warning, "TARGET_VARIABLE_RESOLUTION_PENDING", "Actors linked through this group have not yet been fully resolved; tag matches alone are inconclusive."));
+                                }
+                            }
+                            else
+                            {
+                                instanceComplete = false;
+                                diagnostics.Add(new(InterpPreviewDiagnosticSeverity.Warning, "TARGET_ACTION_DATA_MISMATCH", $"{actionId} has no proven Data link to {candidate.InterpDataId}; no action bindings were borrowed."));
+                            }
+                        }
+                        else instanceComplete = false;
+                    }
+                    else instanceComplete = false;
+                    if (targets is null)
+                        diagnostics.Add(new(InterpPreviewDiagnosticSeverity.Warning, "TARGET_ACTION_UNRESOLVED", "Action-dependent target extraction is unavailable for this instance."));
+                    instanceComplete &= data is not null;
+                    plans.Add(new(source.NodeId, stamp, candidate, data, actionLinks, targets, bindings, instanceComplete));
+                    complete &= instanceComplete;
+                }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception ex)
+                {
+                    complete = false;
+                    diagnostics.Add(new(InterpPreviewDiagnosticSeverity.Warning, "SOURCE_CANDIDATE_READ_FAILED",
+                        $"{candidate.InterpDataId}: {ex.Message}; other instances were retained."));
+                    plans.Add(new(source.NodeId, stamp, candidate, copiedData, copiedLinks, null, null, false));
+                }
+            }
+            scope.Check();
+            scope.Dispose(); // Report cleanup before copying the durable diagnostics.
+            complete &= !scope.CleanupFailed;
+            AddSceneBindingDiagnostics(request, request.Conversation, request.Node, diagnostics);
+            var outcome = plans.Count == 0 ? InterpPreviewResolutionOutcome.Unresolved
+                : discovery.RequiresSelection ? InterpPreviewResolutionOutcome.NeedsSelection
+                : complete ? InterpPreviewResolutionOutcome.Ready : InterpPreviewResolutionOutcome.Partial;
+            return new(outcome, plans, diagnostics, stamp, discovery, scope.UnresolvedReferences, input);
+        }
+        catch (OperationCanceledException)
+        {
+            diagnostics.Add(new(InterpPreviewDiagnosticSeverity.Warning, "SOURCE_CANCELLED", "Source discovery was interrupted; no complete plan is claimed."));
+            return new(InterpPreviewResolutionOutcome.Partial, plans, diagnostics, stamp, discovery, unresolvedReferences, input);
         }
         catch (Exception ex)
         {
-            diagnostics.Add(new InterpPreviewDiagnostic(InterpPreviewDiagnosticSeverity.Error, "INTERP_RESOLVE_EXCEPTION", $"Preview lookup failed for {nodeContext}: {ex.Message}"));
+            diagnostics.Add(new(InterpPreviewDiagnosticSeverity.Warning, "SOURCE_READ_FAILED", $"Source copying was incomplete: {ex.Message}"));
+            return new(InterpPreviewResolutionOutcome.Partial, plans, diagnostics, stamp, discovery, unresolvedReferences, input);
         }
-
-        ExportEntry selectedInterpData = discoveredInterpData ?? directInterpData ?? fallbackInterpData;
-        if (selectedInterpData is null)
-        {
-            diagnostics.Add(new InterpPreviewDiagnostic(InterpPreviewDiagnosticSeverity.Warning, "INTERP_MISSING", $"No preview data is linked to this line ({nodeContext})."));
-            return InterpPreviewDialogueResolution.Unresolved(diagnostics);
-        }
-
-        bool selectedFromDiscovery = discoveredInterpData is not null && ReferenceEquals(selectedInterpData, discoveredInterpData);
-        bool selectedFromDirect = directInterpData is not null && ReferenceEquals(selectedInterpData, directInterpData);
-        bool selectedFromFallback = fallbackInterpData is not null && ReferenceEquals(selectedInterpData, fallbackInterpData);
-
-        if (selectedFromDiscovery)
-        {
-            diagnostics.Add(new InterpPreviewDiagnostic(InterpPreviewDiagnosticSeverity.Info, "INTERP_DISCOVERY_SELECTED", $"Preview data was selected from M4 graph discovery ({nodeContext})."));
-        }
-        else if (selectedFromDirect)
-        {
-            diagnostics.Add(new InterpPreviewDiagnostic(InterpPreviewDiagnosticSeverity.Info, "INTERP_DIRECT", $"Preview data found on the selected line ({nodeContext})."));
-        }
-        else if (selectedFromFallback)
-        {
-            diagnostics.Add(new InterpPreviewDiagnostic(InterpPreviewDiagnosticSeverity.Warning, "INTERP_FALLBACK", $"Preview data was recovered from linked conversation data ({nodeContext})."));
-        }
-
-        if (TryBuildInterpDataSnapshot(selectedInterpData, out InterpPreviewInterpDataSnapshot interpSnapshot))
-        {
-            if (discoveredActionLinks is not null)
-            {
-                InterpPreviewTrackTargetReadResult targetResult = _trackTargetReader.ReadTargets(new InterpPreviewTrackTargetReadRequest(discoveredActionId, interpSnapshot, discoveredActionLinks));
-                AddDiagnostics(diagnostics, targetResult.Diagnostics);
-
-                if (request.SceneSnapshot is not null && targetResult.Targets.Count > 0)
-                {
-                    InterpPreviewActorBindingResult bindingResult = _actorBindingResolver.Resolve(new InterpPreviewActorBindingRequest(request.SceneSnapshot, targetResult.Targets));
-                    AddDiagnostics(diagnostics, bindingResult.Diagnostics);
-                }
-                else if (targetResult.Targets.Count > 0)
-                {
-                    diagnostics.Add(new InterpPreviewDiagnostic(InterpPreviewDiagnosticSeverity.Warning, "ACTOR_BINDING_SCENE_UNAVAILABLE", "Scene snapshot was unavailable for actor binding pass."));
-                }
-            }
-            else
-            {
-                diagnostics.Add(new InterpPreviewDiagnostic(InterpPreviewDiagnosticSeverity.Warning, "TARGET_ACTION_UNRESOLVED", "SeqAct_Interp source action could not be resolved; target extraction was skipped."));
-            }
-        }
-
-        return InterpPreviewDialogueResolution.Resolved(selectedInterpData, diagnostics);
-    }
-
-    private static void AddDiagnostics(List<InterpPreviewDiagnostic> destination, IReadOnlyList<InterpPreviewDiagnostic> source)
-    {
-        if (destination is null || source is null || source.Count == 0)
-        {
-            return;
-        }
-
-        for (int i = 0; i < source.Count; i++)
-        {
-            destination.Add(source[i]);
-        }
-    }
-
-    private static InterpPreviewSequenceGraphSnapshot BuildSequenceGraphSnapshot(
-        ConversationExtended conversation,
-        InterpPreviewSourceObjectId? sequenceId,
-        List<InterpPreviewDiagnostic> diagnostics)
-    {
-        if (conversation?.Sequence is not ExportEntry sequenceExport || !sequenceId.HasValue)
-        {
-            return null;
-        }
-
-        var sequenceObjects = sequenceExport.GetProperty<ArrayProperty<ObjectProperty>>("SequenceObjects");
-        if (sequenceObjects is null || sequenceObjects.Count == 0)
-        {
-            return new InterpPreviewSequenceGraphSnapshot(sequenceId.Value, []);
-        }
-
-        var nodes = new List<InterpPreviewSequenceNodeSnapshot>(sequenceObjects.Count);
-        foreach (ObjectProperty sequenceObject in sequenceObjects)
-        {
-            if (sequenceObject is null || sequenceObject.Value <= 0 || !sequenceExport.FileRef.TryGetUExport(sequenceObject.Value, out ExportEntry nodeExport))
-            {
-                continue;
-            }
-
-            if (!TryCreateSourceObjectId(nodeExport, out InterpPreviewSourceObjectId nodeId))
-            {
-                continue;
-            }
-
-            int? convNodeId = null;
-            if (string.Equals(nodeExport.ClassName, "BioSeqEvt_ConvNode", StringComparison.Ordinal)
-                && nodeExport.GetProperty<IntProperty>("m_nNodeID") is IntProperty convNodeProperty)
-            {
-                convNodeId = convNodeProperty.Value;
-            }
-
-            List<string> outputNames = KismetHelper.GetOutputLinkNames(nodeExport);
-            List<List<OutputLink>> outputLinks = KismetHelper.GetOutputLinksOfNode(nodeExport);
-            var copiedOutputLinks = new List<InterpPreviewOutputLinkSnapshot>();
-            for (int outputIndex = 0; outputIndex < outputLinks.Count; outputIndex++)
-            {
-                string outputName = outputIndex < outputNames.Count ? outputNames[outputIndex] : string.Empty;
-                List<OutputLink> links = outputLinks[outputIndex];
-                if (links is null)
-                {
-                    continue;
-                }
-
-                foreach (OutputLink link in links)
-                {
-                    if (link?.LinkedOp is not ExportEntry destination)
-                    {
-                        continue;
-                    }
-
-                    copiedOutputLinks.Add(new InterpPreviewOutputLinkSnapshot(
-                        outputIndex,
-                        outputName,
-                        destination.UIndex,
-                        link.InputLinkIdx));
-                }
-            }
-
-            List<VarLinkInfo> variableLinks = KismetHelper.GetVariableLinksOfNode(nodeExport);
-            var copiedVariableLinks = new List<InterpPreviewVariableLinkSnapshot>(variableLinks.Count);
-            foreach (VarLinkInfo variableLink in variableLinks)
-            {
-                var linkedIndexes = variableLink.LinkedNodes
-                    .OfType<ExportEntry>()
-                    .Select(static export => export.UIndex)
-                    .ToList();
-                copiedVariableLinks.Add(new InterpPreviewVariableLinkSnapshot(variableLink.LinkDesc, linkedIndexes));
-            }
-
-            nodes.Add(new InterpPreviewSequenceNodeSnapshot(nodeId, nodeExport.ClassName, convNodeId, copiedOutputLinks, copiedVariableLinks));
-        }
-
-        try
-        {
-            return new InterpPreviewSequenceGraphSnapshot(sequenceId.Value, nodes);
-        }
-        catch (ArgumentException ex)
-        {
-            diagnostics?.Add(new InterpPreviewDiagnostic(InterpPreviewDiagnosticSeverity.Warning, "DISCOVERY_GRAPH_INVALID", $"Sequence graph snapshot was invalid: {ex.Message}"));
-            return null;
-        }
-    }
-
-    private static bool TryBuildInterpDataSnapshot(ExportEntry interpDataExport, out InterpPreviewInterpDataSnapshot snapshot)
-    {
-        snapshot = null;
-        if (interpDataExport is null || !TryCreateSourceObjectId(interpDataExport, out InterpPreviewSourceObjectId interpDataId))
-        {
-            return false;
-        }
-
-        var groups = new List<InterpPreviewInterpGroupSnapshot>();
-        ArrayProperty<ObjectProperty> interpGroups = interpDataExport.GetProperty<ArrayProperty<ObjectProperty>>("InterpGroups");
-        if (interpGroups is not null)
-        {
-            foreach (ObjectProperty groupRef in interpGroups)
-            {
-                if (groupRef is null || groupRef.Value <= 0 || !interpDataExport.FileRef.TryGetUExport(groupRef.Value, out ExportEntry groupExport))
-                {
-                    continue;
-                }
-
-                if (!TryCreateSourceObjectId(groupExport, out InterpPreviewSourceObjectId groupId))
-                {
-                    continue;
-                }
-
-                string groupName = groupExport.GetProperty<NameProperty>("GroupName")?.Value.Instanced
-                                   ?? groupExport.ObjectName.Instanced;
-
-                var tracks = new List<InterpPreviewInterpTrackSnapshot>();
-                ArrayProperty<ObjectProperty> interpTracks = groupExport.GetProperty<ArrayProperty<ObjectProperty>>("InterpTracks");
-                if (interpTracks is not null)
-                {
-                    foreach (ObjectProperty trackRef in interpTracks)
-                    {
-                        if (trackRef is null || trackRef.Value <= 0 || !groupExport.FileRef.TryGetUExport(trackRef.Value, out ExportEntry trackExport))
-                        {
-                            continue;
-                        }
-
-                        if (!TryCreateSourceObjectId(trackExport, out InterpPreviewSourceObjectId trackId))
-                        {
-                            continue;
-                        }
-
-                        string findActorTag = trackExport.GetProperty<NameProperty>("m_nmFindActor")?.Value.Instanced;
-                        tracks.Add(new InterpPreviewInterpTrackSnapshot(trackId, trackExport.ClassName, findActorTag));
-                    }
-                }
-
-                groups.Add(new InterpPreviewInterpGroupSnapshot(groupId, groupName, tracks));
-            }
-        }
-
-        snapshot = new InterpPreviewInterpDataSnapshot(interpDataId, groups);
-        return true;
-    }
-
-    private static IReadOnlyList<InterpPreviewActionVariableLinkSnapshot> BuildActionVariableLinks(ExportEntry actionExport)
-    {
-        if (actionExport is null)
-        {
-            return [];
-        }
-
-        List<VarLinkInfo> varLinks = KismetHelper.GetVariableLinksOfNode(actionExport);
-        if (varLinks.Count == 0)
-        {
-            return [];
-        }
-
-        var links = new List<InterpPreviewActionVariableLinkSnapshot>(varLinks.Count);
-        foreach (VarLinkInfo varLink in varLinks)
-        {
-            links.Add(new InterpPreviewActionVariableLinkSnapshot(varLink.LinkDesc));
-        }
-
-        return links;
-    }
-
-    private static bool TryResolveExportFromSourceId(ConversationExtended conversation, InterpPreviewSourceObjectId sourceId, out ExportEntry export)
-    {
-        export = null;
-        if (conversation?.Export?.FileRef is null)
-        {
-            return false;
-        }
-
-        IMEPackage package = conversation.Export.FileRef;
-        string packagePath = package.FilePath;
-        if (!string.Equals(Path.GetFullPath(packagePath), sourceId.PackagePath, StringComparison.OrdinalIgnoreCase)
-            || package.Game != sourceId.Game)
-        {
-            return false;
-        }
-
-        return package.TryGetUExport(sourceId.ExportUIndex, out export);
-    }
-
-    private static bool TryReadActionVariableLinksFromSourceId(
-        ConversationExtended conversation,
-        InterpPreviewSourceObjectId sourceId,
-        out InterpPreviewSourceObjectId actionId,
-        out IReadOnlyList<InterpPreviewActionVariableLinkSnapshot> actionVariableLinks)
-    {
-        actionId = default;
-        actionVariableLinks = null;
-
-        if (!TryResolveExportFromSourceId(conversation, sourceId, out ExportEntry actionExport))
-        {
-            if (!TryResolveExportFromExternalPackage(sourceId, out actionExport, out IMEPackage temporaryPackage))
-            {
-                return false;
-            }
-
-            try
-            {
-                if (!TryCreateSourceObjectId(actionExport, out actionId))
-                {
-                    return false;
-                }
-
-                actionVariableLinks = BuildActionVariableLinks(actionExport);
-                return true;
-            }
-            finally
-            {
-                temporaryPackage.Dispose();
-            }
-        }
-
-        if (!TryCreateSourceObjectId(actionExport, out actionId))
-        {
-            return false;
-        }
-
-        actionVariableLinks = BuildActionVariableLinks(actionExport);
-        return true;
-    }
-
-    private static bool TryResolveExportFromExternalPackage(
-        InterpPreviewSourceObjectId sourceId,
-        out ExportEntry export,
-        out IMEPackage package)
-    {
-        export = null;
-        package = null;
-
-        if (string.IsNullOrWhiteSpace(sourceId.PackagePath)
-            || !File.Exists(sourceId.PackagePath))
-        {
-            return false;
-        }
-
-        try
-        {
-            package = MEPackageHandler.OpenMEPackage(sourceId.PackagePath, forceLoadFromDisk: true);
-            if (package is null || package.Game != sourceId.Game)
-            {
-                package?.Dispose();
-                package = null;
-                return false;
-            }
-
-            if (!package.TryGetUExport(sourceId.ExportUIndex, out export) || export is null)
-            {
-                package.Dispose();
-                package = null;
-                return false;
-            }
-
-            return true;
-        }
-        catch
-        {
-            package?.Dispose();
-            package = null;
-            export = null;
-            return false;
-        }
-    }
-
-    private static bool TryCreateSourceObjectId(IEntry entry, out InterpPreviewSourceObjectId sourceObjectId)
-    {
-        sourceObjectId = default;
-        if (entry is null || entry.UIndex <= 0 || entry.FileRef is null || string.IsNullOrWhiteSpace(entry.FileRef.FilePath))
-        {
-            return false;
-        }
-
-        sourceObjectId = new InterpPreviewSourceObjectId(entry.Game, entry.FileRef.FilePath, entry.UIndex);
-        return true;
     }
 
     private static void AddSceneBindingDiagnostics(
@@ -872,7 +583,8 @@ public sealed class InterpPreviewDialogueResolver : IInterpPreviewDialogueResolv
             AddLookupKey(keys, convImport.ObjectName.Instanced);
             AddLookupKey(keys, convImport.InstancedFullPath);
 
-            ExportEntry resolvedConversation = EntryImporter.ResolveImport(convImport, new PackageCache());
+            using var importCache = new PackageCache();
+            ExportEntry resolvedConversation = EntryImporter.ResolveImport(convImport, importCache);
             if (resolvedConversation is not null)
             {
                 AddLookupKey(keys, resolvedConversation.ObjectName.Name);
@@ -1001,9 +713,4 @@ public sealed class InterpPreviewDialogueResolver : IInterpPreviewDialogueResolv
     private readonly record struct OwnerBindingInfo(string Lookup, string SourceDescription);
     private readonly record struct PlayerBindingInfo(string Lookup, string SourceDescription);
 
-    private static string BuildNodeContext(ConversationExtended conversation, DialogueNodeExtended node)
-    {
-        string nodeType = node.IsReply ? "Reply" : "Entry";
-        return $"{conversation.ConvName} | {nodeType} #{node.NodeCount} | ExportID {node.ExportID} | StrRef {node.LineStrRef}";
-    }
 }

@@ -1,8 +1,22 @@
+using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 using LegendaryExplorerCore.Dialogue;
 
 namespace LegendaryExplorer.Tools.InterpEditor;
+
+// All callbacks are invoked on the preview dispatcher. The runtime owns the request
+// and joins preparation, publication and cleanup before allowing teardown.
+public interface IInterpPreviewLauncherHost
+{
+    Task<InterpPreviewLoadedLevel> PreparePlayerAsync(InterpPreviewLauncherRequest request, Func<bool> canContinue);
+    // Must roll registration back if commitScene fails. Invoke commitScene once, last.
+    void ApplySceneChange(InterpPreviewOperationResult result, Action commitScene);
+    void PublishSceneChange(InterpPreviewOperationResult result, bool updateCamera);
+    void PublishDialogue(InterpPreviewDialogueResolution resolution, InterpPreviewLauncherRequest request);
+}
 
 public enum InterpPreviewLauncherOutcome
 {
@@ -18,11 +32,12 @@ public sealed class InterpPreviewLauncherRequest
 {
     public InterpPreviewLauncherRequest(IReadOnlyList<string> levelPaths)
     {
-        LevelPaths = levelPaths ?? [];
+        LevelPaths = levelPaths?.ToArray() ?? [];
     }
 
     public IReadOnlyList<string> LevelPaths { get; }
     public bool ReplaceOnFirstLevel { get; init; } = true;
+    public bool ClearScene { get; init; }
     public ConversationExtended Conversation { get; init; }
     public DialogueNodeExtended Node { get; init; }
     public bool EnsurePlayerContext { get; init; }
@@ -54,12 +69,22 @@ public sealed class InterpPreviewLauncherResult
     public bool HadFailure { get; }
     public InterpPreviewDialogueResolution DialogueResolution { get; }
     public string Message { get; }
+    public long RequestId { get; private set; }
 
-    public static InterpPreviewLauncherResult Completed(int loadedCount, int totalCount, bool hadFailure, InterpPreviewDialogueResolution dialogueResolution = null, string message = null)
+    internal InterpPreviewLauncherResult WithRequestId(long requestId)
+    {
+        RequestId = requestId;
+        return this;
+    }
+
+    public bool AllowsFeedback => Outcome is InterpPreviewLauncherOutcome.Committed
+        or InterpPreviewLauncherOutcome.NoChange or InterpPreviewLauncherOutcome.Failed;
+
+    public static InterpPreviewLauncherResult Completed(int loadedCount, int totalCount, bool hadFailure, InterpPreviewDialogueResolution dialogueResolution = null, string message = null, bool? sceneChanged = null)
     {
         InterpPreviewLauncherOutcome outcome = hadFailure
             ? InterpPreviewLauncherOutcome.Failed
-            : loadedCount > 0 || dialogueResolution is not null
+            : (sceneChanged ?? (loadedCount > 0 || dialogueResolution is not null))
                 ? InterpPreviewLauncherOutcome.Committed
                 : InterpPreviewLauncherOutcome.NoChange;
 

@@ -5,6 +5,7 @@ using LegendaryExplorerCore.Packages;
 using LegendaryExplorerCore.Unreal;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace LegendaryExplorer.Tests.Tools.InterpEditor;
@@ -34,6 +35,7 @@ public class InterpPreviewSourceReaderTests
         var node = CreateNode(nodeCount: 5, speakerIndex: 3, listenerIndex: 1, lineStrRef: 7001, isReply: false, nodeExportId: 2222);
         node.InterpData = hintExport;
 
+        AttachNode(conversation, node);
         var reader = new InterpPreviewSourceReader();
         InterpPreviewSourceReadResult result = reader.Read(new InterpPreviewSourceReadRequest(conversation, node));
 
@@ -65,6 +67,7 @@ public class InterpPreviewSourceReaderTests
         var node = CreateNode(nodeCount: 1, speakerIndex: -2, listenerIndex: 0, lineStrRef: 100, isReply: true, nodeExportId: 0);
         node.ExportID = 0;
 
+        AttachNode(conversation, node);
         var reader = new InterpPreviewSourceReader();
         InterpPreviewSourceReadResult result = reader.Read(new InterpPreviewSourceReadRequest(conversation, node));
 
@@ -97,10 +100,11 @@ public class InterpPreviewSourceReaderTests
             Listener = 8
         };
 
+        AttachNode(conversation, node);
         var reader = new InterpPreviewSourceReader();
         InterpPreviewSourceReadResult result = reader.Read(new InterpPreviewSourceReadRequest(conversation, node));
 
-        Assert.AreEqual(InterpPreviewSourceReadOutcome.Ready, result.Outcome);
+        Assert.AreEqual(InterpPreviewSourceReadOutcome.Partial, result.Outcome);
         Assert.IsTrue(result.Snapshot.NodeId.HasValue);
         Assert.AreEqual(4567, result.Snapshot.NodeId.Value.NodeExportId);
     }
@@ -113,6 +117,7 @@ public class InterpPreviewSourceReaderTests
         var conversation = new ConversationExtended(conversationExport);
         var node = CreateNode(nodeCount: 7, speakerIndex: 11, listenerIndex: 2, lineStrRef: 321, isReply: false, nodeExportId: 91);
 
+        AttachNode(conversation, node);
         var reader = new InterpPreviewSourceReader();
         InterpPreviewSourceReadResult result = reader.Read(new InterpPreviewSourceReadRequest(conversation, node));
 
@@ -162,20 +167,28 @@ public class InterpPreviewSourceReaderTests
         return node;
     }
 
+    private static void AttachNode(ConversationExtended conversation, DialogueNodeExtended node)
+    {
+        var nodes = node.IsReply ? conversation.ReplyList : conversation.EntryList;
+        while (nodes.Count < node.NodeCount)
+            nodes.Add(CreateNode(nodes.Count, 0, 0, 0, node.IsReply, nodes.Count + 1));
+        nodes.Add(node);
+    }
+
     private static ExportEntry CreateExport(IMEPackage package, string name, string className)
     {
-        ImportEntry classImport = package.Imports.Count > 0
-            ? package.Imports[0]
-            : new ImportEntry(package) { ObjectName = className, ClassName = "Class", PackageFile = "Engine" };
-
-        if (package.Imports.Count == 0)
+        ImportEntry classImport = package.Imports.FirstOrDefault(import =>
+            import.ClassName == "Class" && import.ObjectName.Instanced == className);
+        if (classImport is null)
         {
+            classImport = new ImportEntry(package) { ObjectName = className, ClassName = "Class", PackageFile = "Engine" };
             package.AddImport(classImport);
         }
 
         var export = new ExportEntry(package, 0, name, prePropBinary: new byte[4], properties: []);
         export.Class = classImport;
         package.AddExport(export);
+        Assert.AreEqual(className, export.ClassName, "Fixture exports must use the requested Unreal class.");
         return export;
     }
 

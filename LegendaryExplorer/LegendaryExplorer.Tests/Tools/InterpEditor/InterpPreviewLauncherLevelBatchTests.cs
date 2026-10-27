@@ -258,6 +258,11 @@ public class InterpPreviewLauncherLevelBatchTests
         public IReadOnlyList<InterpPreviewDiagnostic> Diagnostics => [];
         public IReadOnlyList<string> LoadedLevelPaths => [];
         public IList<ActorProxy> Actors => new List<ActorProxy>();
+        public bool IsOpen => true;
+        public bool IsRequestCurrent(long requestId) => true;
+        public bool TryPublishFeedback(InterpPreviewLauncherResult result, Action publish) => throw new NotSupportedException();
+        public Task<InterpPreviewLauncherResult> ExecuteLauncherRequestAsync(InterpPreviewLauncherRequest request,
+            IActorEditorContext context, IInterpPreviewLauncherHost host) => throw new NotSupportedException();
 
         public bool ContainsResource(InterpPreviewResourceKey key) => false;
         public void Attach(LevelEditorRenderContext renderContext) { }

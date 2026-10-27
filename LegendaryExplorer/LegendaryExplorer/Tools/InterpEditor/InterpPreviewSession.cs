@@ -9,10 +9,10 @@ namespace LegendaryExplorer.Tools.InterpEditor;
 public sealed class InterpPreviewSession : IInterpPreviewSession
 {
     private readonly Guid _sessionId = Guid.NewGuid();
-    private readonly List<InterpPreviewOwnedResource> _resources = [];
-    private readonly HashSet<InterpPreviewResourceKey> _resourceKeys = [];
-    private readonly List<ActorProxy> _actors = [];
-    private readonly Dictionary<string, List<ActorProxy>> _actorLookupIndex = new(StringComparer.OrdinalIgnoreCase);
+    private List<InterpPreviewOwnedResource> _resources = [];
+    private HashSet<InterpPreviewResourceKey> _resourceKeys = [];
+    private List<ActorProxy> _actors = [];
+    private Dictionary<string, List<ActorProxy>> _actorLookupIndex = new(StringComparer.OrdinalIgnoreCase);
     private long _sceneGeneration;
 
     public Guid SessionId => _sessionId;
@@ -47,161 +47,111 @@ public sealed class InterpPreviewSession : IInterpPreviewSession
 
     public InterpPreviewSessionCommitResult CommitLevel(InterpPreviewLoadedLevel loadedLevel, bool replace)
     {
-        if (loadedLevel is null)
-        {
-            throw new ArgumentNullException(nameof(loadedLevel));
-        }
-
-        if (replace)
-        {
-            IReadOnlyList<ActorProxy> removedActors = _actors.ToArray();
-            IReadOnlyList<ActorProxy> addedActors = ReplaceAllWithLevelCore(loadedLevel, out IReadOnlyList<InterpPreviewOwnedResource> retiredResources);
-            IncrementSceneGeneration();
-            return new InterpPreviewSessionCommitResult(addedActors, removedActors, retiredResources);
-        }
-
-        if (loadedLevel.ResourceKind == InterpPreviewResourceKind.PlayerContext)
-        {
-            return CommitPlayerContext(loadedLevel);
-        }
-
-        IReadOnlyList<ActorProxy> added = AddLevel(loadedLevel);
-        return new InterpPreviewSessionCommitResult(added, [], []);
+        ArgumentNullException.ThrowIfNull(loadedLevel);
+        return CommitCollection([loadedLevel], replace ? new[] { loadedLevel.FullPath } : null,
+            (_, commitScene) => commitScene());
     }
 
     public IReadOnlyList<ActorProxy> AddLevel(InterpPreviewLoadedLevel loadedLevel)
     {
-        if (loadedLevel is null)
-        {
-            throw new ArgumentNullException(nameof(loadedLevel));
-        }
-
-        InterpPreviewOwnedResource ownedResource = loadedLevel.ToOwnedResource();
-        _resources.Add(ownedResource);
-        _resourceKeys.Add(ownedResource.Key);
-        _actors.AddRange(ownedResource.Actors);
-        foreach (ActorProxy actor in ownedResource.Actors)
-        {
-            IndexActor(actor);
-        }
-
-        IncrementSceneGeneration();
-
-        return ownedResource.Actors;
-    }
-
-    private InterpPreviewSessionCommitResult CommitPlayerContext(InterpPreviewLoadedLevel loadedLevel)
-    {
-        InterpPreviewOwnedResource replacement = loadedLevel.ToOwnedResource();
-        var removedActors = new List<ActorProxy>();
-        try
-        {
-            List<InterpPreviewOwnedResource> removedResources = _resources
-                .Where(resource => resource.Key.Kind == InterpPreviewResourceKind.PlayerContext)
-                .ToList();
-
-            foreach (InterpPreviewOwnedResource resource in removedResources)
-            {
-                _resources.Remove(resource);
-                _resourceKeys.Remove(resource.Key);
-                foreach (ActorProxy actor in resource.Actors)
-                {
-                    if (actor is null)
-                    {
-                        continue;
-                    }
-
-                    _actors.Remove(actor);
-                    removedActors.Add(actor);
-                }
-            }
-
-            _resources.Add(replacement);
-            _resourceKeys.Add(replacement.Key);
-            _actors.AddRange(replacement.Actors);
-            foreach (ActorProxy actor in replacement.Actors)
-            {
-                IndexActor(actor, addPlayerAlias: true);
-            }
-
-            RebuildLookupIndex();
-            IncrementSceneGeneration();
-            return new InterpPreviewSessionCommitResult(replacement.Actors, removedActors, removedResources);
-        }
-        catch
-        {
-            replacement.Dispose();
-            throw;
-        }
-    }
-
-    private void RebuildLookupIndex()
-    {
-        _actorLookupIndex.Clear();
-        foreach (InterpPreviewOwnedResource resource in _resources)
-        {
-            bool addPlayerAlias = resource.Key.Kind == InterpPreviewResourceKind.PlayerContext;
-            foreach (ActorProxy actor in resource.Actors)
-            {
-                IndexActor(actor, addPlayerAlias);
-            }
-        }
+        InterpPreviewSessionCommitResult result = CommitLevel(loadedLevel, false);
+        // This session-only convenience API returns no retirement delta to its caller.
+        foreach (InterpPreviewOwnedResource retired in result.RetiredResources) retired.Dispose();
+        return result.AddedActors;
     }
 
     public IReadOnlyList<ActorProxy> ReplaceAllWithLevel(InterpPreviewLoadedLevel loadedLevel)
     {
-        IReadOnlyList<ActorProxy> addedActors = ReplaceAllWithLevelCore(loadedLevel, out IReadOnlyList<InterpPreviewOwnedResource> retiredResources);
-        IncrementSceneGeneration();
-        foreach (InterpPreviewOwnedResource retiredResource in retiredResources)
-        {
-            retiredResource.Dispose();
-        }
-
-        return addedActors;
+        InterpPreviewSessionCommitResult result = CommitLevel(loadedLevel, true);
+        foreach (InterpPreviewOwnedResource retired in result.RetiredResources) retired.Dispose();
+        return result.AddedActors;
     }
 
-    private IReadOnlyList<ActorProxy> ReplaceAllWithLevelCore(InterpPreviewLoadedLevel loadedLevel, out IReadOnlyList<InterpPreviewOwnedResource> retiredResources)
+    public InterpPreviewSessionCommitResult CommitCollection(IReadOnlyList<InterpPreviewLoadedLevel> candidates,
+        IReadOnlyList<string> desiredLevelPaths, Action<InterpPreviewSessionCommitResult, Action> publish)
     {
-        if (loadedLevel is null)
-        {
-            throw new ArgumentNullException(nameof(loadedLevel));
-        }
-
-        InterpPreviewOwnedResource replacement = loadedLevel.ToOwnedResource();
+        ArgumentNullException.ThrowIfNull(candidates);
+        ArgumentNullException.ThrowIfNull(publish);
+        // Construct all membership/indexes before publication. Newly transferred resources
+        // remain transaction-owned until registration and the final reference swap succeed.
+        var created = new List<InterpPreviewOwnedResource>();
+        var previousResources = _resources;
+        var previousKeys = _resourceKeys;
+        var previousActors = _actors;
+        var previousIndex = _actorLookupIndex;
+        long previousGeneration = _sceneGeneration;
         try
         {
-            List<InterpPreviewOwnedResource> oldResources = [.. _resources];
-            var newResources = new List<InterpPreviewOwnedResource> { replacement };
-            var newResourceKeys = new HashSet<InterpPreviewResourceKey> { replacement.Key };
-            var newActors = new List<ActorProxy>(replacement.Actors);
-            var newActorLookupIndex = new Dictionary<string, List<ActorProxy>>(StringComparer.OrdinalIgnoreCase);
-            foreach (ActorProxy actor in replacement.Actors)
+            if (candidates.Any(candidate => candidate is null || candidate.IsDisposed || candidate.IsTransferred))
+                throw new InvalidOperationException("A scene candidate is missing or no longer owned by the request.");
+
+            var desired = desiredLevelPaths?.Select(Path.GetFullPath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+            var next = new List<InterpPreviewOwnedResource>(_resources);
+            foreach (InterpPreviewLoadedLevel candidate in candidates)
             {
-                IndexActorInto(newActorLookupIndex, actor);
+                var key = candidate.ResourceKey;
+                bool duplicate = next.Any(resource => resource.Key.Equals(key)
+                    || (key.Kind == InterpPreviewResourceKind.Level && resource.Key.Kind == key.Kind
+                        && string.Equals(resource.Key.SourcePath, key.SourcePath, StringComparison.OrdinalIgnoreCase)));
+                if (duplicate) continue; // Unused candidates remain request-owned for cleanup.
+                if (key.Kind == InterpPreviewResourceKind.PlayerContext)
+                    next.RemoveAll(resource => resource.Key.Kind == InterpPreviewResourceKind.PlayerContext);
+                InterpPreviewOwnedResource resource = candidate.ToOwnedResource();
+                created.Add(resource);
+                next.Add(resource);
             }
 
-            _resources.Clear();
-            _resources.AddRange(newResources);
-
-            _resourceKeys.Clear();
-            _resourceKeys.UnionWith(newResourceKeys);
-
-            _actors.Clear();
-            _actors.AddRange(newActors);
-
-            _actorLookupIndex.Clear();
-            foreach ((string key, List<ActorProxy> value) in newActorLookupIndex)
+            if (desired is not null)
             {
-                _actorLookupIndex[key] = value;
+                var levels = desired.Select(path => next.SingleOrDefault(resource => resource.Key.Kind == InterpPreviewResourceKind.Level
+                    && string.Equals(resource.Key.SourcePath, path, StringComparison.OrdinalIgnoreCase))
+                    ?? throw new InvalidOperationException($"Requested level was not staged: {path}")).ToList();
+                var player = next.SingleOrDefault(resource => resource.Key.Kind == InterpPreviewResourceKind.PlayerContext);
+                if (player is not null && levels.Count > 0 && levels.All(level => level.Key.Game == player.Key.Game)) levels.Add(player);
+                next = levels;
             }
+            if (created.Any(resource => !next.Contains(resource)))
+                throw new InvalidOperationException("A candidate does not belong to the requested scene.");
 
-            retiredResources = oldResources;
+            // Reordering an identical set does not invalidate scene-bound results.
+            if (next.Count == _resources.Count && next.All(_resources.Contains))
+                return new InterpPreviewSessionCommitResult([], [], [], changed: false);
 
-            return replacement.Actors;
+            var keys = new HashSet<InterpPreviewResourceKey>(next.Select(resource => resource.Key));
+            var actors = next.SelectMany(resource => resource.Actors).ToList();
+            var index = new Dictionary<string, List<ActorProxy>>(StringComparer.OrdinalIgnoreCase);
+            foreach (InterpPreviewOwnedResource resource in next)
+                foreach (ActorProxy actor in resource.Actors)
+                    IndexActorInto(index, actor, resource.Key.Kind == InterpPreviewResourceKind.PlayerContext);
+            var retired = _resources.Where(resource => !next.Contains(resource)).ToArray();
+            var result = new InterpPreviewSessionCommitResult(created.SelectMany(resource => resource.Actors).ToArray(),
+                retired.SelectMany(resource => resource.Actors).ToArray(), retired);
+            bool committed = false;
+            publish(result, () =>
+            {
+                if (committed) throw new InvalidOperationException("Scene publication was invoked twice.");
+                _resources = next;
+                _resourceKeys = keys;
+                _actors = actors;
+                _actorLookupIndex = index;
+                _sceneGeneration = previousGeneration + 1;
+                committed = true;
+            });
+            if (!committed) throw new InvalidOperationException("Scene registration did not publish membership.");
+            return result;
         }
-        catch
+        catch (Exception failure)
         {
-            replacement.Dispose();
+            _resources = previousResources;
+            _resourceKeys = previousKeys;
+            _actors = previousActors;
+            _actorLookupIndex = previousIndex;
+            _sceneGeneration = previousGeneration;
+            foreach (InterpPreviewOwnedResource resource in created) resource.Dispose();
+            var cleanupErrors = created.Where(resource => resource.DisposalError is not null)
+                .Select(resource => resource.DisposalError).ToArray();
+            if (cleanupErrors.Length > 0)
+                throw new AggregateException("Scene publication and candidate cleanup failed.", new[] { failure }.Concat(cleanupErrors));
             throw;
         }
     }
@@ -279,16 +229,6 @@ public sealed class InterpPreviewSession : IInterpPreviewSession
     public void Dispose()
     {
         ClearLevels();
-    }
-
-    private void IndexActor(ActorProxy actor, bool addPlayerAlias = false)
-    {
-        if (actor is null)
-        {
-            return;
-        }
-
-        IndexActorInto(_actorLookupIndex, actor, addPlayerAlias);
     }
 
     private static void IndexActorInto(Dictionary<string, List<ActorProxy>> actorLookupIndex, ActorProxy actor, bool addPlayerAlias = false)

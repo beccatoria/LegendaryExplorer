@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Collections.ObjectModel;
+using System.Threading;
 
 namespace LegendaryExplorer.Tools.InterpEditor;
 
@@ -27,6 +29,8 @@ public sealed class InterpPreviewNodeDiscoveryRequest
     public InterpPreviewSequenceGraphSnapshot SequenceGraph { get; }
     public int MaxVisitedObjects { get; }
     public int MaxVisitedEdges { get; }
+    public CancellationToken CancellationToken { get; init; }
+    public IReadOnlyDictionary<InterpPreviewSourceObjectId, int> BranchChoices { get; init; }
 }
 
 public enum InterpPreviewNodeDiscoveryOutcome
@@ -41,16 +45,21 @@ public sealed class InterpPreviewNodeDiscoveryResult
     public InterpPreviewNodeDiscoveryResult(
         InterpPreviewNodeDiscoveryOutcome outcome,
         IReadOnlyList<InterpPreviewDiscoveredInterpData> candidates,
-        IReadOnlyList<InterpPreviewDiagnostic> diagnostics)
+        IReadOnlyList<InterpPreviewDiagnostic> diagnostics,
+        IReadOnlyList<InterpPreviewNodeDiscoveryEdge> edges = null, bool requiresSelection = false)
     {
         Outcome = outcome;
         Candidates = SnapshotList(candidates);
         Diagnostics = SnapshotList(diagnostics);
+        Edges = SnapshotList(edges);
+        RequiresSelection = requiresSelection;
     }
 
     public InterpPreviewNodeDiscoveryOutcome Outcome { get; }
     public IReadOnlyList<InterpPreviewDiscoveredInterpData> Candidates { get; }
     public IReadOnlyList<InterpPreviewDiagnostic> Diagnostics { get; }
+    public IReadOnlyList<InterpPreviewNodeDiscoveryEdge> Edges { get; }
+    public bool RequiresSelection { get; }
 
     public static InterpPreviewNodeDiscoveryResult Unresolved(IReadOnlyList<InterpPreviewDiagnostic> diagnostics)
         => new(InterpPreviewNodeDiscoveryOutcome.Unresolved, [], diagnostics);
@@ -78,41 +87,48 @@ public sealed class InterpPreviewNodeDiscoveryResult
             copy[i] = source[i];
         }
 
-        return copy;
+        return Array.AsReadOnly(copy);
     }
 }
 
 public sealed class InterpPreviewSequenceGraphSnapshot
 {
     private readonly IReadOnlyList<InterpPreviewSequenceNodeSnapshot> _nodes;
-    private readonly IReadOnlyDictionary<int, InterpPreviewSequenceNodeSnapshot> _nodesByExportUIndex;
+    private readonly IReadOnlyDictionary<InterpPreviewSourceObjectId, InterpPreviewSequenceNodeSnapshot> _nodesById;
 
     public InterpPreviewSequenceGraphSnapshot(
         InterpPreviewSourceObjectId sequenceId,
-        IReadOnlyList<InterpPreviewSequenceNodeSnapshot> nodes)
+        IReadOnlyList<InterpPreviewSequenceNodeSnapshot> nodes, bool isComplete = true)
     {
         SequenceId = sequenceId;
+        IsComplete = isComplete;
         _nodes = SnapshotNodes(nodes);
 
-        var byIndex = new Dictionary<int, InterpPreviewSequenceNodeSnapshot>(_nodes.Count);
+        var byIndex = new Dictionary<InterpPreviewSourceObjectId, InterpPreviewSequenceNodeSnapshot>(_nodes.Count);
         foreach (InterpPreviewSequenceNodeSnapshot node in _nodes)
         {
-            if (!byIndex.TryAdd(node.NodeId.ExportUIndex, node))
+            if (node.NodeId.Game != sequenceId.Game
+                || !string.Equals(node.NodeId.PackagePath, sequenceId.PackagePath, StringComparison.OrdinalIgnoreCase)
+                || !byIndex.TryAdd(node.NodeId, node))
             {
-                throw new ArgumentException($"Duplicate node export UIndex '{node.NodeId.ExportUIndex}' in sequence graph snapshot.", nameof(nodes));
+                throw new ArgumentException($"Duplicate or out-of-scope source identity '{node.NodeId}' in sequence graph snapshot.", nameof(nodes));
             }
         }
 
-        _nodesByExportUIndex = byIndex;
+        _nodesById = new ReadOnlyDictionary<InterpPreviewSourceObjectId, InterpPreviewSequenceNodeSnapshot>(byIndex);
     }
 
     public InterpPreviewSourceObjectId SequenceId { get; }
     public IReadOnlyList<InterpPreviewSequenceNodeSnapshot> Nodes => _nodes;
+    public bool IsComplete { get; }
 
     public bool TryGetNode(int exportUIndex, out InterpPreviewSequenceNodeSnapshot node)
     {
-        return _nodesByExportUIndex.TryGetValue(exportUIndex, out node);
+        node = null;
+        return exportUIndex > 0 && TryGetNode(new InterpPreviewSourceObjectId(SequenceId.Game, SequenceId.PackagePath, exportUIndex), out node);
     }
+    public bool TryGetNode(InterpPreviewSourceObjectId id, out InterpPreviewSequenceNodeSnapshot node)
+        => _nodesById.TryGetValue(id, out node);
 
     private static IReadOnlyList<InterpPreviewSequenceNodeSnapshot> SnapshotNodes(IReadOnlyList<InterpPreviewSequenceNodeSnapshot> nodes)
     {
@@ -127,7 +143,7 @@ public sealed class InterpPreviewSequenceGraphSnapshot
             copy[i] = nodes[i] ?? throw new ArgumentException("Graph node snapshot must not be null.", nameof(nodes));
         }
 
-        return copy;
+        return Array.AsReadOnly(copy);
     }
 }
 
@@ -174,7 +190,7 @@ public sealed class InterpPreviewSequenceNodeSnapshot
             copy[i] = source[i];
         }
 
-        return copy;
+        return Array.AsReadOnly(copy);
     }
 }
 
@@ -220,7 +236,7 @@ public sealed class InterpPreviewVariableLinkSnapshot
             copy[i] = source[i];
         }
 
-        return copy;
+        return Array.AsReadOnly(copy);
     }
 }
 
@@ -258,7 +274,7 @@ public sealed class InterpPreviewDiscoveredInterpData
             copy[i] = source[i];
         }
 
-        return copy;
+        return Array.AsReadOnly(copy);
     }
 }
 
@@ -299,7 +315,7 @@ public sealed class InterpPreviewNodeDiscoveryEvidence
             copy[i] = source[i];
         }
 
-        return copy;
+        return Array.AsReadOnly(copy);
     }
 }
 
@@ -363,6 +379,8 @@ public sealed class InterpPreviewNodeDiscovery : IInterpPreviewNodeDiscovery
             diagnostics.Add(new InterpPreviewDiagnostic(InterpPreviewDiagnosticSeverity.Error, "DISCOVERY_SOURCE_MISSING", "Source snapshot is missing."));
             return InterpPreviewNodeDiscoveryResult.Unresolved(diagnostics);
         }
+        if (request.CancellationToken.IsCancellationRequested)
+            return InterpPreviewNodeDiscoveryResult.Partial([], [new(InterpPreviewDiagnosticSeverity.Warning, "DISCOVERY_CANCELLED", "Discovery was cancelled before traversal.")]);
 
         if (request.SequenceGraph is null)
         {
@@ -383,6 +401,9 @@ public sealed class InterpPreviewNodeDiscovery : IInterpPreviewNodeDiscovery
         }
 
         InterpPreviewSourceSnapshot source = request.SourceSnapshot;
+        if (source.NodeId is { } nodeIdentity && !nodeIdentity.ConversationId.Equals(source.ConversationId)
+            || source.ConversationId.Game != request.SequenceGraph.SequenceId.Game)
+            return InterpPreviewNodeDiscoveryResult.Unresolved([new(InterpPreviewDiagnosticSeverity.Error, "DISCOVERY_SOURCE_MISMATCH", "Node, conversation and graph source identities disagree.")]);
         if (!source.SequenceId.HasValue)
         {
             diagnostics.Add(new InterpPreviewDiagnostic(InterpPreviewDiagnosticSeverity.Warning, "DISCOVERY_SEQUENCE_ID_MISSING", "Source snapshot does not include a sequence identity."));
@@ -420,117 +441,130 @@ public sealed class InterpPreviewNodeDiscovery : IInterpPreviewNodeDiscovery
         }
 
         var candidates = new Dictionary<(int actionUIndex, int dataUIndex), CandidateBuilder>();
-        bool incomplete = false;
-        int visitedObjects = 0;
-        int visitedEdges = 0;
+        bool incomplete = !request.SequenceGraph.IsComplete;
+        bool requiresSelection = roots.Count > 1;
+        int visitedObjects = 0, visitedEdges = 0;
+        var allEdges = new HashSet<InterpPreviewNodeDiscoveryEdge>();
+        var choices = request.BranchChoices?.ToDictionary(pair => pair.Key, pair => pair.Value)
+            ?? new Dictionary<InterpPreviewSourceObjectId, int>();
+        foreach (var choice in choices)
+        {
+            if (!request.SequenceGraph.TryGetNode(choice.Key, out var chosenNode)
+                || !chosenNode.OutputLinks.Any(output => output.SourceOutputIndex == choice.Value))
+            {
+                diagnostics.Add(new(InterpPreviewDiagnosticSeverity.Error, "DISCOVERY_BRANCH_INVALID", "A branch choice does not belong to this source graph."));
+                return InterpPreviewNodeDiscoveryResult.Partial([], diagnostics);
+            }
+        }
 
         foreach (InterpPreviewSequenceNodeSnapshot root in roots)
         {
             var queue = new Queue<InterpPreviewSequenceNodeSnapshot>();
-            var visited = new HashSet<int>();
-            var incomingEdgesByNode = new Dictionary<int, HashSet<InterpPreviewNodeDiscoveryEdge>>();
-
-            queue.Enqueue(root);
-            visited.Add(root.NodeId.ExportUIndex);
-            visitedObjects++;
-
-            if (visitedObjects > request.MaxVisitedObjects)
+            var reached = new Dictionary<int, InterpPreviewSequenceNodeSnapshot>();
+            var incoming = new Dictionary<int, HashSet<InterpPreviewNodeDiscoveryEdge>>();
+            var rootEdges = new List<InterpPreviewNodeDiscoveryEdge>();
+            if (++visitedObjects > request.MaxVisitedObjects)
             {
-                diagnostics.Add(new InterpPreviewDiagnostic(InterpPreviewDiagnosticSeverity.Warning, "DISCOVERY_OBJECT_LIMIT", "Node discovery hit the traversal object limit before completion."));
+                diagnostics.Add(new(InterpPreviewDiagnosticSeverity.Warning, "DISCOVERY_OBJECT_LIMIT", "Discovery reached the object limit before another root."));
                 incomplete = true;
                 break;
             }
-
-            while (queue.Count > 0)
+            queue.Enqueue(root);
+            reached.Add(root.NodeId.ExportUIndex, root);
+            bool stopped = false;
+            while (queue.Count > 0 && !stopped)
             {
-                InterpPreviewSequenceNodeSnapshot current = queue.Dequeue();
-
-                if (string.Equals(current.ClassName, "BioSeqAct_EndCurrentConvNode", StringComparison.Ordinal))
+                if (request.CancellationToken.IsCancellationRequested)
                 {
-                    continue;
+                    diagnostics.Add(new(InterpPreviewDiagnosticSeverity.Warning, "DISCOVERY_CANCELLED", "Discovery was cancelled; collected candidates are incomplete."));
+                    incomplete = stopped = true;
+                    break;
                 }
-
-                if (!ReferenceEquals(current, root)
-                    && string.Equals(current.ClassName, "BioSeqEvt_ConvNode", StringComparison.Ordinal)
+                var current = queue.Dequeue();
+                if (current.ClassName == "BioSeqAct_EndCurrentConvNode") continue;
+                if (current != root && current.ClassName == "BioSeqEvt_ConvNode"
                     && current.ConversationNodeId.GetValueOrDefault() != nodeExportId)
                 {
-                    diagnostics.Add(new InterpPreviewDiagnostic(InterpPreviewDiagnosticSeverity.Info, "DISCOVERY_STOPPED_AT_OTHER_NODE", $"Traversal stopped at conversation node event #{current.NodeId.ExportUIndex} for a different node id."));
+                    diagnostics.Add(new(InterpPreviewDiagnosticSeverity.Info, "DISCOVERY_STOPPED_AT_OTHER_NODE", "Traversal stopped at another conversation line."));
                     continue;
                 }
-
-                if (string.Equals(current.ClassName, "SeqAct_Interp", StringComparison.Ordinal))
+                if (current.ClassName is "Sequence" or "SequenceReference" || current.ClassName.StartsWith("SFXSceneShop", StringComparison.Ordinal))
                 {
-                    CollectInterpDataCandidates(
-                        request.SequenceGraph,
-                        root,
-                        current,
-                        incomingEdgesByNode,
-                        candidates,
-                        diagnostics);
+                    diagnostics.Add(new(InterpPreviewDiagnosticSeverity.Warning,
+                        current.ClassName.StartsWith("SFXSceneShop", StringComparison.Ordinal) ? "SCENE_SHOP_UNSUPPORTED" : "SEQUENCE_BOUNDARY_UNSUPPORTED",
+                        $"No verified connector adapter exists for {current.NodeId} ({current.ClassName})."));
+                    incomplete = true;
+                    continue;
                 }
-
-                for (int outputIndex = 0; outputIndex < current.OutputLinks.Count; outputIndex++)
+                bool hasChoice = choices.TryGetValue(current.NodeId, out int selectedOutput);
+                if (!hasChoice && current.OutputLinks.Select(output => output.SourceOutputIndex).Distinct().Take(2).Count() > 1)
+                    requiresSelection = true;
+                foreach (var output in current.OutputLinks)
                 {
-                    InterpPreviewOutputLinkSnapshot output = current.OutputLinks[outputIndex];
-                    visitedEdges++;
-                    if (visitedEdges > request.MaxVisitedEdges)
+                    if (hasChoice && output.SourceOutputIndex != selectedOutput) continue;
+                    if (++visitedEdges > request.MaxVisitedEdges)
                     {
-                        diagnostics.Add(new InterpPreviewDiagnostic(InterpPreviewDiagnosticSeverity.Warning, "DISCOVERY_EDGE_LIMIT", "Node discovery hit the traversal edge limit before completion."));
-                        incomplete = true;
-                        queue.Clear();
+                        diagnostics.Add(new(InterpPreviewDiagnosticSeverity.Warning, "DISCOVERY_EDGE_LIMIT", "Discovery reached the edge limit."));
+                        incomplete = stopped = true;
                         break;
                     }
-
+                    if (output.SourceOutputIndex < 0 || output.DestinationInputIndex < 0)
+                    {
+                        incomplete = true;
+                        diagnostics.Add(new(InterpPreviewDiagnosticSeverity.Warning, "DISCOVERY_EDGE_CONNECTOR_INVALID", $"{current.NodeId} has an unreadable output/input connector index."));
+                        continue;
+                    }
                     if (output.DestinationNodeExportUIndex <= 0)
                     {
-                        diagnostics.Add(new InterpPreviewDiagnostic(InterpPreviewDiagnosticSeverity.Warning, "DISCOVERY_EDGE_INVALID_TARGET", "An output link had an invalid destination node index."));
+                        diagnostics.Add(new(InterpPreviewDiagnosticSeverity.Warning, "DISCOVERY_EDGE_INVALID_TARGET",
+                            $"{current.NodeId} output {output.SourceOutputIndex} retains unresolved reference {output.DestinationNodeExportUIndex}."));
+                        incomplete = true;
                         continue;
                     }
-
-                    if (!request.SequenceGraph.TryGetNode(output.DestinationNodeExportUIndex, out InterpPreviewSequenceNodeSnapshot destination))
+                    if (!request.SequenceGraph.TryGetNode(output.DestinationNodeExportUIndex, out var destination))
                     {
-                        diagnostics.Add(new InterpPreviewDiagnostic(InterpPreviewDiagnosticSeverity.Warning, "DISCOVERY_EDGE_TARGET_MISSING", $"Output link points to missing node #{output.DestinationNodeExportUIndex}."));
+                        diagnostics.Add(new(InterpPreviewDiagnosticSeverity.Warning, "DISCOVERY_EDGE_TARGET_MISSING",
+                            $"{current.NodeId} output points outside the proven scope: #{output.DestinationNodeExportUIndex}."));
+                        incomplete = true;
                         continue;
                     }
-
-                    var provenanceEdge = new InterpPreviewNodeDiscoveryEdge(
-                        current.NodeId,
-                        output.SourceOutputIndex,
-                        output.SourceOutputLabel,
-                        destination.NodeId,
-                        output.DestinationInputIndex);
-
-                    if (!incomingEdgesByNode.TryGetValue(destination.NodeId.ExportUIndex, out HashSet<InterpPreviewNodeDiscoveryEdge> incomingEdges))
+                    if (!reached.ContainsKey(destination.NodeId.ExportUIndex))
                     {
-                        incomingEdges = new HashSet<InterpPreviewNodeDiscoveryEdge>();
-                        incomingEdgesByNode[destination.NodeId.ExportUIndex] = incomingEdges;
-                    }
-
-                    incomingEdges.Add(provenanceEdge);
-
-                    if (visited.Add(destination.NodeId.ExportUIndex))
-                    {
-                        queue.Enqueue(destination);
-                        visitedObjects++;
-                        if (visitedObjects > request.MaxVisitedObjects)
+                        if (++visitedObjects > request.MaxVisitedObjects)
                         {
-                            diagnostics.Add(new InterpPreviewDiagnostic(InterpPreviewDiagnosticSeverity.Warning, "DISCOVERY_OBJECT_LIMIT", "Node discovery hit the traversal object limit before completion."));
-                            incomplete = true;
-                            queue.Clear();
+                            diagnostics.Add(new(InterpPreviewDiagnosticSeverity.Warning, "DISCOVERY_OBJECT_LIMIT", "Discovery reached the object limit."));
+                            incomplete = stopped = true;
                             break;
                         }
+                        reached.Add(destination.NodeId.ExportUIndex, destination);
+                        queue.Enqueue(destination);
                     }
-                    else if (destination.NodeId.ExportUIndex == current.NodeId.ExportUIndex)
-                    {
-                        diagnostics.Add(new InterpPreviewDiagnostic(InterpPreviewDiagnosticSeverity.Warning, "DISCOVERY_CYCLE_SELF", $"Traversal encountered a self-cycle at node #{current.NodeId.ExportUIndex}."));
-                    }
-                    else
-                    {
-                        diagnostics.Add(new InterpPreviewDiagnostic(InterpPreviewDiagnosticSeverity.Warning, "DISCOVERY_CYCLE", $"Traversal encountered a cycle edge from node #{current.NodeId.ExportUIndex} to previously visited node #{destination.NodeId.ExportUIndex}."));
-                    }
+                    var edge = new InterpPreviewNodeDiscoveryEdge(current.NodeId, output.SourceOutputIndex,
+                        output.SourceOutputLabel, destination.NodeId, output.DestinationInputIndex);
+                    if (!incoming.TryGetValue(destination.NodeId.ExportUIndex, out var edges))
+                        incoming[destination.NodeId.ExportUIndex] = edges = [];
+                    edges.Add(edge);
+                    rootEdges.Add(edge);
+                    allEdges.Add(edge);
                 }
             }
+            // Project only after reachability is complete: a later, longer route may add
+            // another incoming edge to an action that was processed much earlier.
+            foreach (var action in reached.Values.Where(node => node.ClassName == "SeqAct_Interp"))
+                incomplete |= !CollectInterpDataCandidates(request.SequenceGraph, root, action, incoming, candidates, diagnostics);
+            if (HasCycle(rootEdges, request.CancellationToken))
+            {
+                incomplete = true;
+                diagnostics.Add(new(InterpPreviewDiagnosticSeverity.Warning, "DISCOVERY_CYCLE", "The reachable graph contains a cycle; repeated runtime executions are not simulated."));
+            }
+            if (stopped) break;
         }
+        if (choices.Keys.Any(id => !allEdges.Any(edge => edge.FromNodeId.Equals(id))))
+        {
+            incomplete = true;
+            diagnostics.Add(new(InterpPreviewDiagnosticSeverity.Warning, "DISCOVERY_BRANCH_UNREACHABLE", "A supplied branch choice was outside the reachable selected-line graph."));
+        }
+        requiresSelection |= candidates.Keys.GroupBy(key => key.actionUIndex).Any(group => group.Count() > 1);
 
         List<InterpPreviewDiscoveredInterpData> discovered = candidates.Values
             .Select(static c => c.Build())
@@ -543,15 +577,15 @@ public sealed class InterpPreviewNodeDiscovery : IInterpPreviewNodeDiscovery
 
         if (incomplete)
         {
-            return InterpPreviewNodeDiscoveryResult.Partial(discovered, diagnostics);
+            return new InterpPreviewNodeDiscoveryResult(InterpPreviewNodeDiscoveryOutcome.Partial, discovered, diagnostics, allEdges.ToArray(), requiresSelection);
         }
 
         if (discovered.Count == 0)
         {
-            return InterpPreviewNodeDiscoveryResult.Unresolved(diagnostics);
+            return new(InterpPreviewNodeDiscoveryOutcome.Unresolved, discovered, diagnostics, allEdges.ToArray(), requiresSelection);
         }
 
-        return InterpPreviewNodeDiscoveryResult.Ready(discovered, diagnostics);
+        return new InterpPreviewNodeDiscoveryResult(InterpPreviewNodeDiscoveryOutcome.Ready, discovered, diagnostics, allEdges.ToArray(), requiresSelection);
     }
 
     private static InterpPreviewNodeDiscoveryResult BuildHintAwareFallback(InterpPreviewSourceSnapshot source, List<InterpPreviewDiagnostic> diagnostics)
@@ -593,6 +627,7 @@ public sealed class InterpPreviewNodeDiscovery : IInterpPreviewNodeDiscovery
         if (discovered.Count > 0)
         {
             diagnostics.Add(new InterpPreviewDiagnostic(InterpPreviewDiagnosticSeverity.Warning, "INTERP_HINT_CONFLICT", "Node InterpData hint differs from discovered graph data."));
+            incomplete = true;
             return;
         }
 
@@ -601,7 +636,7 @@ public sealed class InterpPreviewNodeDiscovery : IInterpPreviewNodeDiscovery
         incomplete = true;
     }
 
-    private static void CollectInterpDataCandidates(
+    private static bool CollectInterpDataCandidates(
         InterpPreviewSequenceGraphSnapshot graph,
         InterpPreviewSequenceNodeSnapshot root,
         InterpPreviewSequenceNodeSnapshot action,
@@ -609,6 +644,8 @@ public sealed class InterpPreviewNodeDiscovery : IInterpPreviewNodeDiscovery
         Dictionary<(int actionUIndex, int dataUIndex), CandidateBuilder> candidates,
         List<InterpPreviewDiagnostic> diagnostics)
     {
+        bool complete = true;
+        bool hasData = false;
         for (int variableLinkIndex = 0; variableLinkIndex < action.VariableLinks.Count; variableLinkIndex++)
         {
             InterpPreviewVariableLinkSnapshot variableLink = action.VariableLinks[variableLinkIndex];
@@ -617,24 +654,28 @@ public sealed class InterpPreviewNodeDiscovery : IInterpPreviewNodeDiscovery
                 continue;
             }
 
+            hasData = variableLink.LinkedNodeExportUIndexes.Count > 0 || hasData;
             for (int linkedVariableIndex = 0; linkedVariableIndex < variableLink.LinkedNodeExportUIndexes.Count; linkedVariableIndex++)
             {
                 int dataUIndex = variableLink.LinkedNodeExportUIndexes[linkedVariableIndex];
                 if (dataUIndex <= 0)
                 {
                     diagnostics.Add(new InterpPreviewDiagnostic(InterpPreviewDiagnosticSeverity.Warning, "DISCOVERY_DATA_LINK_INVALID", $"SeqAct_Interp #{action.NodeId.ExportUIndex} has an invalid Data link index."));
+                    complete = false;
                     continue;
                 }
 
                 if (!graph.TryGetNode(dataUIndex, out InterpPreviewSequenceNodeSnapshot dataNode))
                 {
                     diagnostics.Add(new InterpPreviewDiagnostic(InterpPreviewDiagnosticSeverity.Warning, "DISCOVERY_DATA_LINK_MISSING", $"SeqAct_Interp #{action.NodeId.ExportUIndex} references missing Data node #{dataUIndex}."));
+                    complete = false;
                     continue;
                 }
 
                 if (!string.Equals(dataNode.ClassName, "InterpData", StringComparison.Ordinal))
                 {
                     diagnostics.Add(new InterpPreviewDiagnostic(InterpPreviewDiagnosticSeverity.Warning, "DISCOVERY_DATA_LINK_TYPE", $"SeqAct_Interp #{action.NodeId.ExportUIndex} Data link #{dataUIndex} is '{dataNode.ClassName}' instead of InterpData."));
+                    complete = false;
                     continue;
                 }
 
@@ -656,6 +697,32 @@ public sealed class InterpPreviewNodeDiscovery : IInterpPreviewNodeDiscovery
                 candidate.AddEvidence(evidence);
             }
         }
+        if (!hasData) diagnostics.Add(new(InterpPreviewDiagnosticSeverity.Warning, "DISCOVERY_DATA_LINK_EMPTY", $"{action.NodeId} has no usable Data link."));
+        return complete && hasData;
+    }
+
+    private static bool HasCycle(IReadOnlyList<InterpPreviewNodeDiscoveryEdge> edges, CancellationToken token)
+    {
+        var adjacency = edges.GroupBy(edge => edge.FromNodeId).ToDictionary(group => group.Key, group => group.Select(edge => edge.ToNodeId).Distinct().ToArray());
+        var colors = new Dictionary<InterpPreviewSourceObjectId, int>();
+        foreach (var start in adjacency.Keys)
+        {
+            if (colors.ContainsKey(start)) continue;
+            var stack = new Stack<(InterpPreviewSourceObjectId id, bool exit)>();
+            stack.Push((start, false));
+            while (stack.Count > 0)
+            {
+                if (token.IsCancellationRequested) return false;
+                var (id, exit) = stack.Pop();
+                if (exit) { colors[id] = 2; continue; }
+                if (colors.TryGetValue(id, out int color)) { if (color == 1) return true; continue; }
+                colors[id] = 1;
+                stack.Push((id, true));
+                if (adjacency.TryGetValue(id, out var destinations))
+                    for (int i = destinations.Length - 1; i >= 0; i--) stack.Push((destinations[i], false));
+            }
+        }
+        return false;
     }
 
     private sealed class CandidateBuilder

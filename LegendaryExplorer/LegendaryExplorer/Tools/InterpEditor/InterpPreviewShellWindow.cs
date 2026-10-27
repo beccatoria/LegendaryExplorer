@@ -20,7 +20,7 @@ using MessageBox = Xceed.Wpf.Toolkit.MessageBox;
 
 namespace LegendaryExplorer.Tools.InterpEditor;
 
-public class InterpPreviewShellWindow : NotifyPropertyChangedWindowBase, IActorEditorContext
+public class InterpPreviewShellWindow : NotifyPropertyChangedWindowBase, IActorEditorContext, IInterpPreviewLauncherHost
 {
     private static bool s_preferFemalePlayer = true;
     private readonly SceneRenderControl _sceneViewer;
@@ -31,18 +31,22 @@ public class InterpPreviewShellWindow : NotifyPropertyChangedWindowBase, IActorE
     private Button _playerVariantButton;
     private bool _isClosing;
     private bool _allowClose;
-    private readonly InterpPreviewLauncherRequestTracker _launcherRequestTracker;
     private readonly PreviewLevelLightRegistry _levelLights;
+    private readonly InterpPreviewSceneRegistration _sceneRegistration;
 
     public LevelEditorRenderContext RenderContext { get; }
     public bool IsApplyingUndoRedo => false;
     public int LoadedLevelCount => _runtime.LoadedLevelCount;
+    public bool IsUsable => IsLoaded && !_isClosing && _runtime.IsOpen;
+
+    public bool TryPublishResult(InterpPreviewLauncherResult result, Action publish) => IsUsable
+        && _runtime.TryPublishFeedback(result, publish);
 
     public static InterpPreviewShellWindow TryGetOpenWindow()
     {
         return Application.Current?.Windows
             .OfType<InterpPreviewShellWindow>()
-            .FirstOrDefault(window => window.IsLoaded);
+            .FirstOrDefault(window => window.IsUsable);
     }
 
     public InterpPreviewShellWindow()
@@ -68,6 +72,7 @@ public class InterpPreviewShellWindow : NotifyPropertyChangedWindowBase, IActorE
         };
 
         _levelLights = new PreviewLevelLightRegistry(RenderContext);
+        _sceneRegistration = new InterpPreviewSceneRegistration(RenderContext, _levelLights);
         _sceneViewer = new SceneRenderControl { Context = RenderContext };
         IInterpPreviewDispatcher dispatcher = new InterpPreviewWpfDispatcher(Dispatcher);
         IInterpPreviewSession session = new InterpPreviewSession();
@@ -82,7 +87,6 @@ public class InterpPreviewShellWindow : NotifyPropertyChangedWindowBase, IActorE
             loadCoordinator,
             new InterpPreviewDialogueResolver(),
             dispatcher);
-        _launcherRequestTracker = new InterpPreviewLauncherRequestTracker(() => _runtime.CancelPendingLoad());
         _runtime.DiagnosticsChanged += Runtime_DiagnosticsChanged;
 
         _diagnosticsListBox = new ListBox
@@ -101,7 +105,7 @@ public class InterpPreviewShellWindow : NotifyPropertyChangedWindowBase, IActorE
 
     private void SceneViewer_Loaded(object sender, RoutedEventArgs e)
     {
-        _runtime.Attach(RenderContext);
+        if (!_isClosing && _runtime.IsOpen) _runtime.Attach(RenderContext);
     }
 
     private void SceneViewer_Unloaded(object sender, RoutedEventArgs e)
@@ -123,11 +127,9 @@ public class InterpPreviewShellWindow : NotifyPropertyChangedWindowBase, IActorE
         addButton.Click += async (_, _) => await OpenLevelAsync(replace: false).ConfigureAwait(true);
 
         var unloadButton = new Button { Content = "Unload Levels", Margin = new Thickness(6, 0, 0, 0) };
-        unloadButton.Click += (_, _) =>
+        unloadButton.Click += async (_, _) =>
         {
-            _runtime.CancelPendingLoad();
-            CloseLevels();
-            UpdateStatus("Unloaded all levels.");
+            await ExecuteToolbarRequestAsync(new InterpPreviewLauncherRequest([]) { ClearScene = true });
         };
 
         toolbar.Items.Add(openButton);
@@ -233,7 +235,10 @@ public class InterpPreviewShellWindow : NotifyPropertyChangedWindowBase, IActorE
             return;
         }
 
-        await LoadLevelAsync(dialog.FileName, replace).ConfigureAwait(true);
+        await ExecuteToolbarRequestAsync(new InterpPreviewLauncherRequest([dialog.FileName])
+        {
+            ReplaceOnFirstLevel = replace
+        }).ConfigureAwait(true);
     }
 
     public async Task<bool> TryLoadLevelAsync(string path, bool replace = true)
@@ -266,203 +271,69 @@ public class InterpPreviewShellWindow : NotifyPropertyChangedWindowBase, IActorE
         return (result.LoadedCount, result.TotalCount, result.HadFailure);
     }
 
-    public async Task<InterpPreviewLauncherResult> ExecuteLauncherRequestAsync(InterpPreviewLauncherRequest request)
+    public Task<InterpPreviewLauncherResult> ExecuteLauncherRequestAsync(InterpPreviewLauncherRequest request)
     {
-        if (request is null)
+        if (request is null) return Task.FromResult(InterpPreviewLauncherResult.Failed("Invalid launcher request."));
+        // Capture the preference when this request is accepted, rather than after an await.
+        var captured = new InterpPreviewLauncherRequest(request.LevelPaths)
         {
-            return InterpPreviewLauncherResult.Failed("Invalid launcher request.");
-        }
-
-        bool preferFemalePlayer = request.PreferFemalePlayer ?? s_preferFemalePlayer;
-        long requestId = BeginLauncherRequest();
-        int loadedCount = 0;
-        bool hadFailure = false;
-        int totalCount = request.LevelPaths?.Count ?? 0;
-        IReadOnlyList<string> normalizedLevelPaths = request.LevelPaths ?? [];
-
-        if (!InterpPreviewLauncherLevelBatch.TryNormalizeDistinctLevelPaths(request.LevelPaths, out normalizedLevelPaths))
-        {
-            return InterpPreviewLauncherResult.Failed("Launcher request contained an invalid level path.");
-        }
-
-        totalCount = normalizedLevelPaths.Count;
-
-        if (request.ReplaceOnFirstLevel && totalCount > 1)
-        {
-            InterpPreviewLauncherLevelBatchResult batchResult = await InterpPreviewLauncherLevelBatch.ExecuteTransactionalReplaceAsync(
-                _runtime,
-                normalizedLevelPaths,
-                this,
-                () => IsLauncherRequestCurrent(requestId)).ConfigureAwait(true);
-
-            foreach (InterpPreviewCommittedLevelResult committedLevel in batchResult.CommittedLevels)
-            {
-                ApplyCommittedOperation(committedLevel.OperationResult, committedLevel.Path, updateCamera: true);
-            }
-
-            loadedCount = batchResult.LoadedCount;
-            hadFailure = batchResult.HadFailure;
-
-            switch (batchResult.TerminalOutcome)
-            {
-                case InterpPreviewLauncherBatchTerminalOutcome.Cancelled:
-                    return InterpPreviewLauncherResult.Cancelled(batchResult.TerminalMessage);
-                case InterpPreviewLauncherBatchTerminalOutcome.Superseded:
-                    return InterpPreviewLauncherResult.Superseded(batchResult.TerminalMessage);
-                case InterpPreviewLauncherBatchTerminalOutcome.RejectedClosing:
-                    return InterpPreviewLauncherResult.RejectedClosing(batchResult.TerminalMessage);
-                case InterpPreviewLauncherBatchTerminalOutcome.Failed:
-                    return InterpPreviewLauncherResult.Failed(batchResult.TerminalMessage);
-            }
-        }
-        else
-        {
-            for (int i = 0; i < totalCount; i++)
-            {
-                if (!IsLauncherRequestCurrent(requestId))
-                {
-                    return InterpPreviewLauncherResult.Superseded("Launcher request was superseded.");
-                }
-
-                string path = normalizedLevelPaths[i];
-
-                InterpPreviewOperationResult result = await _runtime.ExecuteLoadOperationAsync(path, request.ReplaceOnFirstLevel && i == 0, this).ConfigureAwait(true);
-                switch (result.Outcome)
-                {
-                    case InterpPreviewOperationOutcome.Committed:
-                        ApplyCommittedOperation(result, path, updateCamera: true);
-                        loadedCount++;
-                        break;
-                    case InterpPreviewOperationOutcome.NoChange:
-                        loadedCount++;
-                        break;
-                    case InterpPreviewOperationOutcome.Cancelled:
-                        return InterpPreviewLauncherResult.Cancelled("Launcher request was cancelled.");
-                    case InterpPreviewOperationOutcome.Superseded:
-                        return InterpPreviewLauncherResult.Superseded("Launcher request was superseded.");
-                    case InterpPreviewOperationOutcome.RejectedClosing:
-                        return InterpPreviewLauncherResult.RejectedClosing("Preview is closing.");
-                    case InterpPreviewOperationOutcome.Failed:
-                        hadFailure = true;
-                        break;
-                }
-            }
-        }
-
-        if (request.EnsurePlayerContext)
-        {
-            if (!IsLauncherRequestCurrent(requestId))
-            {
-                return InterpPreviewLauncherResult.Superseded("Launcher request was superseded.");
-            }
-
-            InterpPreviewOperationResult playerCommitResult = await EnsurePlayerContextLoadedCoreAsync(
-                request.Conversation,
-                request.Node,
-                preferFemalePlayer,
-                updateStatus: false,
-                showErrorDialog: false).ConfigureAwait(true);
-            switch (playerCommitResult.Outcome)
-            {
-                case InterpPreviewOperationOutcome.Committed:
-                    break;
-                case InterpPreviewOperationOutcome.NoChange:
-                    break;
-                case InterpPreviewOperationOutcome.Cancelled:
-                    return InterpPreviewLauncherResult.Cancelled("Launcher request was cancelled.");
-                case InterpPreviewOperationOutcome.Superseded:
-                    return InterpPreviewLauncherResult.Superseded("Launcher request was superseded.");
-                case InterpPreviewOperationOutcome.RejectedClosing:
-                    return InterpPreviewLauncherResult.RejectedClosing("Preview is closing.");
-                case InterpPreviewOperationOutcome.Failed:
-                    hadFailure = true;
-                    break;
-            }
-        }
-
-        InterpPreviewDialogueResolution resolution = null;
-        if (request.ResolveDialogue)
-        {
-            if (!IsLauncherRequestCurrent(requestId))
-            {
-                return InterpPreviewLauncherResult.Superseded("Launcher request was superseded.");
-            }
-
-            resolution = ResolveDialogueNodeCore(request.Conversation, request.Node, preferFemalePlayer, updateStatus: true);
-        }
-
-        return InterpPreviewLauncherResult.Completed(loadedCount, totalCount, hadFailure, resolution);
-    }
-
-    private async Task<InterpPreviewOperationResult> LoadLevelAsync(string path, bool replace)
-    {
-        InterpPreviewOperationResult operationResult = await _runtime.ExecuteLoadOperationAsync(path, replace, this).ConfigureAwait(true);
-        switch (operationResult.Outcome)
-        {
-            case InterpPreviewOperationOutcome.Cancelled:
-            case InterpPreviewOperationOutcome.Superseded:
-                return operationResult;
-            case InterpPreviewOperationOutcome.NoChange:
-                UpdateStatus("Level already loaded.");
-                return operationResult;
-            case InterpPreviewOperationOutcome.Failed:
-                MessageBox.Show(this, $"Unable to load level:\n{operationResult.Error?.Message}", "Load failed", MessageBoxButton.OK, MessageBoxImage.Error);
-                UpdateStatus("Load failed.");
-                return operationResult;
-            case InterpPreviewOperationOutcome.RejectedClosing:
-                UpdateStatus("Preview is closing.");
-                return operationResult;
-            case InterpPreviewOperationOutcome.Committed:
-                ApplyCommittedOperation(operationResult, path, updateCamera: true);
-                return operationResult;
-            default:
-                return operationResult;
-        }
-    }
-
-    public InterpPreviewDialogueResolution ResolveDialogueNode(ConversationExtended conversation, DialogueNodeExtended node)
-    {
-        return ResolveDialogueNodeCore(conversation, node, s_preferFemalePlayer, updateStatus: true);
-    }
-
-    private InterpPreviewDialogueResolution ResolveDialogueNodeCore(
-        ConversationExtended conversation,
-        DialogueNodeExtended node,
-        bool preferFemalePlayer,
-        bool updateStatus)
-    {
-        var request = new InterpPreviewDialogueResolutionRequest(conversation, node)
-        {
-            PreferFemalePlayer = preferFemalePlayer
+            ReplaceOnFirstLevel = request.ReplaceOnFirstLevel,
+            ClearScene = request.ClearScene,
+            Conversation = request.Conversation,
+            Node = request.Node,
+            EnsurePlayerContext = request.EnsurePlayerContext,
+            ResolveDialogue = request.ResolveDialogue,
+            PreferFemalePlayer = request.PreferFemalePlayer ?? s_preferFemalePlayer
         };
+        return _runtime.ExecuteLauncherRequestAsync(captured, this, this);
+    }
 
-        InterpPreviewDialogueResolution resolution = _runtime.ResolveDialogue(request);
-        InterpPreviewDiagnostic speakerBindingDiagnostic = GetStatusBindingDiagnostic(resolution.Diagnostics);
-
-        if (!updateStatus)
+    private async Task ExecuteToolbarRequestAsync(InterpPreviewLauncherRequest request)
+    {
+        InterpPreviewLauncherResult result = null;
+        try
         {
-            return resolution;
+            result = await ExecuteLauncherRequestAsync(request).ConfigureAwait(true);
+            TryPublishResult(result, () =>
+            {
+                UpdateStatus(result.Message ?? "Preview request completed.");
+                if (result.Outcome == InterpPreviewLauncherOutcome.Failed)
+                    MessageBox.Show(this, result.Message, "Preview request failed", MessageBoxButton.OK, MessageBoxImage.Error);
+            });
         }
-
-        if (resolution.IsResolved)
+        catch (Exception ex)
         {
-            string sourceSummary = BuildSourceSummary(resolution);
-            string targetSummary = BuildTargetSummary(resolution);
-            string bindingSuffix = speakerBindingDiagnostic is null ? string.Empty : $" {speakerBindingDiagnostic.Message}";
-            UpdateStatus($"Line {node?.NodeCount} ({(node?.IsReply == true ? "Reply" : "Entry")}) is ready for preview ({sourceSummary}; {targetSummary}).{bindingSuffix}");
+            System.Diagnostics.Debug.WriteLine(ex);
+            TryPublishResult(result, () => UpdateStatus($"Preview request failed: {ex.Message}"));
+        }
+    }
+
+    void IInterpPreviewLauncherHost.PublishDialogue(InterpPreviewDialogueResolution resolution, InterpPreviewLauncherRequest request)
+    {
+        if (_isClosing) return;
+        DialogueNodeExtended node = request.Node;
+        InterpPreviewDiagnostic binding = GetStatusBindingDiagnostic(resolution.Diagnostics);
+        string suffix = binding is null ? string.Empty : $" {binding.Message}";
+        if (resolution.HasPreviewData)
+        {
+            string state = resolution.Outcome switch
+            {
+                InterpPreviewResolutionOutcome.Ready => "scene data found",
+                InterpPreviewResolutionOutcome.NeedsSelection => "several possible scene routes",
+                InterpPreviewResolutionOutcome.Partial => "scene data found with gaps",
+                _ => "scene data needs checking"
+            };
+            UpdateStatus($"Line {node?.NodeCount} ({(node?.IsReply == true ? "Reply" : "Entry")}): {state}; {resolution.Plans.Count} scene candidate(s) ({BuildSourceSummary(resolution)}; {BuildTargetSummary(resolution)}).{suffix}");
         }
         else
         {
-            string bindingSuffix = speakerBindingDiagnostic is null ? string.Empty : $" {speakerBindingDiagnostic.Message}";
-            UpdateStatus($"Line {node?.NodeCount} has no preview data. See Diagnostics.{bindingSuffix}");
+            UpdateStatus($"Line {node?.NodeCount} has no preview data. See Diagnostics.{suffix}");
         }
-
-        return resolution;
     }
 
     private static string BuildSourceSummary(InterpPreviewDialogueResolution resolution)
     {
-        if (resolution?.InterpData is null)
+        if (resolution?.HasPreviewData != true)
         {
             return "source unknown";
         }
@@ -482,7 +353,7 @@ public class InterpPreviewShellWindow : NotifyPropertyChangedWindowBase, IActorE
             return "source: linked conversation fallback";
         }
 
-        return $"source export #{resolution.InterpData.UIndex}";
+        return "source: copied line hint";
     }
 
     private static string BuildTargetSummary(InterpPreviewDialogueResolution resolution)
@@ -592,104 +463,41 @@ public class InterpPreviewShellWindow : NotifyPropertyChangedWindowBase, IActorE
         return count;
     }
 
-    public async Task EnsurePlayerContextLoadedAsync(ConversationExtended conversation, DialogueNodeExtended node)
+    Task<InterpPreviewLoadedLevel> IInterpPreviewLauncherHost.PreparePlayerAsync(
+        InterpPreviewLauncherRequest request, Func<bool> canContinue)
     {
-        await EnsurePlayerContextLoadedCoreAsync(
-            conversation,
-            node,
-            s_preferFemalePlayer,
-            updateStatus: true,
-            showErrorDialog: true).ConfigureAwait(true);
-    }
+        if (!canContinue() || request.Conversation?.Speakers is null || request.Node is null)
+            return Task.FromResult<InterpPreviewLoadedLevel>(null);
 
-    private async Task<InterpPreviewOperationResult> EnsurePlayerContextLoadedCoreAsync(
-        ConversationExtended conversation,
-        DialogueNodeExtended node,
-        bool preferFemalePlayer,
-        bool updateStatus,
-        bool showErrorDialog)
-    {
-        if (conversation?.Speakers is null || node is null)
-        {
-            return InterpPreviewOperationResult.NoChange();
-        }
-
-        SpeakerExtended speaker = conversation.Speakers.FirstOrDefault(s => s.SpeakerID == node.SpeakerIndex);
+        ConversationExtended conversation = request.Conversation;
+        SpeakerExtended speaker = conversation.Speakers.FirstOrDefault(s => s.SpeakerID == request.Node.SpeakerIndex);
         if (speaker is null || !speaker.SpeakerName.Equals("player", StringComparison.OrdinalIgnoreCase))
-        {
-            return InterpPreviewOperationResult.NoChange();
-        }
+            return Task.FromResult<InterpPreviewLoadedLevel>(null);
 
         MEGame game = conversation.Export?.FileRef?.Game ?? MEGame.Unknown;
-        if (game == MEGame.Unknown)
-        {
-            return InterpPreviewOperationResult.NoChange();
-        }
-
+        if (game == MEGame.Unknown) return Task.FromResult<InterpPreviewLoadedLevel>(null);
         string playerFileName = game switch
         {
             MEGame.ME1 => "EntryMenu.SFM",
             MEGame.LE1 => "EntryMenu.pcc",
             _ => "BioP_Char.pcc"
         };
+        if (!MELoadedFiles.TryGetHighestMountedFile(game, playerFileName, out string path)
+            || string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+            return Task.FromResult<InterpPreviewLoadedLevel>(null);
 
-        if (!MELoadedFiles.TryGetHighestMountedFile(game, playerFileName, out string playerFilePath)
-            || string.IsNullOrWhiteSpace(playerFilePath)
-            || !File.Exists(playerFilePath))
-        {
-            return InterpPreviewOperationResult.NoChange();
-        }
-
-        InterpPreviewPlayerVariant variant = preferFemalePlayer ? InterpPreviewPlayerVariant.Female : InterpPreviewPlayerVariant.Male;
-        InterpPreviewResourceKey playerResourceKey = InterpPreviewResourceKey.ForPlayerContext(playerFilePath, game, variant);
-        if (_runtime.ContainsResource(playerResourceKey))
-        {
-            return InterpPreviewOperationResult.NoChange();
-        }
-
-        InterpPreviewLoadedLevel injectedPlayerLevel = CreatePlayerContextLevel(playerFilePath, preferFemalePlayer);
-        if (injectedPlayerLevel is null)
-        {
-            return InterpPreviewOperationResult.NoChange();
-        }
-
-        InterpPreviewOperationResult commitResult = await _runtime.ExecuteCommitOperationAsync(injectedPlayerLevel, replace: false).ConfigureAwait(true);
-        switch (commitResult.Outcome)
-        {
-            case InterpPreviewOperationOutcome.Committed:
-                ApplyCommittedOperation(commitResult, null, updateCamera: false);
-                if (updateStatus)
-                {
-                    UpdateStatus($"Loaded player context ({(preferFemalePlayer ? "Female" : "Male")}).");
-                }
-                break;
-            case InterpPreviewOperationOutcome.NoChange:
-                break;
-            case InterpPreviewOperationOutcome.Failed:
-                if (showErrorDialog)
-                {
-                    MessageBox.Show(this, $"Unable to load player context:\n{commitResult.Error?.Message}", "Load failed", MessageBoxButton.OK, MessageBoxImage.Error);
-                }
-                break;
-            case InterpPreviewOperationOutcome.RejectedClosing:
-            case InterpPreviewOperationOutcome.Cancelled:
-            case InterpPreviewOperationOutcome.Superseded:
-                break;
-        }
-
-        return commitResult;
+        bool female = request.PreferFemalePlayer ?? true;
+        var key = InterpPreviewResourceKey.ForPlayerContext(path, game,
+            female ? InterpPreviewPlayerVariant.Female : InterpPreviewPlayerVariant.Male);
+        if (_runtime.ContainsResource(key) || !canContinue()) return Task.FromResult<InterpPreviewLoadedLevel>(null);
+        return Task.FromResult(CreatePlayerContextLevel(path, female));
     }
 
-    private void ApplyCommittedOperation(InterpPreviewOperationResult operationResult, string path, bool updateCamera)
-    {
-        if (operationResult.RemovedActors.Count > 0)
-        {
-            RenderContext.UnloadActors(operationResult.RemovedActors.ToList());
-        }
+    void IInterpPreviewLauncherHost.ApplySceneChange(InterpPreviewOperationResult result, Action commitScene)
+        => _sceneRegistration.Apply(result, commitScene);
 
-        RenderContext.LoadActors(operationResult.AddedActors.ToList());
-        _levelLights.Synchronize(RenderContext.DrawList_3D.Select(actor => actor.Export.FileRef));
-        DisposeRetiredResources(operationResult.RetiredResources);
+    void IInterpPreviewLauncherHost.PublishSceneChange(InterpPreviewOperationResult operationResult, bool updateCamera)
+    {
         _sceneViewer.SetShouldRender(true);
 
         if (updateCamera && operationResult.AddedActors.Count > 0)
@@ -697,25 +505,14 @@ public class InterpPreviewShellWindow : NotifyPropertyChangedWindowBase, IActorE
             RenderContext.Camera.Position = operationResult.AddedActors[0].GetBounds().Origin;
         }
 
-        if (!string.IsNullOrWhiteSpace(path) || !string.IsNullOrWhiteSpace(operationResult.Message))
-        {
-            UpdateStatus(operationResult.Message ?? $"Loaded {Path.GetFileName(path)}.");
-        }
+        UpdateStatus(operationResult.Message);
     }
 
-    private long BeginLauncherRequest()
-    {
-        return _launcherRequestTracker.BeginRequest();
-    }
 
-    private bool IsLauncherRequestCurrent(long requestId)
-    {
-        return _launcherRequestTracker.IsCurrent(requestId);
-    }
 
     private InterpPreviewLoadedLevel CreatePlayerContextLevel(string playerFilePath, bool preferFemalePlayer)
     {
-        IMEPackage package = MEPackageHandler.OpenMEPackage(playerFilePath, forceLoadFromDisk: true);
+        IMEPackage package = InterpPreviewPackageOwnership.OpenIndependent(playerFilePath);
         try
         {
             string playerPawnPath = preferFemalePlayer
@@ -772,18 +569,7 @@ public class InterpPreviewShellWindow : NotifyPropertyChangedWindowBase, IActorE
         _runtime.UnloadAllLevels(RenderContext);
     }
 
-    private static void DisposeRetiredResources(IReadOnlyList<InterpPreviewOwnedResource> retiredResources)
-    {
-        if (retiredResources is null)
-        {
-            return;
-        }
 
-        foreach (InterpPreviewOwnedResource retiredResource in retiredResources)
-        {
-            retiredResource?.Dispose();
-        }
-    }
 
     private void Runtime_DiagnosticsChanged(object sender, EventArgs e)
     {
@@ -798,6 +584,7 @@ public class InterpPreviewShellWindow : NotifyPropertyChangedWindowBase, IActorE
 
     private void RefreshDiagnostics()
     {
+        if (_isClosing) return;
         _diagnostics.Clear();
         foreach (InterpPreviewDiagnostic diagnostic in _runtime.Diagnostics)
         {
@@ -807,6 +594,7 @@ public class InterpPreviewShellWindow : NotifyPropertyChangedWindowBase, IActorE
 
     private void UpdateStatus(string message)
     {
+        if (_isClosing) return;
         _statusTextBlock.Text = $"{message} Loaded levels: {_runtime.LoadedLevelCount}.";
     }
 
@@ -824,11 +612,14 @@ public class InterpPreviewShellWindow : NotifyPropertyChangedWindowBase, IActorE
         }
 
         _isClosing = true;
+        _sceneViewer.SetShouldRender(false);
+        if (Content is System.Windows.UIElement content) content.IsEnabled = false;
+        Task shutdown = _runtime.ShutdownAsync();
         _runtime.Detach(RenderContext);
         _runtime.DiagnosticsChanged -= Runtime_DiagnosticsChanged;
         try
         {
-            await _runtime.ShutdownAsync().ConfigureAwait(true);
+            await shutdown.ConfigureAwait(true);
             CloseLevels();
             _runtime.Dispose();
             _sceneViewer.Dispose();

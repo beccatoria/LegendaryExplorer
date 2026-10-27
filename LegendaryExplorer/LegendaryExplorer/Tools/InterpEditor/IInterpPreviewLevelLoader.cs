@@ -40,6 +40,9 @@ public sealed class InterpPreviewLoadedLevel : IDisposable
     public IReadOnlyList<ActorProxy> Actors => _actors;
     public bool IsTransferred => Volatile.Read(ref _ownershipState) == 1;
     public bool IsDisposed => Volatile.Read(ref _ownershipState) == 2;
+    public InterpPreviewResourceKey ResourceKey => ResourceKind == InterpPreviewResourceKind.PlayerContext
+        ? InterpPreviewResourceKey.ForPlayerContext(FullPath, _package?.Game ?? MEGame.Unknown, PlayerVariant)
+        : InterpPreviewResourceKey.ForLevel(FullPath, _package?.Game ?? MEGame.Unknown);
 
     public bool TryTransferOwnership(out IMEPackage package, out IReadOnlyList<ActorProxy> actors)
     {
@@ -64,22 +67,23 @@ public sealed class InterpPreviewLoadedLevel : IDisposable
             return;
         }
 
+        var errors = new List<Exception>();
         foreach (ActorProxy actor in _actors)
         {
-            actor?.Dispose();
+            try { actor?.Dispose(); }
+            catch (Exception ex) { errors.Add(ex); }
         }
 
         _actors = [];
-        _package?.Dispose();
+        try { _package?.Dispose(); }
+        catch (Exception ex) { errors.Add(ex); }
         _package = null;
+        if (errors.Count > 0) throw new AggregateException("Preview candidate cleanup failed.", errors);
     }
 
     public InterpPreviewOwnedResource ToOwnedResource()
     {
-        MEGame game = _package?.Game ?? MEGame.Unknown;
-        InterpPreviewResourceKey key = ResourceKind == InterpPreviewResourceKind.PlayerContext
-            ? InterpPreviewResourceKey.ForPlayerContext(FullPath, game, PlayerVariant)
-            : InterpPreviewResourceKey.ForLevel(FullPath, game);
+        InterpPreviewResourceKey key = ResourceKey;
 
         if (!TryTransferOwnership(out IMEPackage package, out IReadOnlyList<ActorProxy> actors))
         {

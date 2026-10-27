@@ -34,7 +34,7 @@ public sealed class InterpPreviewActorBindingRequest
             copy[i] = source[i];
         }
 
-        return copy;
+        return Array.AsReadOnly(copy);
     }
 }
 
@@ -95,7 +95,7 @@ public sealed class InterpPreviewActorBindingResult
             copy[i] = source[i];
         }
 
-        return copy;
+        return Array.AsReadOnly(copy);
     }
 }
 
@@ -133,7 +133,7 @@ public sealed class InterpPreviewActorBindingDescriptor
             copy[i] = source[i];
         }
 
-        return copy;
+        return Array.AsReadOnly(copy);
     }
 }
 

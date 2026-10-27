@@ -114,5 +114,18 @@ public class InterpPreviewWindowResolverTests
     private sealed class TestWindowRef
     {
         public bool IsLoaded { get; set; }
+        public bool IsClosing { get; set; }
+    }
+
+    [TestMethod]
+    public void ResolveOrCreate_DoesNotReuseClosingWindow_EvenWhileLoaded()
+    {
+        var closing = new TestWindowRef { IsLoaded = true, IsClosing = true };
+        var created = new TestWindowRef { IsLoaded = true };
+
+        TestWindowRef resolved = InterpPreviewWindowResolver.ResolveOrCreate(closing, closing,
+            () => created, window => window.IsLoaded && !window.IsClosing);
+
+        Assert.AreSame(created, resolved);
     }
 }
